@@ -18,6 +18,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "kiteconnect": "file:./kiteconnect-sdk",
+    "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.21.0",
     "mongoose": "^9.7.0",
     "radix-ui": "^1.6.0",

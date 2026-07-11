@@ -23,33 +23,23 @@ const AppStateSchema = new mongoose.Schema({
 
 const AppState = mongoose.model('AppState', AppStateSchema);
 
-// Helper to compile a schema on-the-fly for dynamic ticker/interval collection names
-function getHistoricalModel(symbol, interval) {
-    const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '_');
-    const collectionName = `candles_${cleanSymbol}_${interval.toLowerCase()}`;
-    
-    if (mongoose.models[collectionName]) {
-        return mongoose.models[collectionName];
-    }
-    
-    const schema = new mongoose.Schema({
-        symbol: { type: String, required: true },
-        instrumentToken: { type: Number, required: true },
-        interval: { type: String, required: true },
-        timestamp: { type: Date, required: true },
-        open: { type: Number, required: true },
-        high: { type: Number, required: true },
-        low: { type: Number, required: true },
-        close: { type: Number, required: true },
-        volume: { type: Number, default: 0 }
-    }, { collection: collectionName, timestamps: true });
-    
-    schema.index({ symbol: 1, interval: 1, timestamp: 1 }, { unique: true });
-    schema.index({ timestamp: 1 });
-    schema.index({ instrumentToken: 1 });
-    
-    return mongoose.model(collectionName, schema);
-}
+const HistoricalCandleSchema = new mongoose.Schema({
+    symbol: { type: String, required: true },
+    instrumentToken: { type: Number, required: true },
+    interval: { type: String, required: true },
+    timestamp: { type: Date, required: true },
+    open: { type: Number, required: true },
+    high: { type: Number, required: true },
+    low: { type: Number, required: true },
+    close: { type: Number, required: true },
+    volume: { type: Number, default: 0 }
+}, { collection: 'candles', timestamps: true });
+
+HistoricalCandleSchema.index({ symbol: 1, interval: 1, timestamp: 1 }, { unique: true });
+HistoricalCandleSchema.index({ timestamp: 1 });
+HistoricalCandleSchema.index({ instrumentToken: 1 });
+
+const HistoricalCandle = mongoose.model('HistoricalCandle', HistoricalCandleSchema);
 
 async function connectDB() {
     try {
@@ -98,7 +88,7 @@ const Instrument = mongoose.model('Instrument', InstrumentSchema);
 module.exports = {
     connectDB,
     AppState,
-    getHistoricalModel,
+    HistoricalCandle,
     KiteDoc,
     Instrument
 };

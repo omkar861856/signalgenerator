@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import BacktestPlatform from './components/BacktestPlatform';
+import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 
 // Formatting helper
 const formatCurrency = (val) => {
@@ -143,6 +144,15 @@ export default function App() {
     { name: 'Bearish Engulfing', tf: 'hour', description: 'Identifies stocks showing a classic Bearish Engulfing candlestick pattern over the last two periods.' },
     { name: 'Volume Breakout', tf: '15min', description: 'Identifies stocks where the current volume is at least 2x higher than the average volume of the last 20 periods, indicating massive institutional participation.' }
   ]);
+  const [fnoScannersList, setFnoScannersList] = useState([
+    { name: 'F&O Theta Decay Setup', tf: 'day', description: 'Identifies underlyings trading range-bound (change between -0.3% and +0.3%), ideal for deploying short straddles or iron condors.' },
+    { name: 'F&O IV Crush Setup', tf: 'day', description: 'Identifies options where premium volatility is consolidating, perfect for capturing premium shrinkage.' },
+    { name: 'Futures Long Buildup', tf: '15min', description: 'Identifies stocks showing strong price gains (>1.2%) on high volume buildup.' },
+    { name: 'Futures Short Buildup', tf: '15min', description: 'Identifies stocks showing strong price drop (<-1.2%) on high volume buildup.' }
+  ]);
+  const [selectedFnoScanner, setSelectedFnoScanner] = useState('F&O Theta Decay Setup');
+  const [fnoScannerResults, setFnoScannerResults] = useState([]);
+  const [fnoScannerLoading, setFnoScannerLoading] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState('');
@@ -680,6 +690,38 @@ export default function App() {
       if (timer) clearInterval(timer);
     };
   }, [view, selectedScanner, selectedScannerIndex, appConfig.hasAccessToken, runScanner]);
+
+  const runFnoScanner = useCallback(async (scannerName = selectedFnoScanner) => {
+    setFnoScannerLoading(true);
+    try {
+      const res = await fetch(`/api/scanners/results?scanner=${encodeURIComponent(scannerName)}&index=${encodeURIComponent('F&O Stocks')}`);
+      const data = await res.json();
+      if (data && data.results) {
+        setFnoScannerResults(data.results);
+      }
+    } catch (err) {
+      console.error('Error running F&O scanner:', err);
+    } finally {
+      setFnoScannerLoading(false);
+    }
+  }, [selectedFnoScanner]);
+
+  // Poll F&O scanner results every 1 second when view is 'fno'
+  useEffect(() => {
+    if (!appConfig.hasAccessToken || view !== 'fno') return;
+    let timer = null;
+
+    const pollFnoScannerResults = () => {
+      runFnoScanner(selectedFnoScanner);
+    };
+
+    pollFnoScannerResults();
+    timer = setInterval(pollFnoScannerResults, 1000);
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [view, selectedFnoScanner, appConfig.hasAccessToken, runFnoScanner]);
 
   const fetchScannersList = useCallback(async () => {
     try {
@@ -1372,6 +1414,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           try {
             const packets = parseKiteBinaryMessage(event.data);
             if (packets && packets.length > 0) {
+              console.log('[WS Packet Debug] Parsed packet tokens:', packets.map(p => p.token));
               setLiveQuotes(prev => {
                 const next = { ...prev };
                 packets.forEach(p => {
@@ -1534,7 +1577,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
   useEffect(() => {
     if (wsStatus === 'connected' && wsRef.current && positions && positions.length > 0) {
       const positionTokens = positions
-        .filter(p => p.instrument_token && p.quantity !== 0)
+        .filter(p => p.instrument_token)
         .map(p => p.instrument_token);
         
       if (positionTokens.length > 0) {
@@ -2055,6 +2098,41 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     return <span dangerouslySetInnerHTML={{ __html: formatted }} />;
   };
 
+  const addCustomTokenToSubscribe = (token) => {
+    if (!subscribedTokens.includes(token)) {
+      setSubscribedTokens(prev => {
+        const next = Array.from(new Set([...prev, token]));
+        if (wsStatus === 'connected' && wsRef.current) {
+          wsRef.current.send(JSON.stringify({ a: "subscribe", v: [token] }));
+          wsRef.current.send(JSON.stringify({ a: "mode", v: ["quote", [token]] }));
+        }
+        return next;
+      });
+    }
+  };
+
+  const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  if (urlParams.get('view') === 'tradingview-matrix') {
+    return (
+      <TradingViewMatrix 
+        liveQuotes={liveQuotes} 
+        wsStatus={wsStatus} 
+        subscribedTokens={subscribedTokens} 
+        addCustomTokenToSubscribe={addCustomTokenToSubscribe} 
+      />
+    );
+  }
+  if (urlParams.get('view') === 'fno-matrix') {
+    return (
+      <FnOTradingViewMatrix 
+        liveQuotes={liveQuotes} 
+        wsStatus={wsStatus} 
+        subscribedTokens={subscribedTokens} 
+        addCustomTokenToSubscribe={addCustomTokenToSubscribe} 
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-screen relative font-sans text-slate-100 bg-[#0b0f19]">
       
@@ -2103,6 +2181,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             >
               <Settings className="h-4 w-4" />
               Strategies
+            </TabsTrigger>
+            <TabsTrigger 
+              value="fno"
+              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-purple-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
+            >
+              <Flame className="h-4 w-4" />
+              F&O Scanners
             </TabsTrigger>
             <TabsTrigger 
               value="admin"
@@ -2399,6 +2484,26 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         {netPnLDiff > 0 ? '▲' : '▼'} ₹{formatCurrency(Math.abs(netPnLDiff))}
                       </div>
                     )}
+                  </div>
+                  <div className="border-t border-white/5 pt-2 mt-1 flex flex-col gap-2">
+                    <Button 
+                      size="sm"
+                      variant="outline"
+                      className="w-full h-7 text-[10px] bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-300 border-indigo-500/20 cursor-pointer flex items-center justify-center gap-1 font-semibold"
+                      onClick={() => window.open('/?view=tradingview-matrix', '_blank')}
+                    >
+                      <LineChart className="h-3 w-3" />
+                      Live Charts Grid
+                    </Button>
+                    <Button 
+                      size="sm"
+                      variant="outline"
+                      className="w-full h-7 text-[10px] bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 border-purple-500/20 cursor-pointer flex items-center justify-center gap-1 font-semibold"
+                      onClick={() => window.open('/?view=fno-matrix', '_blank')}
+                    >
+                      <Flame className="h-3.5 w-3.5" />
+                      F&O Trading Matrix
+                    </Button>
                   </div>
                 </Card>
 
@@ -3523,6 +3628,230 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* VIEW 2.4: F&O DERIVATIVES & SCANNERS DASHBOARD                           */}
+      {/* ========================================================================= */}
+      {view === 'fno' && (
+        <div className="flex flex-col gap-6 w-full text-slate-200 animate-in fade-in duration-200">
+          {/* Header Card */}
+          <div className="glass-panel p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-purple-500/10 bg-purple-950/5">
+            <div>
+              <h2 className="text-lg font-display font-bold text-white flex items-center gap-2">
+                <Flame className="h-5 w-5 text-purple-400 animate-pulse" />
+                F&O Derivatives & Scanners Dashboard
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Scan underlying derivatives, track Open Interest structures, and deploy AI-executed option strategies with single-click actions.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button 
+                onClick={() => window.open('/?view=fno-matrix', '_blank')}
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-purple-600/10 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sliders className="h-3.5 w-3.5" />
+                Launch F&O Matrix ↗
+              </Button>
+            </div>
+          </div>
+
+          {/* Main Content Area */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Sidebar: Scanner List & Watchlist */}
+            <div className="flex flex-col gap-6">
+              {/* Watchlist card */}
+              <Card className="glass-panel border-0 ring-0 p-4 flex flex-col gap-3">
+                <CardHeader className="p-0 border-b border-white/5 pb-2">
+                  <CardTitle className="text-xs uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1.5 font-display">
+                    <IndianRupee className="h-4 w-4 text-purple-400" />
+                    Index Underlyings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 flex flex-col gap-2">
+                  <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded-xl p-3">
+                    <div>
+                      <span className="text-xs font-bold text-white">NIFTY 50</span>
+                      <span className="text-[10px] text-slate-500 block">Spot Underlying</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-emerald-400 font-mono">₹22,050.40</span>
+                      <span className="text-[10px] text-emerald-500 block font-mono">+0.65%</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded-xl p-3">
+                    <div>
+                      <span className="text-xs font-bold text-white">NIFTY BANK</span>
+                      <span className="text-[10px] text-slate-500 block">Spot Underlying</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-emerald-400 font-mono">₹45,310.50</span>
+                      <span className="text-[10px] text-emerald-500 block font-mono">+0.82%</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Scanners menu card */}
+              <Card className="glass-panel border-0 ring-0 p-4 flex flex-col gap-3">
+                <CardHeader className="p-0 border-b border-white/5 pb-2">
+                  <CardTitle className="text-xs uppercase font-bold tracking-wider text-slate-400 font-display">F&O Scanners</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 flex flex-col gap-2">
+                  {fnoScannersList.map((sc) => (
+                    <button
+                      key={sc.name}
+                      onClick={() => setSelectedFnoScanner(sc.name)}
+                      className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col gap-0.5 ${
+                        selectedFnoScanner === sc.name
+                          ? 'bg-purple-600/10 border-purple-500/30 text-white'
+                          : 'bg-white/[0.01] border-white/5 text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
+                      }`}
+                    >
+                      <span className="text-xs font-bold flex items-center gap-1.5">
+                        <CircleDot className={`h-3 w-3 ${selectedFnoScanner === sc.name ? 'text-purple-400' : 'text-slate-500'}`} />
+                        {sc.name}
+                      </span>
+                      <span className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">{sc.description}</span>
+                    </button>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Main table: Scan results & Actions */}
+            <div className="lg:col-span-2 flex flex-col gap-6">
+              <Card className="glass-panel border-0 ring-0 p-5 flex flex-col h-full min-h-[400px]">
+                <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between border-b border-white/5 pb-3 flex-wrap gap-2">
+                  <div>
+                    <CardTitle className="font-display font-semibold text-sm text-white">
+                      Scan Results: <span className="text-purple-400">{selectedFnoScanner}</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs text-slate-500 mt-0.5">
+                      Matches found in the F&O stock universe. Click on actions to execute option legs.
+                    </CardDescription>
+                  </div>
+                  {fnoScannerLoading && (
+                    <div className="flex items-center gap-1.5 text-xs text-purple-400">
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Scanning...</span>
+                    </div>
+                  )}
+                </CardHeader>
+                <CardContent className="p-0 flex-1 overflow-x-auto">
+                  {fnoScannerResults.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center text-slate-500">
+                      <Search className="h-8 w-8 mb-2 opacity-40" />
+                      <span className="text-xs">No matching F&O underlyings detected.</span>
+                      <span className="text-[10px] text-slate-600 mt-1">Polling live quotes stream for matching conditions.</span>
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-b border-white/5 hover:bg-transparent">
+                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 w-24">Symbol</TableHead>
+                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">LTP (₹)</TableHead>
+                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">Change (%)</TableHead>
+                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center w-60">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {fnoScannerResults.map((res) => (
+                          <TableRow key={res.symbol} className="border-b border-white/5 hover:bg-white/[0.02]">
+                            <TableCell className="font-bold text-xs text-white">{res.symbol}</TableCell>
+                            <TableCell className="text-xs text-right font-mono font-semibold">₹{formatCurrency(res.ltp)}</TableCell>
+                            <TableCell className={`text-xs text-right font-mono font-bold ${res.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {res.change >= 0 ? '+' : ''}{res.change.toFixed(2)}%
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-1.5 justify-center">
+                                <button
+                                  onClick={async () => {
+                                    setToastNotification("Routing ATM CE+PE Short Straddle...");
+                                    try {
+                                      await fetch('/api/fno/strategy-deploy', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          strategyName: 'Short Straddle',
+                                          index: res.symbol,
+                                          stopLoss: 15,
+                                          target: 30,
+                                          optionType: 'Both'
+                                        })
+                                      });
+                                      setToastNotification(`Successfully deployed Straddle on ${res.symbol}!`);
+                                    } catch (err) {
+                                      setToastNotification(`Failed to route order: ${err.message}`);
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-purple-600/20 hover:bg-purple-600/35 border border-purple-500/20 rounded-lg text-[9px] font-bold text-purple-300 cursor-pointer"
+                                >
+                                  Short Straddle ⚡
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    setToastNotification(`Routing Long ATM CE on ${res.symbol}...`);
+                                    try {
+                                      await fetch('/api/fno/strategy-deploy', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          strategyName: 'Option Buying Crossover',
+                                          index: res.symbol,
+                                          stopLoss: 10,
+                                          target: 25,
+                                          optionType: 'CE'
+                                        })
+                                      });
+                                      setToastNotification(`Long Call position opened on ${res.symbol}!`);
+                                    } catch (err) {
+                                      setToastNotification(`Failed: ${err.message}`);
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/20 rounded-lg text-[9px] font-bold text-emerald-300 cursor-pointer"
+                                >
+                                  Buy Call 🟢
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    setToastNotification(`Routing Long ATM PE on ${res.symbol}...`);
+                                    try {
+                                      await fetch('/api/fno/strategy-deploy', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          strategyName: 'Option Buying Breakdown',
+                                          index: res.symbol,
+                                          stopLoss: 10,
+                                          target: 25,
+                                          optionType: 'PE'
+                                        })
+                                      });
+                                      setToastNotification(`Long Put position opened on ${res.symbol}!`);
+                                    } catch (err) {
+                                      setToastNotification(`Failed: ${err.message}`);
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/35 border border-rose-500/20 rounded-lg text-[9px] font-bold text-rose-300 cursor-pointer"
+                                >
+                                  Buy Put 🔴
+                                </button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+          </div>
+        </div>
+      )}
+
 
 
         {/* ========================================================================= */}
@@ -4374,3 +4703,1491 @@ const parseKiteBinaryMessage = (arrayBuffer) => {
   }
   return parsedPackets;
 };
+
+// Helper to resolve TradingView compatible symbols for F&O, indices, and derivatives
+const resolveTradingViewSymbol = (exchange, symbol) => {
+  if (!symbol) return '';
+  const cleanSymbol = symbol.replace(/\s+/g, '').toUpperCase();
+  
+  // Custom index mappings
+  if (cleanSymbol === 'NIFTY50' || cleanSymbol === 'NIFTY') return 'NSE:NIFTY';
+  if (cleanSymbol === 'NIFTYBANK' || cleanSymbol === 'BANKNIFTY') return 'NSE:BANKNIFTY';
+  if (cleanSymbol === 'FINNIFTY') return 'NSE:FINNIFTY';
+  if (cleanSymbol === 'MIDCPNIFTY') return 'NSE:MIDCPNIFTY';
+
+  // Option / Future regex to extract underlying
+  // Matches: RELIANCE26JUL2500CE, NIFTY26JUL22000PE, RELIANCE26JULFUT, etc.
+  const monthRegex = /(?:24|25|26|27)(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)/i;
+  const match = cleanSymbol.match(monthRegex);
+  if (match) {
+    const idx = cleanSymbol.indexOf(match[0]);
+    if (idx > 0) {
+      const underlying = cleanSymbol.substring(0, idx);
+      return `NSE:${underlying}`;
+    }
+  }
+
+  // Fallback for options/futures ending in CE/PE/FUT without standard year prefix
+  if (cleanSymbol.endsWith('CE') || cleanSymbol.endsWith('PE') || cleanSymbol.endsWith('FUT')) {
+    const cleaned = cleanSymbol.replace(/\d+.*$/, '').replace(/FUT$/, '');
+    if (cleaned) {
+      return `NSE:${cleaned}`;
+    }
+  }
+
+  // Standard fallback
+  const ex = (exchange || 'NSE').toUpperCase();
+  return `${ex}:${cleanSymbol}`;
+};
+
+// EMA Calculation Utility
+// EMA Calculation Utility
+const calculateEMA = (data, period) => {
+  const k = 2 / (period + 1);
+  let emaArray = [];
+  let ema = data[0].close;
+  emaArray.push({ time: data[0].time, value: ema });
+  for (let i = 1; i < data.length; i++) {
+    ema = data[i].close * k + ema * (1 - k);
+    emaArray.push({ time: data[i].time, value: ema });
+  }
+  return emaArray;
+};
+
+// Bollinger Bands Calculation Utility
+const calculateBollingerBands = (data, period = 20, multiplier = 2) => {
+  if (!data || data.length < period) return [];
+  const bands = [];
+  
+  for (let i = period - 1; i < data.length; i++) {
+    const slice = data.slice(i - period + 1, i + 1);
+    const sum = slice.reduce((acc, c) => acc + c.close, 0);
+    const middle = sum / period;
+    
+    const variance = slice.reduce((acc, c) => acc + Math.pow(c.close - middle, 2), 0) / period;
+    const stdDev = Math.sqrt(variance);
+    
+    bands.push({
+      time: data[i].time,
+      middle: middle,
+      upper: middle + multiplier * stdDev,
+      lower: middle - multiplier * stdDev
+    });
+  }
+  
+  return bands;
+};
+
+// List of all standard TradingView studies mapped to their internal studies IDs
+const ALL_INDICATORS = [
+  { name: "9 EMA (Blue)", id: "ema9" },
+  { name: "21 EMA (Orange)", id: "ema21" },
+  { name: "Bollinger Bands", id: "bb" }
+];
+
+// Parameterized TradingView Widget Component using lightweight-charts
+const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showEMA21, showBB, instrumentToken, buyPrice, sellPrice }) => {
+  const containerRef = useRef();
+  const chartRef = useRef();
+  const candlestickSeriesRef = useRef();
+  const currentBarRef = useRef(null);
+  const candlesListRef = useRef([]);
+  const ema9SeriesRef = useRef(null);
+  const ema21SeriesRef = useRef(null);
+  const ema9DataRef = useRef([]);
+  const ema21DataRef = useRef([]);
+  const bbUpperSeriesRef = useRef(null);
+  const bbMiddleSeriesRef = useRef(null);
+  const bbLowerSeriesRef = useRef(null);
+  const [noData, setNoData] = useState(false);
+  const savePendingRef = useRef(null);
+  const lastSaveTimeRef = useRef(0);
+
+  // Throttled function to save current live candle to MongoDB
+  const triggerSaveToDb = useCallback((candleToSave) => {
+    if (!instrumentToken || !candleToSave) return;
+    const now = Date.now();
+    const cleanSymbol = symbol ? symbol.toUpperCase() : 'INFY';
+    
+    let kiteInterval = '15minute';
+    if (interval === '1') kiteInterval = 'minute';
+    else if (interval === '5') kiteInterval = '5minute';
+    else if (interval === '15') kiteInterval = '15minute';
+    else if (interval === '60') kiteInterval = '60minute';
+    else if (interval === 'D') kiteInterval = 'day';
+
+    const payload = {
+      symbol: cleanSymbol,
+      instrumentToken: Number(instrumentToken),
+      interval: kiteInterval,
+      candle: candleToSave
+    };
+
+    const performSave = async () => {
+      try {
+        await fetch('/api/history/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        lastSaveTimeRef.current = Date.now();
+      } catch (err) {
+        console.error('[TradingViewWidget] Failed to save live candle:', err.message);
+      }
+    };
+
+    if (now - lastSaveTimeRef.current > 3000) {
+      if (savePendingRef.current) {
+        clearTimeout(savePendingRef.current);
+        savePendingRef.current = null;
+      }
+      performSave();
+    } else {
+      if (!savePendingRef.current) {
+        savePendingRef.current = setTimeout(() => {
+          performSave();
+          savePendingRef.current = null;
+        }, 3000);
+      }
+    }
+  }, [symbol, interval, instrumentToken]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // Map interval from '15' or '1' or '5' to Kite collection interval
+    let kiteInterval = '15minute';
+    if (interval === '1') kiteInterval = 'minute';
+    else if (interval === '5') kiteInterval = '5minute';
+    else if (interval === '15') kiteInterval = '15minute';
+    else if (interval === '60') kiteInterval = '60minute';
+    else if (interval === 'D') kiteInterval = 'day';
+
+    // Clean symbol (strip exchange prefix)
+    const cleanSymbol = symbol ? symbol.toUpperCase().replace(/^(NSE|BSE|MCX|NCDEX):/, '') : 'INFY';
+
+    let active = true;
+    let chartInstance = null;
+    let resizeObserverInstance = null;
+
+    async function loadData() {
+      try {
+        const res = await fetch(`/api/history?symbol=${cleanSymbol}&interval=${kiteInterval}`);
+        if (!res.ok) throw new Error('Failed to fetch history');
+        const data = await res.json();
+
+        if (!active) return;
+
+        if (!data || data.length === 0) {
+          setNoData(true);
+          return;
+        }
+
+        setNoData(false);
+
+        // Clear container
+        containerRef.current.innerHTML = '';
+
+        // Create Chart
+        const chart = createChart(containerRef.current, {
+          width: containerRef.current.clientWidth || 400,
+          height: containerRef.current.clientHeight || 380,
+          layout: {
+            background: { color: '#0B0F19' },
+            textColor: '#94A3B8',
+          },
+          grid: {
+            vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+            horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+          },
+          crosshair: {
+            mode: 0,
+          },
+          localization: {
+            timeFormatter: (time) => {
+              const date = new Date(time * 1000);
+              return date.toLocaleString('en-US', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+              });
+            }
+          },
+          timeScale: {
+            timeVisible: true,
+            secondsVisible: false,
+            tickMarkFormatter: (time, tickMarkType, locale) => {
+              const date = new Date(time * 1000);
+              const options = { timeZone: 'Asia/Kolkata' };
+              
+              if (tickMarkType === 0) { // Year
+                return date.toLocaleString(locale || 'en-US', { ...options, year: 'numeric' });
+              } else if (tickMarkType === 1) { // Month
+                return date.toLocaleString(locale || 'en-US', { ...options, month: 'short' });
+              } else if (tickMarkType === 2) { // Day
+                return date.toLocaleString(locale || 'en-US', { ...options, day: 'numeric', month: 'short' });
+              } else { // Time
+                return date.toLocaleString(locale || 'en-US', { 
+                  ...options, 
+                  hour: '2-digit', 
+                  minute: '2-digit', 
+                  hour12: false 
+                });
+              }
+            }
+          },
+        });
+
+        chartInstance = chart;
+
+        const candlestickSeries = chart.addSeries(CandlestickSeries, {
+          upColor: '#10b981',
+          downColor: '#ef4444',
+          borderVisible: false,
+          wickUpColor: '#10b981',
+          wickDownColor: '#ef4444',
+        });
+
+        candlestickSeriesRef.current = candlestickSeries;
+        const lastCandle = data[data.length - 1];
+        currentBarRef.current = {
+          time: lastCandle.time,
+          open: lastCandle.open,
+          high: lastCandle.high,
+          low: lastCandle.low,
+          close: lastCandle.close
+        };
+
+        candlesListRef.current = [...data];
+
+        candlestickSeries.setData(data);
+        chart.timeScale().fitContent();
+
+        // Add horizontal price lines for entry (taken price) and exit (sold price)
+        if (buyPrice && buyPrice > 0) {
+          candlestickSeries.createPriceLine({
+            price: buyPrice,
+            color: '#3b82f6', // blue
+            lineWidth: 2,
+            lineStyle: 2, // dashed
+            axisLabelVisible: true,
+            title: `Taken: ₹${buyPrice.toFixed(2)}`,
+          });
+        }
+
+        if (sellPrice && sellPrice > 0) {
+          candlestickSeries.createPriceLine({
+            price: sellPrice,
+            color: '#ef4444', // red
+            lineWidth: 2,
+            lineStyle: 2, // dashed
+            axisLabelVisible: true,
+            title: `Sold: ₹${sellPrice.toFixed(2)}`,
+          });
+        }
+
+        // Calculate and add EMA 9 overlay if checked
+        if (showEMA9) {
+          const ema9Data = calculateEMA(data, 9);
+          ema9DataRef.current = ema9Data;
+          
+          if (ema9Data.length > 0) {
+            const ema9Series = chart.addSeries(LineSeries, {
+              color: '#3b82f6', // blue
+              lineWidth: 1.5,
+              title: '9 EMA',
+              lastValueVisible: false,
+              priceLineVisible: false
+            });
+            ema9Series.setData(ema9Data);
+            ema9SeriesRef.current = ema9Series;
+          }
+        }
+
+        // Calculate and add EMA 21 overlay if checked
+        if (showEMA21) {
+          const ema21Data = calculateEMA(data, 21);
+          ema21DataRef.current = ema21Data;
+          
+          if (ema21Data.length > 0) {
+            const ema21Series = chart.addSeries(LineSeries, {
+              color: '#f97316', // orange
+              lineWidth: 1.5,
+              title: '21 EMA',
+              lastValueVisible: false,
+              priceLineVisible: false
+            });
+            ema21Series.setData(ema21Data);
+            ema21SeriesRef.current = ema21Series;
+          }
+        }
+
+        // Calculate and add Bollinger Bands overlays if checked
+        if (showBB) {
+          const bbData = calculateBollingerBands(data, 20, 2);
+          
+          if (bbData.length > 0) {
+            const bbUpperSeries = chart.addSeries(LineSeries, {
+              color: 'rgba(239, 68, 68, 0.45)', // semi-transparent red
+              lineWidth: 1.2,
+              title: 'BB Upper',
+              lastValueVisible: false,
+              priceLineVisible: false
+            });
+            bbUpperSeries.setData(bbData.map(d => ({ time: d.time, value: d.upper })));
+            bbUpperSeriesRef.current = bbUpperSeries;
+            
+            const bbMiddleSeries = chart.addSeries(LineSeries, {
+              color: 'rgba(234, 179, 8, 0.45)', // semi-transparent yellow
+              lineWidth: 1.2,
+              lineStyle: 2, // dashed
+              title: 'BB Middle',
+              lastValueVisible: false,
+              priceLineVisible: false
+            });
+            bbMiddleSeries.setData(bbData.map(d => ({ time: d.time, value: d.middle })));
+            bbMiddleSeriesRef.current = bbMiddleSeries;
+
+            const bbLowerSeries = chart.addSeries(LineSeries, {
+              color: 'rgba(16, 185, 129, 0.45)', // semi-transparent green
+              lineWidth: 1.2,
+              title: 'BB Lower',
+              lastValueVisible: false,
+              priceLineVisible: false
+            });
+            bbLowerSeries.setData(bbData.map(d => ({ time: d.time, value: d.lower })));
+            bbLowerSeriesRef.current = bbLowerSeries;
+          }
+        }
+
+        // Use ResizeObserver to dynamically update chart dimensions when parent/grid layout changes
+        const resizeObserver = new ResizeObserver((entries) => {
+          if (!entries || entries.length === 0) return;
+          const { width, height } = entries[0].contentRect;
+          if (width > 0 && height > 0) {
+            chart.applyOptions({ width, height });
+          }
+        });
+        resizeObserver.observe(containerRef.current);
+        resizeObserverInstance = resizeObserver;
+
+      } catch (err) {
+        console.error('Error rendering lightweight chart:', err);
+        if (active) setNoData(true);
+      }
+    }
+
+    loadData();
+
+    return () => {
+      active = false;
+      if (resizeObserverInstance) {
+        resizeObserverInstance.disconnect();
+      }
+      if (chartInstance) {
+        chartInstance.remove();
+      }
+      ema9SeriesRef.current = null;
+      ema21SeriesRef.current = null;
+      ema9DataRef.current = [];
+      ema21DataRef.current = [];
+      bbUpperSeriesRef.current = null;
+      bbMiddleSeriesRef.current = null;
+      bbLowerSeriesRef.current = null;
+      if (savePendingRef.current) {
+        clearTimeout(savePendingRef.current);
+      }
+    };
+  }, [symbol, interval, showEMA9, showEMA21, showBB, buyPrice, sellPrice]);
+
+  // Real-time update handler when new WebSocket quote tick arrives
+  useEffect(() => {
+    console.log(`[TradingViewWidget Debug] ${symbol} quote update received. ltp: ${quote?.ltp}, token: ${quote?.token}`);
+    if (!candlestickSeriesRef.current || !quote || !quote.ltp) return;
+    
+    const quotePrice = quote.ltp;
+    
+    // Resolve interval in seconds
+    let intervalSeconds = 15 * 60; // default 15m
+    if (interval === '1') intervalSeconds = 60;
+    else if (interval === '5') intervalSeconds = 5 * 60;
+    else if (interval === '15') intervalSeconds = 15 * 60;
+    else if (interval === '60') intervalSeconds = 60 * 60;
+    else if (interval === 'D') intervalSeconds = 24 * 60 * 60;
+    
+    const quoteTime = quote.timestamp ? new Date(quote.timestamp).getTime() : (quote.lastTickTime || Date.now());
+    const quoteTimeSec = Math.floor(quoteTime / 1000);
+    const candleTimeSec = Math.floor(quoteTimeSec / intervalSeconds) * intervalSeconds;
+    
+    let currentBar = currentBarRef.current;
+    let candles = candlesListRef.current;
+    
+    if (currentBar && currentBar.time === candleTimeSec) {
+      // Update existing bar
+      currentBar.high = Math.max(currentBar.high, quotePrice);
+      currentBar.low = Math.min(currentBar.low, quotePrice);
+      currentBar.close = quotePrice;
+      
+      if (candles.length > 0 && candles[candles.length - 1].time === candleTimeSec) {
+        candles[candles.length - 1] = { ...currentBar };
+      }
+    } else {
+      // Create new bar
+      currentBar = {
+        time: candleTimeSec,
+        open: currentBar ? currentBar.close : quotePrice,
+        high: quotePrice,
+        low: quotePrice,
+        close: quotePrice
+      };
+      
+      if (candles.length > 0 && candles[candles.length - 1].time !== candleTimeSec) {
+        candles.push({ ...currentBar });
+      } else if (candles.length === 0) {
+        candles.push({ ...currentBar });
+      }
+    }
+    
+    currentBarRef.current = currentBar;
+    
+    try {
+      candlestickSeriesRef.current.update({
+        time: currentBar.time,
+        open: currentBar.open,
+        high: currentBar.high,
+        low: currentBar.low,
+        close: currentBar.close
+      });
+
+      // Update EMA 9 in real-time
+      if (showEMA9 && ema9SeriesRef.current) {
+        const updateEmaSeries = (emaSeriesRef, emaDataRef, period) => {
+          if (!emaSeriesRef.current) return;
+          const k = 2 / (period + 1);
+          const emaData = emaDataRef.current;
+          
+          if (emaData.length > 0) {
+            const lastEmaIndex = emaData.length - 1;
+            const lastEma = emaData[lastEmaIndex];
+            
+            if (lastEma.time === candleTimeSec) {
+              const prevEmaVal = emaData.length > 1 ? emaData[emaData.length - 2].value : lastEma.value;
+              const newVal = quotePrice * k + prevEmaVal * (1 - k);
+              lastEma.value = newVal;
+              emaSeriesRef.current.update({ time: candleTimeSec, value: newVal });
+            } else {
+              const prevEmaVal = lastEma.value;
+              const newVal = quotePrice * k + prevEmaVal * (1 - k);
+              const newEmaEntry = { time: candleTimeSec, value: newVal };
+              emaData.push(newEmaEntry);
+              emaSeriesRef.current.update(newEmaEntry);
+            }
+          }
+        };
+        updateEmaSeries(ema9SeriesRef, ema9DataRef, 9);
+      }
+
+      // Update EMA 21 in real-time
+      if (showEMA21 && ema21SeriesRef.current) {
+        const updateEmaSeries = (emaSeriesRef, emaDataRef, period) => {
+          if (!emaSeriesRef.current) return;
+          const k = 2 / (period + 1);
+          const emaData = emaDataRef.current;
+          
+          if (emaData.length > 0) {
+            const lastEmaIndex = emaData.length - 1;
+            const lastEma = emaData[lastEmaIndex];
+            
+            if (lastEma.time === candleTimeSec) {
+              const prevEmaVal = emaData.length > 1 ? emaData[emaData.length - 2].value : lastEma.value;
+              const newVal = quotePrice * k + prevEmaVal * (1 - k);
+              lastEma.value = newVal;
+              emaSeriesRef.current.update({ time: candleTimeSec, value: newVal });
+            } else {
+              const prevEmaVal = lastEma.value;
+              const newVal = quotePrice * k + prevEmaVal * (1 - k);
+              const newEmaEntry = { time: candleTimeSec, value: newVal };
+              emaData.push(newEmaEntry);
+              emaSeriesRef.current.update(newEmaEntry);
+            }
+          }
+        };
+        updateEmaSeries(ema21SeriesRef, ema21DataRef, 21);
+      }
+
+      // Update Bollinger Bands in real-time
+      if (showBB && bbUpperSeriesRef.current && bbMiddleSeriesRef.current && bbLowerSeriesRef.current) {
+        const period = 20;
+        const multiplier = 2;
+        
+        if (candles.length >= period) {
+          const slice = candles.slice(candles.length - period);
+          const sum = slice.reduce((acc, c) => acc + c.close, 0);
+          const middle = sum / period;
+          
+          const variance = slice.reduce((acc, c) => acc + Math.pow(c.close - middle, 2), 0) / period;
+          const stdDev = Math.sqrt(variance);
+          
+          const upper = middle + multiplier * stdDev;
+          const lower = middle - multiplier * stdDev;
+          
+          bbUpperSeriesRef.current.update({ time: candleTimeSec, value: upper });
+          bbMiddleSeriesRef.current.update({ time: candleTimeSec, value: middle });
+          bbLowerSeriesRef.current.update({ time: candleTimeSec, value: lower });
+        }
+      }
+
+      // Save live candle state to MongoDB
+      triggerSaveToDb(currentBar);
+
+    } catch (err) {
+      console.error('[TradingViewWidget] Real-time candle update failed:', err.message);
+    }
+  }, [quote, interval, showEMA9, showEMA21, showBB, triggerSaveToDb]);
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {noData && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 text-slate-400 text-xs p-4 text-center">
+          <span>⚠️ No local candles for <strong>{symbol}</strong> in MongoDB.</span>
+          <span className="text-[10px] text-slate-500 mt-1">Run strategy scanner or backtests to cache market data.</span>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// TradingViewMatrix Component
+function TradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subscribedTokens = [], addCustomTokenToSubscribe }) {
+  const [positions, setPositions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showIndicatorMenu, setShowIndicatorMenu] = useState(false);
+  const [selectedStudies, setSelectedStudies] = useState([]);
+  const [indicatorSearch, setIndicatorSearch] = useState('');
+  const [customTickers, setCustomTickers] = useState([]);
+  const [searchSymbol, setSearchSymbol] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [mode, setMode] = useState('open'); // 'open' | 'all'
+  const [columns, setColumns] = useState(2); // Default to 2 columns (Double Row) for one-chart per stock card layout
+  const [timeRemaining, setTimeRemaining] = useState(60);
+
+  const fetchPositions = async () => {
+    try {
+      const res = await fetch('/api/positions');
+      if (res.ok) {
+        const data = await res.json();
+        setPositions(data.net || []);
+      }
+    } catch (err) {
+      console.error('Error fetching positions for TradingView matrix:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPositions();
+    const interval = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          fetchPositions();
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManualRefresh = () => {
+    setLoading(true);
+    fetchPositions();
+    setTimeRemaining(60);
+  };
+
+  const handleAddCustomSymbol = async (e) => {
+    e.preventDefault();
+    setSearchError('');
+    if (!searchSymbol.trim()) return;
+    
+    const cleanSym = searchSymbol.trim().toUpperCase();
+    
+    const isAlreadyInPositions = positions.some(p => p.tradingsymbol.toUpperCase() === cleanSym);
+    const isAlreadyInCustom = customTickers.some(c => c.tradingsymbol === cleanSym);
+    
+    if (isAlreadyInPositions || isAlreadyInCustom) {
+      setSearchError('Ticker already present in the matrix.');
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/resolve-symbol?symbol=${cleanSym}`);
+      if (!res.ok) {
+        throw new Error(`Symbol "${cleanSym}" not found`);
+      }
+      const data = await res.json();
+      
+      if (addCustomTokenToSubscribe) {
+        addCustomTokenToSubscribe(data.instrument_token);
+      }
+      
+      setCustomTickers(prev => [
+        ...prev,
+        {
+          tradingsymbol: data.tradingsymbol,
+          exchange: data.exchange,
+          instrument_token: data.instrument_token,
+          quantity: 0,
+          pnl: 0,
+          last_price: 0,
+          isCustom: true
+        }
+      ]);
+      setSearchSymbol('');
+    } catch (err) {
+      setSearchError(err.message || 'Error resolving symbol.');
+    }
+  };
+
+  const handleRemoveCustomSymbol = (token) => {
+    setCustomTickers(prev => prev.filter(c => c.instrument_token !== token));
+  };
+
+  const misPositions = positions.filter(p => p.product === 'MIS');
+  const filteredPositions = mode === 'open' 
+    ? misPositions.filter(p => p.quantity !== 0)
+    : misPositions;
+
+  const displayPositions = [...filteredPositions, ...customTickers];
+
+  // Columns styling mapping for the cards grid
+  let gridColsClass = 'grid-cols-1 xl:grid-cols-2';
+  if (columns === 1) gridColsClass = 'grid-cols-1';
+  else if (columns === 2) gridColsClass = 'grid-cols-1 xl:grid-cols-2';
+  else if (columns === 3) gridColsClass = 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
+
+  return (
+    <div className="flex flex-col min-h-screen text-slate-100 bg-[#0b0f19] p-6 relative">
+      {/* Background gradients */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,58,237,0.08),transparent_50%)] pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(99,102,241,0.06),transparent_50%)] pointer-events-none" />
+
+      {/* Header Panel */}
+      <div className="glass-panel p-5 mb-6 flex flex-col xl:flex-row items-center justify-between gap-5 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <span className="font-display font-bold text-white text-lg">▲</span>
+          </div>
+          <div>
+            <h2 className="text-lg font-display font-bold text-white flex items-center gap-2">
+              MIS Live Charts Matrix
+              <span className="text-[10px] uppercase font-bold bg-indigo-600/30 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/20">
+                TradingView Embed Widget
+              </span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Interactive 15-Minute chart matrices for active/intraday MIS stocks
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-end">
+          {/* Mode Switcher */}
+          <div className="bg-black/30 p-1 rounded-xl border border-white/5 flex gap-1">
+            <button
+              onClick={() => setMode('open')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                mode === 'open'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Open Positions ({misPositions.filter(p => p.quantity !== 0).length})
+            </button>
+            <button
+              onClick={() => setMode('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                mode === 'all'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              All Intraday MIS ({misPositions.length})
+            </button>
+          </div>
+
+          {/* Grid Layout Switcher */}
+          <div className="bg-black/30 p-1 rounded-xl border border-white/5 flex gap-1 items-center">
+            <span className="text-[10px] text-slate-400 px-1 font-semibold">Columns:</span>
+            {[1, 2, 3].map(cols => (
+              <button
+                key={cols}
+                onClick={() => setColumns(cols)}
+                className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                  columns === cols
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                }`}
+              >
+                {cols === 1 ? '1 Col' : cols === 2 ? '2 Cols' : '3 Cols'}
+              </button>
+            ))}
+          </div>
+
+          {/* Multi-Indicator Dropdown Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setShowIndicatorMenu(prev => !prev)}
+              className="px-3.5 py-1.5 bg-black/30 hover:bg-black/50 text-white border border-white/5 rounded-xl transition-all cursor-pointer text-xs font-semibold flex items-center gap-2 relative z-30"
+            >
+              📊 Indicators ({selectedStudies.length})
+              <ChevronDown className={`h-3 w-3 transition-transform ${showIndicatorMenu ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {showIndicatorMenu && (
+              <>
+                <div 
+                  className="fixed inset-0 z-[9998]" 
+                  onClick={() => setShowIndicatorMenu(false)} 
+                />
+                <div className="absolute right-0 mt-2 w-64 rounded-xl bg-[#0f1524] border border-white/10 p-3 shadow-2xl z-[9999] flex flex-col gap-2 glass-panel">
+                  {/* Search Input */}
+                  <input
+                    type="text"
+                    value={indicatorSearch}
+                    onChange={(e) => setIndicatorSearch(e.target.value)}
+                    placeholder="Search indicators..."
+                    className="w-full bg-black/40 border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  
+                  {/* Indicator Checklist List */}
+                  <div className="max-h-60 overflow-y-auto flex flex-col gap-0.5 custom-scrollbar pr-1">
+                    {ALL_INDICATORS.filter(ind => 
+                      ind.name.toLowerCase().includes(indicatorSearch.toLowerCase())
+                    ).map(ind => {
+                      const isSelected = selectedStudies.includes(ind.id);
+                      return (
+                        <label 
+                          key={ind.id} 
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-all ${
+                            isSelected 
+                              ? 'bg-indigo-600/20 text-indigo-300 font-semibold' 
+                              : 'text-slate-300 hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{ind.name}</span>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {
+                              setSelectedStudies(prev => 
+                                prev.includes(ind.id) 
+                                  ? prev.filter(x => x !== ind.id) 
+                                  : [...prev, ind.id]
+                              );
+                            }}
+                            className="rounded border-white/10 text-indigo-600 focus:ring-0 h-3.5 w-3.5 cursor-pointer ml-2"
+                          />
+                        </label>
+                      );
+                    })}
+                    {ALL_INDICATORS.filter(ind => 
+                      ind.name.toLowerCase().includes(indicatorSearch.toLowerCase())
+                    ).length === 0 && (
+                      <span className="text-[11px] text-slate-500 text-center py-4">No indicators match search.</span>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Dynamic Ticker Search Bar */}
+          <form onSubmit={handleAddCustomSymbol} className="flex items-center gap-2 bg-black/30 px-3 py-1.5 rounded-xl border border-white/5 relative">
+            <input
+              type="text"
+              value={searchSymbol}
+              onChange={(e) => {
+                setSearchSymbol(e.target.value);
+                setSearchError('');
+              }}
+              placeholder="Add Ticker (e.g. RELIANCE)"
+              className="bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none w-44 font-medium"
+            />
+            <button
+              type="submit"
+              className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded-md font-bold transition-all cursor-pointer"
+            >
+              Add
+            </button>
+            {searchError && (
+              <span className="absolute left-0 -bottom-5 text-[9px] text-rose-400 font-semibold px-2 animate-pulse">
+                ⚠️ {searchError}
+              </span>
+            )}
+          </form>
+
+          {/* Refresh Info */}
+          <div className="flex items-center gap-2 text-xs text-slate-400 bg-white/[0.02] border border-white/5 px-3 py-1.5 rounded-xl">
+            <RefreshCw className={`h-3 w-3 text-indigo-400 ${loading ? 'animate-spin' : ''}`} />
+            <span>Auto-refresh in <strong className="text-white font-mono">{timeRemaining}s</strong></span>
+          </div>
+
+          {/* Manual Refresh */}
+          <button
+            onClick={handleManualRefresh}
+            className="p-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-300 border border-indigo-500/20 rounded-xl transition-all cursor-pointer flex items-center justify-center"
+            title="Refresh positions"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+
+          {/* Return to Dashboard */}
+          <button
+            onClick={() => window.location.href = '/'}
+            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white border border-white/5 rounded-xl transition-all cursor-pointer text-xs font-semibold"
+          >
+            Dashboard
+          </button>
+        </div>
+      </div>
+
+      {/* WebSocket Diagnostics Bar */}
+      <div className="glass-panel p-3.5 mb-6 flex flex-wrap items-center justify-between gap-4 text-xs relative z-10 bg-indigo-950/20 border-indigo-500/10">
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">Kite WS Connection:</span>
+          <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] tracking-wide flex items-center gap-1.5 ${
+            wsStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+            wsStatus === 'connecting' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse' :
+            'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${
+              wsStatus === 'connected' ? 'bg-emerald-400' :
+              wsStatus === 'connecting' ? 'bg-amber-400' :
+              'bg-rose-400'
+            }`} />
+            {wsStatus.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">Subscribed Instruments:</span>
+          <span className="bg-black/30 px-2 py-1 rounded font-mono text-[11px] text-slate-300 border border-white/5 max-w-lg truncate" title={subscribedTokens.join(', ')}>
+            {subscribedTokens.length > 0 ? subscribedTokens.join(', ') : 'None'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">Matrix Ticker Count:</span>
+          <span className="bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded font-bold">
+            {displayPositions.length} Total
+          </span>
+        </div>
+      </div>
+
+      {/* Grid Content */}
+      {loading ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-20 glass-panel relative z-10">
+          <RefreshCw className="h-8 w-8 text-indigo-500 animate-spin mb-4" />
+          <p className="text-slate-400 text-sm">Fetching live position data...</p>
+        </div>
+      ) : (
+        <div className={`grid ${gridColsClass} gap-6 flex-1 relative z-10`}>
+          {/* Active position charts */}
+          {displayPositions.map((pos, idx) => {
+            const isLong = pos.quantity > 0;
+            const isClosed = pos.quantity === 0;
+            const pnl = pos.pnl || 0;
+            const exchange = pos.exchange || 'NSE';
+            const tvSymbol = resolveTradingViewSymbol(exchange, pos.tradingsymbol);
+            
+            // Compute buy/sell prices for chart lines
+            let buyPrice = 0;
+            let sellPrice = 0;
+
+            if (pos.quantity > 0) {
+              // Active Long position: entry is buy_price or average_price
+              buyPrice = pos.buy_price || pos.average_price || 0;
+              if (pos.sell_quantity > 0) {
+                sellPrice = pos.sell_price || 0;
+              }
+            } else if (pos.quantity < 0) {
+              // Active Short position: entry is sell_price or average_price
+              buyPrice = pos.sell_price || pos.average_price || 0;
+              if (pos.buy_quantity > 0) {
+                sellPrice = pos.buy_price || 0;
+              }
+            } else {
+              // Closed position: show both entry and exit if we did trades
+              if (pos.buy_quantity > 0 && pos.sell_quantity > 0) {
+                buyPrice = pos.buy_price || pos.average_price || 0;
+                sellPrice = pos.sell_price || 0;
+              }
+            }
+
+            return (
+              <Card key={idx} className="glass-panel border-0 ring-0 p-0 flex flex-col overflow-hidden h-full">
+                <CardHeader className="p-4 border-b border-white/5 flex flex-row items-center justify-between gap-2 bg-[#0f1524]/40">
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-white font-display">{pos.tradingsymbol}</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${pos.isCustom ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/20' : 'bg-white/10 text-slate-400'}`}>
+                        {pos.isCustom ? 'CUSTOM' : pos.product}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      LTP: ₹{formatCurrency(pos.last_price || (liveQuotes[pos.instrument_token]?.ltp) || pos.average_price || 0)} | Qty: {pos.quantity}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-0.5">
+                    {pos.isCustom ? (
+                      <button
+                        onClick={() => handleRemoveCustomSymbol(pos.instrument_token)}
+                        className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-all cursor-pointer border border-transparent hover:border-rose-500/20"
+                        title="Remove custom chart"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <>
+                        <span className={`text-xs font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {pnl >= 0 ? '+' : ''}₹{formatCurrency(pnl)}
+                        </span>
+                        <a
+                          href={`https://www.tradingview.com/symbols/${tvSymbol}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[9px] text-indigo-400 hover:text-indigo-300 flex items-center gap-0.5"
+                        >
+                          TradingView ↗
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 flex-1 bg-black/40 min-h-[380px] h-[420px]">
+                  <TradingViewWidget 
+                    symbol={tvSymbol} 
+                    interval="15" 
+                    quote={liveQuotes[pos.instrument_token]} 
+                    showEMA9={selectedStudies.includes('ema9')} 
+                    showEMA21={selectedStudies.includes('ema21')} 
+                    showBB={selectedStudies.includes('bb')} 
+                    instrumentToken={pos.instrument_token} 
+                    buyPrice={buyPrice}
+                    sellPrice={sellPrice}
+                  />
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// FnOTradingViewMatrix Component
+function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subscribedTokens = [], addCustomTokenToSubscribe }) {
+  const [positions, setPositions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedStudies, setSelectedStudies] = useState(['ema9', 'ema21']);
+  const [customTickers, setCustomTickers] = useState([]);
+  const [searchSymbol, setSearchSymbol] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [mode, setMode] = useState('open'); // 'open' | 'all'
+  const [columns, setColumns] = useState(2);
+  const [timeRemaining, setTimeRemaining] = useState(60);
+
+  // F&O Strategy configuration states
+  const [strategyPreset, setStrategyPreset] = useState('Bull Call Spread');
+  const [underlyingIndex, setUnderlyingIndex] = useState('NIFTY');
+  const [slPercent, setSlPercent] = useState('15');
+  const [targetPercent, setTargetPercent] = useState('30');
+  const [strategyLogs, setStrategyLogs] = useState([]);
+  const [deploying, setDeploying] = useState(false);
+
+  const fetchPositions = async () => {
+    try {
+      const res = await fetch('/api/positions?type=fno');
+      if (res.ok) {
+        const data = await res.json();
+        setPositions(data.net || []);
+      }
+    } catch (err) {
+      console.error('Error fetching positions for F&O matrix:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPositions();
+    const interval = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          fetchPositions();
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManualRefresh = () => {
+    setLoading(true);
+    fetchPositions();
+    setTimeRemaining(60);
+  };
+
+  const handleDeployStrategy = async () => {
+    setDeploying(true);
+    setStrategyLogs([]);
+    
+    try {
+      const response = await fetch('/api/fno/strategy-deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyName: strategyPreset,
+          index: underlyingIndex,
+          stopLoss: parseFloat(slPercent) || 15,
+          target: parseFloat(targetPercent) || 30,
+          optionType: strategyPreset.includes('Put') ? 'PE' : 'CE'
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Animate log messages one by one
+        let currentLogIndex = 0;
+        const intervalId = setInterval(() => {
+          if (currentLogIndex < data.logs.length) {
+            setStrategyLogs(prev => [...prev, data.logs[currentLogIndex]]);
+            currentLogIndex++;
+          } else {
+            clearInterval(intervalId);
+            setDeploying(false);
+            fetchPositions(); // refresh positions after deploy
+          }
+        }, 800);
+      } else {
+        const errData = await response.json();
+        setStrategyLogs([`Error deploying strategy: ${errData.error || 'Server error'}`]);
+        setDeploying(false);
+      }
+    } catch (err) {
+      setStrategyLogs([`Failed to deploy strategy: ${err.message}`]);
+      setDeploying(false);
+    }
+  };
+
+  const handleAddCustomSymbol = async (e) => {
+    e.preventDefault();
+    setSearchError('');
+    if (!searchSymbol.trim()) return;
+    
+    const cleanSym = searchSymbol.trim().toUpperCase();
+    
+    const isAlreadyInPositions = positions.some(p => p.tradingsymbol.toUpperCase() === cleanSym);
+    const isAlreadyInCustom = customTickers.some(c => c.tradingsymbol === cleanSym);
+    
+    if (isAlreadyInPositions || isAlreadyInCustom) {
+      setSearchError('Ticker already present in the matrix.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/resolve-symbol?symbol=${cleanSym}`);
+      if (!res.ok) {
+        throw new Error(`Symbol "${cleanSym}" not found`);
+      }
+      const data = await res.json();
+      
+      if (addCustomTokenToSubscribe) {
+        addCustomTokenToSubscribe(data.instrument_token);
+      }
+      
+      setCustomTickers(prev => [
+        ...prev,
+        {
+          tradingsymbol: data.tradingsymbol,
+          exchange: data.exchange,
+          instrument_token: data.instrument_token,
+          quantity: 0,
+          pnl: 0,
+          last_price: 0,
+          isCustom: true
+        }
+      ]);
+      setSearchSymbol('');
+    } catch (err) {
+      setSearchError(err.message || 'Error resolving symbol.');
+    }
+  };
+
+  const handleRemoveCustomSymbol = (token) => {
+    setCustomTickers(prev => prev.filter(c => c.instrument_token !== token));
+  };
+
+  // Filter open or closed F&O positions
+  const filteredPositions = mode === 'open' 
+    ? positions.filter(p => p.quantity !== 0)
+    : positions;
+
+  const displayPositions = [...filteredPositions, ...customTickers];
+
+  let gridColsClass = 'grid-cols-1 xl:grid-cols-2';
+  if (columns === 1) gridColsClass = 'grid-cols-1';
+  else if (columns === 2) gridColsClass = 'grid-cols-1 xl:grid-cols-2';
+  else if (columns === 3) gridColsClass = 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
+
+  const formatCurrency = (val) => {
+    if (typeof val !== 'number' || isNaN(val)) return '0.00';
+    return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const resolveTradingViewSymbol = (exchange, symbol) => {
+    return `${exchange}:${symbol}`;
+  };
+
+  return (
+    <div className="flex flex-col min-h-screen text-slate-100 bg-[#0b0f19] p-6 relative">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(168,85,247,0.08),transparent_50%)] pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(99,102,241,0.06),transparent_50%)] pointer-events-none" />
+
+      {/* Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-purple-500 to-pink-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
+            <Flame className="h-5 w-5 text-white animate-pulse" />
+          </div>
+          <div>
+            <h1 className="font-display text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              F&O Option Strategy Matrix
+            </h1>
+            <p className="text-xs text-slate-400">Monitor option premiums, underlying futures, and AI-deployed legs.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Grid columns presets */}
+          <div className="flex bg-white/5 border border-white/5 p-1 rounded-xl gap-1">
+            <button
+              onClick={() => setColumns(1)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${columns === 1 ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Single
+            </button>
+            <button
+              onClick={() => setColumns(2)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${columns === 2 ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Double
+            </button>
+            <button
+              onClick={() => setColumns(3)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${columns === 3 ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Triple
+            </button>
+          </div>
+
+          {/* Mode switch */}
+          <div className="flex bg-white/5 border border-white/5 p-1 rounded-xl gap-1">
+            <button
+              onClick={() => setMode('open')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${mode === 'open' ? 'bg-purple-600/80 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Active Legs
+            </button>
+            <button
+              onClick={() => setMode('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${mode === 'all' ? 'bg-purple-600/80 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              All Trades
+            </button>
+          </div>
+
+          {/* Add custom underlying/strike ticker */}
+          <form onSubmit={handleAddCustomSymbol} className="flex gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Add symbol e.g. NIFTY26JUL22000CE"
+                value={searchSymbol}
+                onChange={(e) => setSearchSymbol(e.target.value)}
+                className="bg-white/5 hover:bg-white/[0.08] focus:bg-[#0f1524] border border-white/5 focus:border-purple-500/50 rounded-xl pl-9 pr-4 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none transition-all w-60"
+              />
+            </div>
+            <button
+              type="submit"
+              className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-all cursor-pointer flex items-center justify-center shadow-lg shadow-purple-600/15"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            {searchError && (
+              <span className="absolute mt-9 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] px-2 py-0.5 rounded-md z-20">
+                ⚠️ {searchError}
+              </span>
+            )}
+          </form>
+
+          {/* Refresh Info */}
+          <div className="flex items-center gap-2 text-xs text-slate-400 bg-white/[0.02] border border-white/5 px-3 py-1.5 rounded-xl">
+            <RefreshCw className={`h-3 w-3 text-purple-400 ${loading ? 'animate-spin' : ''}`} />
+            <span>Auto-refresh in <strong className="text-white font-mono">{timeRemaining}s</strong></span>
+          </div>
+
+          {/* Manual Refresh */}
+          <button
+            onClick={handleManualRefresh}
+            className="p-2 bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 border border-purple-500/20 rounded-xl transition-all cursor-pointer flex items-center justify-center"
+            title="Refresh positions"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+
+          {/* Return to Dashboard */}
+          <button
+            onClick={() => window.location.href = '/'}
+            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white border border-white/5 rounded-xl transition-all cursor-pointer text-xs font-semibold"
+          >
+            Dashboard
+          </button>
+        </div>
+      </div>
+
+      {/* Options Strategy Control Bar */}
+      <div className="glass-panel p-4 mb-6 relative z-10 border-purple-500/10 bg-purple-950/5">
+        <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2 font-display">
+          <Brain className="h-4 w-4 text-purple-400" />
+          AI F&O Options Strategy Deployment
+        </h3>
+        
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Options Strategy Preset</span>
+            <select
+              value={strategyPreset}
+              onChange={(e) => setStrategyPreset(e.target.value)}
+              className="bg-[#0f1524] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white cursor-pointer focus:border-purple-500/50 outline-none"
+            >
+              <option value="Bull Call Spread">Bull Call Spread (ATM Buy + OTM Sell)</option>
+              <option value="Bear Put Spread">Bear Put Spread (ATM Buy + OTM Sell)</option>
+              <option value="Short Straddle">Short Straddle (ATM Short CE + Short PE)</option>
+              <option value="Iron Condor">Iron Condor (OTM Short CE/PE + OTM Buy Hedge)</option>
+              <option value="Option Buying Breakout">AI Option Buying Breakout</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Index Underlying</span>
+            <select
+              value={underlyingIndex}
+              onChange={(e) => setUnderlyingIndex(e.target.value)}
+              className="bg-[#0f1524] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white cursor-pointer focus:border-purple-500/50 outline-none"
+            >
+              <option value="NIFTY">NIFTY 50</option>
+              <option value="BANKNIFTY">NIFTY BANK</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1 w-24">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Stop Loss (%)</span>
+            <input
+              type="number"
+              value={slPercent}
+              onChange={(e) => setSlPercent(e.target.value)}
+              placeholder="e.g. 15"
+              className="bg-[#0f1524] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white w-full outline-none focus:border-purple-500/50"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1 w-24">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Target (%)</span>
+            <input
+              type="number"
+              value={targetPercent}
+              onChange={(e) => setTargetPercent(e.target.value)}
+              placeholder="e.g. 30"
+              className="bg-[#0f1524] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white w-full outline-none focus:border-purple-500/50"
+            />
+          </div>
+
+          <button
+            onClick={handleDeployStrategy}
+            disabled={deploying}
+            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-lg shadow-purple-600/20 cursor-pointer flex items-center gap-1.5"
+          >
+            {deploying ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+            Deploy Strategy via AI
+          </button>
+        </div>
+
+        {strategyLogs.length > 0 && (
+          <div className="mt-4 bg-black/40 border border-white/5 rounded-xl p-3.5 max-h-40 overflow-y-auto font-mono text-[10px] text-slate-300 flex flex-col gap-1.5 scrollbar-thin">
+            <div className="flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1">
+              <span>AI Execution Logs</span>
+              <button 
+                onClick={() => setStrategyLogs([])} 
+                className="text-slate-400 hover:text-white"
+              >
+                Clear
+              </button>
+            </div>
+            {strategyLogs.map((log, idx) => (
+              <div key={idx} className="flex gap-2">
+                <span className="text-purple-400 flex-shrink-0">➜</span>
+                <span>{log}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* WebSocket Diagnostics Bar */}
+      <div className="glass-panel p-3.5 mb-6 flex flex-wrap items-center justify-between gap-4 text-xs relative z-10 bg-purple-950/10 border-purple-500/10">
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">Kite WS Connection:</span>
+          <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] tracking-wide flex items-center gap-1.5 ${
+            wsStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+            wsStatus === 'connecting' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse' :
+            'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${
+              wsStatus === 'connected' ? 'bg-emerald-400' :
+              wsStatus === 'connecting' ? 'bg-amber-400' :
+              'bg-rose-400'
+            }`} />
+            {wsStatus.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">Subscribed Instruments:</span>
+          <span className="bg-black/30 px-2 py-1 rounded font-mono text-[11px] text-slate-300 border border-white/5 max-w-lg truncate" title={subscribedTokens.join(', ')}>
+            {subscribedTokens.length > 0 ? subscribedTokens.join(', ') : 'None'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">F&O Contract Count:</span>
+          <span className="bg-purple-500/10 text-purple-300 px-2 py-0.5 rounded font-bold">
+            {displayPositions.length} Total
+          </span>
+        </div>
+      </div>
+
+      {/* Grid Content */}
+      {loading ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-20 glass-panel relative z-10">
+          <RefreshCw className="h-8 w-8 text-purple-500 animate-spin mb-4" />
+          <p className="text-slate-400 text-sm">Fetching F&O position data...</p>
+        </div>
+      ) : displayPositions.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-20 glass-panel relative z-10 bg-slate-900/30 text-center">
+          <Flame className="h-10 w-10 text-purple-500/50 mb-3" />
+          <p className="text-slate-300 font-semibold text-sm">No active F&O legs found.</p>
+          <p className="text-slate-500 text-xs mt-1">Select a strategy preset and click 'Deploy Strategy' to get started.</p>
+        </div>
+      ) : (
+        <div className={`grid ${gridColsClass} gap-6 flex-1 relative z-10`}>
+          {displayPositions.map((pos, idx) => {
+            const isLong = pos.quantity > 0;
+            const isClosed = pos.quantity === 0;
+            const pnl = pos.pnl || 0;
+            const exchange = pos.exchange || 'NFO';
+            const tvSymbol = resolveTradingViewSymbol(exchange, pos.tradingsymbol);
+            
+            let buyPrice = 0;
+            let sellPrice = 0;
+
+            if (pos.quantity > 0) {
+              buyPrice = pos.buy_price || pos.average_price || 0;
+              if (pos.sell_quantity > 0) {
+                sellPrice = pos.sell_price || 0;
+              }
+            } else if (pos.quantity < 0) {
+              buyPrice = pos.sell_price || pos.average_price || 0;
+              if (pos.buy_quantity > 0) {
+                sellPrice = pos.buy_price || 0;
+              }
+            } else {
+              if (pos.buy_quantity > 0 && pos.sell_quantity > 0) {
+                buyPrice = pos.buy_price || pos.average_price || 0;
+                sellPrice = pos.sell_price || 0;
+              }
+            }
+
+            return (
+              <Card key={idx} className="glass-panel border-0 ring-0 p-0 flex flex-col overflow-hidden h-full">
+                <CardHeader className="p-4 border-b border-white/5 flex flex-row items-center justify-between gap-2 bg-[#0f1524]/40">
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-white font-display">{pos.tradingsymbol}</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${pos.isCustom ? 'bg-purple-600/30 text-purple-300 border border-purple-500/20' : 'bg-white/10 text-slate-400'}`}>
+                        {pos.isCustom ? 'CUSTOM' : pos.product}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      Premium LTP: ₹{formatCurrency(pos.last_price || (liveQuotes[pos.instrument_token]?.ltp) || pos.average_price || 0)} | Qty: {pos.quantity}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-0.5">
+                    {pos.isCustom ? (
+                      <button
+                        onClick={() => handleRemoveCustomSymbol(pos.instrument_token)}
+                        className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-all cursor-pointer border border-transparent hover:border-rose-500/20"
+                        title="Remove custom chart"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <>
+                        <span className={`text-xs font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {pnl >= 0 ? '+' : ''}₹{formatCurrency(pnl)}
+                        </span>
+                        <span className="text-[9px] text-purple-400 select-none">F&O Contract</span>
+                      </>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 flex-1 bg-black/40 min-h-[380px] h-[420px]">
+                  <TradingViewWidget 
+                    symbol={tvSymbol} 
+                    interval="15" 
+                    quote={liveQuotes[pos.instrument_token]} 
+                    showEMA9={true} 
+                    showEMA21={true} 
+                    showBB={false} 
+                    instrumentToken={pos.instrument_token} 
+                    buyPrice={buyPrice}
+                    sellPrice={sellPrice}
+                  />
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

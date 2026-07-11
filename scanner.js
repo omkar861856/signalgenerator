@@ -18,7 +18,8 @@ let indexTokenLists = {
     'Bankex': [],
     'Nifty 100': [],
     'Nifty 200': [],
-    'Nifty 500': []
+    'Nifty 500': [],
+    'F&O Stocks': []
 };
 let tokenToSymbolMap = {}; // token -> symbol (e.g. 3343617 -> "NSE:360ONE")
 let symbolToTokenMap = {}; // "NSE:SYMBOL" -> token
@@ -47,7 +48,8 @@ async function initializeMappings() {
             'Bankex': 'bankex.json',
             'Nifty 100': 'nifty_100.json',
             'Nifty 200': 'nifty_200.json',
-            'Nifty 500': 'nifty_500.json'
+            'Nifty 500': 'nifty_500.json',
+            'F&O Stocks': 'fno_stocks.json'
         };
 
         const allSymbols = new Set();
@@ -458,6 +460,22 @@ const scanners = {
         const prevEma50 = calculateEMA(prevCandles, 50);
         
         return prevEma21 < prevEma50 && ema21 > ema50;
+    },
+    'F&O Theta Decay Setup': (tick, candles) => {
+        return Math.abs(tick.change) < 0.3;
+    },
+    'F&O IV Crush Setup': (tick, candles) => {
+        return tick.change > -0.5 && tick.change < 0.5;
+    },
+    'Futures Long Buildup': (tick, candles) => {
+        if (!candles || candles.length < 5) return false;
+        const avgVol = candles.slice(-5).reduce((acc, c) => acc + c.volume, 0) / 5;
+        return tick.change > 1.2 && tick.volume > avgVol * 1.3;
+    },
+    'Futures Short Buildup': (tick, candles) => {
+        if (!candles || candles.length < 5) return false;
+        const avgVol = candles.slice(-5).reduce((acc, c) => acc + c.volume, 0) / 5;
+        return tick.change < -1.2 && tick.volume > avgVol * 1.3;
     }
 };
 
