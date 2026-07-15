@@ -41,3 +41,9 @@ services:
 volumes:
   mongodb_data:
   redis_data:
+
+networks:
+  default:
+    name: medusa_default
+    external: true
+
