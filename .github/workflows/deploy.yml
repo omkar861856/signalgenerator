@@ -21,7 +21,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
-            cd /home/ubuntu/SignalGenerator
+            cd /root/SignalGenerator
             git fetch --all
             git reset --hard origin/main
             docker compose up -d --build
