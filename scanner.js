@@ -36,9 +36,141 @@ function logStream(msg) {
     if (connectionLogs.length > 100) connectionLogs.pop();
 }
 
+// Ensure index constituent files exist in scratch/indices/
+async function ensureIndexFilesExist() {
+    const indicesDir = path.join(__dirname, 'scratch', 'indices');
+    if (!fs.existsSync(indicesDir)) {
+        fs.mkdirSync(indicesDir, { recursive: true });
+    }
+
+    const fallbacks = {
+        'nifty_50.json': ["ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BHARTIARTL", "BPCL", "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY", "EICHERMOT", "GRASIM", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK", "INDUSINDBK", "INFY", "ITC", "JSWSTEEL", "KOTAKBANK", "LT", "LTIM", "M&M", "MARUTI", "NESTLEIND", "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE", "SBIN", "SUNPHARMA", "TATACONSUM", "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN", "ULTRACEMCO", "UPL", "WIPRO"],
+        'bank_nifty.json': ["AUBANK", "AXISBANK", "BANDHANBNK", "BANKBARODA", "FEDERALBNK", "HDFCBANK", "ICICIBANK", "IDFCFIRSTB", "INDUSINDBK", "KOTAKBANK", "PNB", "SBIN"],
+        'sensex.json': ["ADANIPORTS", "ASIANPAINT", "AXISBANK", "BAJFINANCE", "BAJAJFINSV", "BHARTIARTL", "HCLTECH", "HDFCBANK", "HINDUNILVR", "ICICIBANK", "INDUSINDBK", "INFY", "ITC", "JSWSTEEL", "KOTAKBANK", "LT", "M&M", "MARUTI", "NESTLEIND", "NTPC", "POWERGRID", "RELIANCE", "SBIN", "SUNPHARMA", "TATASTEEL", "TATAMOTORS", "TCS", "TECHM", "TITAN", "WIPRO"],
+        'bankex.json': ["AXISBANK", "FEDERALBNK", "HDFCBANK", "ICICIBANK", "INDUSINDBK", "KOTAKBANK", "SBIN"],
+        'nifty_100.json': ["ABB", "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BEL", "BHARTIARTL", "BPCL", "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY", "EICHERMOT", "GRASIM", "HAL", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK", "INDUSINDBK", "INFY", "IOC", "ITC", "JSWSTEEL", "KOTAKBANK", "LT", "LTIM", "M&M", "MARUTI", "NESTLEIND", "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE", "SBIN", "SUNPHARMA", "TATACONSUM", "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN", "ULTRACEMCO", "UPL", "WIPRO"],
+        'nifty_200.json': ["ABB", "ACC", "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BALKRISIND", "BANDHANBNK", "BANKBARODA", "BANKINDIA", "BATAINDIA", "BEL", "BERGEPAINT", "BHARATFORG", "BHARTIARTL", "BHEL", "BIOCON", "BPCL", "BRITANNIA", "CANBK", "CHOLAFIN", "CIPLA", "COALINDIA", "COFORGE", "COLPAL", "CONCOR", "CUMMINSIND", "DABUR", "DEEPAKNTR", "DIVISLAB", "DLF", "DRREDDY", "EICHERMOT", "ESCORTS", "FEDERALBNK", "GLENMARK", "GMRINFRA", "GODREJPROP", "GRASIM", "GUJGASLTD", "HAL", "HAVELLS", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDCOPPER", "HINDUNILVR", "ICICIBANK", "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDHOTEL", "INDUSINDBK", "INDUSTOWER", "INFY", "IOC", "IPCALAB", "IRCTC", "ITC", "JINDALSTEL", "JSWSTEEL", "JUBLFOOD", "KOTAKBANK", "LICHSGFIN", "LT", "LTIM", "LTTS", "LUPIN", "M&M", "M&MFIN", "MANAPPURAM", "MARICO", "MARUTI", "MCDOWELL-N", "MCX", "METROPOLIS", "MFSL", "MGL", "MPHASIS", "MRF", "MUTHOOTFIN", "NATIONALUM", "NAVINFLUOR", "NESTLEIND", "NMDC", "NTPC", "OBEROIRLTY", "OFSS", "ONGC", "PAGEIND", "PEL", "PERSISTENT", "PETRONET", "PFC", "PIDILITIND", "PIIND", "PNB", "POLYCAB", "POWERGRID", "RAMCOCEM", "RELIANCE", "SAIL", "SBICARD", "SBILIFE", "SBIN", "SHREECEM", "SRF", "SUNPHARMA", "SUNTV", "SYNGENE", "TATACOMM", "TATACONSUM", "TATAELXSI", "TATAMOTORS", "TATAPOWER", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT", "TVSMOTOR", "UBL", "ULTRACEMCO", "UPL", "VDL", "VOLTAS", "WIPRO", "ZEEL"],
+        'nifty_500.json': ["ABB", "ACC", "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BALKRISIND", "BANDHANBNK", "BANKBARODA", "BANKINDIA", "BATAINDIA", "BEL", "BERGEPAINT", "BHARATFORG", "BHARTIARTL", "BHEL", "BIOCON", "BPCL", "BRITANNIA", "CANBK", "CHOLAFIN", "CIPLA", "COALINDIA", "COFORGE", "COLPAL", "CONCOR", "CUMMINSIND", "DABUR", "DEEPAKNTR", "DIVISLAB", "DLF", "DRREDDY", "EICHERMOT", "ESCORTS", "FEDERALBNK", "GLENMARK", "GMRINFRA", "GODREJPROP", "GRASIM", "GUJGASLTD", "HAL", "HAVELLS", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDCOPPER", "HINDUNILVR", "ICICIBANK", "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDHOTEL", "INDUSINDBK", "INDUSTOWER", "INFY", "IOC", "IPCALAB", "IRCTC", "ITC", "JINDALSTEL", "JSWSTEEL", "JUBLFOOD", "KOTAKBANK", "LICHSGFIN", "LT", "LTIM", "LTTS", "LUPIN", "M&M", "M&MFIN", "MANAPPURAM", "MARICO", "MARUTI", "MCDOWELL-N", "MCX", "METROPOLIS", "MFSL", "MGL", "MPHASIS", "MRF", "MUTHOOTFIN", "NATIONALUM", "NAVINFLUOR", "NESTLEIND", "NMDC", "NTPC", "OBEROIRLTY", "OFSS", "ONGC", "PAGEIND", "PEL", "PERSISTENT", "PETRONET", "PFC", "PIDILITIND", "PIIND", "PNB", "POLYCAB", "POWERGRID", "RAMCOCEM", "RELIANCE", "SAIL", "SBICARD", "SBILIFE", "SBIN", "SHREECEM", "SRF", "SUNPHARMA", "SUNTV", "SYNGENE", "TATACOMM", "TATACONSUM", "TATAELXSI", "TATAMOTORS", "TATAPOWER", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT", "TVSMOTOR", "UBL", "ULTRACEMCO", "UPL", "VDL", "VOLTAS", "WIPRO", "ZEEL"]
+    };
+
+    const niftyCsvUrls = {
+        'nifty_50.json': '/IndexConstituent/ind_nifty50list.csv',
+        'bank_nifty.json': '/IndexConstituent/ind_niftybanklist.csv',
+        'nifty_100.json': '/IndexConstituent/ind_nifty100list.csv',
+        'nifty_200.json': '/IndexConstituent/ind_nifty200list.csv',
+        'nifty_500.json': '/IndexConstituent/ind_nifty500list.csv'
+    };
+
+    const fetchNiftyCSV = (csvPath) => {
+        return new Promise((resolve, reject) => {
+            const https = require('https');
+            const options = {
+                hostname: 'www.niftyindices.com',
+                path: csvPath,
+                method: 'GET',
+                timeout: 5000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': '*/*'
+                }
+            };
+            const request = https.get(options, (response) => {
+                if (response.statusCode !== 200) {
+                    reject(new Error(`Status code: ${response.statusCode}`));
+                    return;
+                }
+                let body = '';
+                response.on('data', (chunk) => { body += chunk; });
+                response.on('end', () => { resolve(body); });
+            });
+            request.on('error', (err) => { reject(err); });
+            request.on('timeout', () => {
+                request.destroy();
+                reject(new Error('Timeout'));
+            });
+        });
+    };
+
+    const parseNiftyCSV = (csvData) => {
+        const symbols = [];
+        const lines = csvData.split('\n');
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            const cols = line.split(',');
+            if (cols.length >= 3) {
+                const symbol = cols[2].trim().replace(/"/g, '');
+                if (symbol && symbol !== 'Symbol' && symbol !== 'SYMBOL') {
+                    symbols.push(symbol);
+                }
+            }
+        }
+        return symbols;
+    };
+
+    // 1. Create/populate standard Nifty indices (attempt live first, fallback to hardcoded)
+    for (const [filename, csvPath] of Object.entries(niftyCsvUrls)) {
+        const filePath = path.join(indicesDir, filename);
+        if (!fs.existsSync(filePath)) {
+            logStream(`File ${filename} is missing. Attempting to download constituents...`);
+            try {
+                const csvData = await fetchNiftyCSV(csvPath);
+                const symbols = parseNiftyCSV(csvData);
+                if (symbols.length > 0) {
+                    fs.writeFileSync(filePath, JSON.stringify(symbols, null, 2), 'utf8');
+                    logStream(`Successfully downloaded and saved ${symbols.length} constituents for ${filename}.`);
+                    continue;
+                }
+            } catch (err) {
+                logStream(`Failed to download ${filename} live: ${err.message}. Using hardcoded fallback.`);
+            }
+            fs.writeFileSync(filePath, JSON.stringify(fallbacks[filename], null, 2), 'utf8');
+        }
+    }
+
+    // 2. Create BSE Sensex and Bankex
+    const bseFiles = ['sensex.json', 'bankex.json'];
+    for (const filename of bseFiles) {
+        const filePath = path.join(indicesDir, filename);
+        if (!fs.existsSync(filePath)) {
+            logStream(`Creating ${filename} with default constituents...`);
+            fs.writeFileSync(filePath, JSON.stringify(fallbacks[filename], null, 2), 'utf8');
+        }
+    }
+
+    // 3. Create F&O Stocks dynamically from MongoDB Instrument list if not present
+    const fnoFile = path.join(indicesDir, 'fno_stocks.json');
+    if (!fs.existsSync(fnoFile)) {
+        logStream(`Creating fno_stocks.json dynamically from MongoDB...`);
+        try {
+            const names = await Instrument.distinct('name', { exchange: 'NFO' });
+            const excluded = new Set(['BANKNIFTY', 'NIFTY', 'NIFTYIT', 'FINNIFTY', 'MIDCPNIFTY']);
+            const cleanNames = names.filter(name => name && !excluded.has(name));
+            if (cleanNames.length > 0) {
+                fs.writeFileSync(fnoFile, JSON.stringify(cleanNames, null, 2), 'utf8');
+                logStream(`Successfully saved ${cleanNames.length} F&O stock constituents.`);
+            } else {
+                throw new Error('No distinct F&O underlying names found in MongoDB.');
+            }
+        } catch (err) {
+            logStream(`Failed to dynamically extract F&O stocks: ${err.message}. Saving hardcoded fallback.`);
+            const fallbackFno = ["ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BHARTIARTL", "BPCL", "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY", "EICHERMOT", "GRASIM", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK", "INDUSINDBK", "INFY", "ITC", "JSWSTEEL", "KOTAKBANK", "LT", "LTIM", "M&M", "MARUTI", "NESTLEIND", "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE", "SBIN", "SUNPHARMA", "TATACONSUM", "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN", "ULTRACEMCO", "UPL", "WIPRO"];
+            fs.writeFileSync(fnoFile, JSON.stringify(fallbackFno, null, 2), 'utf8');
+        }
+    }
+
+    // 4. Create local nifty500_symbols.json in scratch directory if not present
+    const nifty500SymbolsFile = path.join(__dirname, 'scratch', 'nifty500_symbols.json');
+    if (!fs.existsSync(nifty500SymbolsFile)) {
+        logStream(`Creating backup nifty500_symbols.json in scratch directory...`);
+        fs.writeFileSync(nifty500SymbolsFile, JSON.stringify(fallbacks['nifty_500.json'], null, 2), 'utf8');
+    }
+}
+
 // Load index constituents and map them to instrument tokens
 async function initializeMappings() {
     try {
+        await ensureIndexFilesExist();
         logStream("Initializing index constituents and token mappings...");
         const indicesDir = path.join(__dirname, 'scratch', 'indices');
         const indexFiles = {

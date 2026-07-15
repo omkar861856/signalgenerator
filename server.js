@@ -12,6 +12,83 @@ const http = require('http');
 const { spawn, execFile } = require('child_process');
 const scanner = require('./scanner');
 
+const { createClient } = require('redis');
+let redisClient = null;
+
+async function initRedis() {
+    if (process.env.REDIS_URL) {
+        try {
+            console.log(`[Redis] Connecting to ${process.env.REDIS_URL}...`);
+            redisClient = createClient({ url: process.env.REDIS_URL });
+            redisClient.on('error', (err) => console.error('[Redis] Client Error:', err.message));
+            await redisClient.connect();
+            console.log('[Redis] Connected successfully.');
+            restoreKiteSessionFromRedis();
+        } catch (err) {
+            console.error('[Redis] Connection failed:', err.message);
+            redisClient = null;
+        }
+    } else {
+        console.log('[Redis] REDIS_URL not configured. Using local in-memory/file fallback cache.');
+    }
+}
+initRedis();
+
+async function restoreKiteSessionFromRedis() {
+    if (!kite) return;
+    try {
+        const cached = await getCache('kite:session');
+        if (cached?.access_token) {
+            access_token = cached.access_token;
+            kite.setAccessToken(access_token);
+            if (scanner.setKiteInstance) scanner.setKiteInstance(kite);
+            console.log('[Redis] Session successfully restored from Redis. Overwriting previous session.');
+            startServerPolling();
+            
+            // Initialize scanner mappings and start backend stream in the background
+            scanner.initializeMappings().then(() => {
+                scanner.connectKiteStream(API_KEY, access_token);
+            }).catch(err => console.error('[Scanner] Initialization failed from Redis session:', err.message));
+        }
+    } catch (err) {
+        console.error('[Redis] Failed to restore session:', err.message);
+    }
+}
+
+
+async function getCache(key) {
+    if (redisClient) {
+        try {
+            const val = await redisClient.get(key);
+            return val ? JSON.parse(val) : null;
+        } catch (err) {
+            console.error('[Redis] Get error:', err.message);
+        }
+    }
+    return null;
+}
+
+async function setCache(key, value, ttlSeconds = null) {
+    if (redisClient) {
+        try {
+            const options = ttlSeconds ? { EX: ttlSeconds } : undefined;
+            await redisClient.set(key, JSON.stringify(value), options);
+        } catch (err) {
+            console.error('[Redis] Set error:', err.message);
+        }
+    }
+}
+
+async function delCache(key) {
+    if (redisClient) {
+        try {
+            await redisClient.del(key);
+        } catch (err) {
+            console.error('[Redis] Del error:', err.message);
+        }
+    }
+}
+
 // ─── Safety net: never let an unhandled error kill the process ────────────────
 process.on('uncaughtException', (err) => {
     console.error('[FATAL] Uncaught exception (server kept alive):', err.message, err.stack);
@@ -883,6 +960,9 @@ function handleKiteError(err, res, prefix = '[Kite API]') {
     if (errorType === 'TokenException' || statusCode === 403 || message.includes('TokenException') || message.includes('Invalid token') || message.includes('token')) {
         access_token = null;
         try { fs.unlinkSync(tokenCachePath); } catch {}
+        if (redisClient) {
+            delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
+        }
         return res.status(401).json({ error: 'Kite session expired. Please reconnect.', error_type: 'TokenException' });
     }
 
@@ -1302,6 +1382,9 @@ app.get('/api/callback', async (req, res) => {
         kite.setAccessToken(access_token);
         if (scanner.setKiteInstance) scanner.setKiteInstance(kite);
         try { fs.writeFileSync(tokenCachePath, JSON.stringify({ access_token }), 'utf8'); } catch {}
+        if (redisClient) {
+            setCache('kite:session', { access_token }).catch(err => console.error('[Redis] Failed to write session:', err.message));
+        }
         console.log('Kite session generated OK.');
         startServerPolling();
 
@@ -1310,15 +1393,15 @@ app.get('/api/callback', async (req, res) => {
             scanner.connectKiteStream(API_KEY, access_token);
         }).catch(err => console.error('[Scanner] Initialization failed:', err.message));
 
-        // Forward to Go MCP server if needed
+        // Forward to Go MCP server if needed (asynchronously in background)
         if (redirect_params) {
-            try {
-                const p = new URLSearchParams(redirect_params);
-                const sid = p.get('session_id');
-                if (sid) {
-                    await fetch(`http://localhost:8085/callback?request_token=${request_token}&session_id=${encodeURIComponent(sid)}`);
-                }
-            } catch {}
+            const p = new URLSearchParams(redirect_params);
+            const sid = p.get('session_id');
+            if (sid) {
+                fetch(`http://localhost:8085/callback?request_token=${request_token}&session_id=${encodeURIComponent(sid)}`, {
+                    signal: AbortSignal.timeout(1500)
+                }).catch(() => {});
+            }
         }
         res.redirect('/?authenticated=true');
     } catch (err) {
@@ -1326,6 +1409,9 @@ app.get('/api/callback', async (req, res) => {
         // Invalidate stale token
         access_token = null;
         try { fs.unlinkSync(tokenCachePath); } catch {}
+        if (redisClient) {
+            delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
+        }
         res.status(500).send(`<h3>Auth Failed</h3><p>${err.message}</p><a href="/">Back</a>`);
     }
 });
@@ -1335,6 +1421,9 @@ app.post('/api/logout', (req, res) => {
     access_token = null;
     if (kite) kite.setAccessToken(null);
     try { if (fs.existsSync(tokenCachePath)) fs.unlinkSync(tokenCachePath); } catch {}
+    if (redisClient) {
+        delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
+    }
     res.json({ success: true });
 });
 
@@ -1367,7 +1456,11 @@ app.post('/api/state', requireAuth, async (req, res) => {
             'customTargetPercent',
             'pnlExitMode',
             'pnlExitAutoEnabled',
-            'reallocationAutoEnabled'
+            'reallocationAutoEnabled',
+            'equityStopLossPercent',
+            'equityTargetPercent',
+            'fnoStopLossPercent',
+            'fnoTargetPercent'
         ];
         
         for (const f of allowedFields) {
@@ -2591,7 +2684,12 @@ app.post('/api/ws-stream/disconnect', requireAuth, (req, res) => {
     }
 });
 
-function getPortfolioGttPrompt(marginPercentage) {
+function getPortfolioGttPrompt(marginPercentage, dbState) {
+    const equitySl = dbState ? (dbState.equityStopLossPercent || 1) : 1;
+    const equityTarget = dbState ? (dbState.equityTargetPercent || 2) : 2;
+    const fnoSl = dbState ? (dbState.fnoStopLossPercent || 15) : 15;
+    const fnoTarget = dbState ? (dbState.fnoTargetPercent || 30) : 30;
+
     return `You are an expert AI trading assistant integrated with Zerodha Kite Connect.
 You can view margins, holdings, positions, real-time quotes, execute buy/sell orders, and manage Good Till Triggered (GTT) orders (placing, retrieving active triggers, modifying triggers, and deleting/cancelling triggers).
 Always explain your reasoning clearly. Warn about risks before placing any order.
@@ -2600,6 +2698,9 @@ Consider placing stop-loss or profit target orders based on your risk tolerance 
 CURRENT STATE NOTE:
 - The user has selected a margin utilization limit of **${marginPercentage}%** for creating and sizing their MIS portfolio/trades.
 - When performing position sizing, planning, or executing the MIS portfolio, adjust all calculations to use exactly ${marginPercentage}% of the total available margin (unless they explicitly ask for another amount) and multiply it by 5 to calculate total trade value (buying power): (Available Net Cash * ${marginPercentage} / 100) * 5.
+- Risk/Reward Ratios (automatically applied by background consolidation):
+    - Equity Intraday: Stop-Loss = ${equitySl}%, Target Profit = ${equityTarget}%
+    - F&O Derivatives: Stop-Loss = ${fnoSl}%, Target Profit = ${fnoTarget}%
 
 CRITICAL DIRECTIVE: NO DOUBLE CONFIRMATION
 - You MUST NOT ask the user for confirmation, approval, or "should I proceed" before placing orders or executing trades. Once the user asks for a trade, execute it immediately by calling 'place_order'.
@@ -2685,7 +2786,12 @@ Avoid Duplicate GTTs & Double Executions:
 `;
 }
 
-function getStandardRrPrompt(marginPercentage) {
+function getStandardRrPrompt(marginPercentage, dbState) {
+    const equitySl = dbState ? (dbState.equityStopLossPercent || 1) : 1;
+    const equityTarget = dbState ? (dbState.equityTargetPercent || 2) : 2;
+    const fnoSl = dbState ? (dbState.fnoStopLossPercent || 15) : 15;
+    const fnoTarget = dbState ? (dbState.fnoTargetPercent || 30) : 30;
+
     return `You are an expert AI trading assistant integrated with Zerodha Kite Connect.
 You can view margins, holdings, positions, real-time quotes, execute buy/sell orders, and manage Good Till Triggered (GTT) orders (placing, retrieving active triggers, modifying triggers, and deleting/cancelling triggers).
 Always explain your reasoning clearly. Warn about risks before placing any order.
@@ -2723,9 +2829,9 @@ Adhere strictly to these Intraday Trading Guidelines, Psychology, & Risk Managem
    - Flow:
      a. MANDATORY: You must always query current open positions using 'get_positions', open orders using 'get_orders', and active GTT triggers using 'get_gtt_orders' BEFORE evaluating, modifying, or resetting any GTTs.
      b. Filter the GTT orders list: ONLY count a GTT order as valid/active if its status is exactly "active".
-     c. For any open MIS position (where quantity > 0 or < 0) that does not have an active matching OCO/two-leg GTT trigger, calculate the stop-loss and profit target price based on a standard 1:2 risk:reward strategy:
-        - Stop-loss price: 2% of the entry price. E.g. for Buy position, SL = entry_price * 0.98. For Sell position, SL = entry_price * 1.02.
-        - Target price: 4% of the entry price. E.g. for Buy position, Target = entry_price * 1.04. For Sell position, Target = entry_price * 0.96.
+     c. For any open MIS position (where quantity > 0 or < 0) that does not have an active matching OCO/two-leg GTT trigger, calculate the stop-loss and profit target price:
+        - Stop-loss price: E.g. for Equity Buy position, SL = entry_price * (1 - ${equitySl}/100). For F&O Buy position, SL = entry_price * (1 - ${fnoSl}/100).
+        - Target price: E.g. for Equity Buy position, Target = entry_price * (1 + ${equityTarget}/100). For F&O Buy position, Target = entry_price * (1 + ${fnoTarget}/100).
      d. Place the GTT order immediately using 'place_gtt_order' with 'trigger_type: "two-leg"' and both stop-loss and target legs using 'product: "MIS"'.
 
 When a user asks to place a GTT order, please adhere strictly to these Zerodha GTT rules:
@@ -2749,7 +2855,12 @@ Avoid Duplicate GTTs & Double Executions:
 `;
 }
 
-function getMomentumSurfingMorningPrompt(marginPercentage) {
+function getMomentumSurfingMorningPrompt(marginPercentage, dbState) {
+    const equitySl = dbState ? (dbState.equityStopLossPercent || 1) : 1;
+    const equityTarget = dbState ? (dbState.equityTargetPercent || 2) : 2;
+    const fnoSl = dbState ? (dbState.fnoStopLossPercent || 15) : 15;
+    const fnoTarget = dbState ? (dbState.fnoTargetPercent || 30) : 30;
+
     const positionsText = latestOpenPositionsCached.length > 0
         ? latestOpenPositionsCached.map(p => `- ${p.tradingsymbol}: ${p.quantity} shares (MIS, Avg entry: ₹${p.average_price.toFixed(2)}, LTP: ₹${(p.last_price || 0).toFixed(2)})`).join('\n')
         : 'No open positions';
@@ -2765,8 +2876,8 @@ CURRENT STRATEGY: momentum surfing morning stragey
 - Margin Allocation: You must utilize exactly ${marginPercentage}% of the available cash margin (obtained via 'get_margins').
 - Leverage: MIS (Intraday) trades have 5X leverage. So the total buying power to allocate is: (Available net cash * ${marginPercentage} / 100) * 5.
 - Risk/Reward:
-  - Stop-Loss: 2.0% of the average entry price.
-  - Target Profit: 4.0% of the average entry price.
+  - Equity Intraday: Stop-Loss = ${equitySl}%, Target Profit = ${equityTarget}% of entry price.
+  - F&O Derivatives: Stop-Loss = ${fnoSl}%, Target Profit = ${fnoTarget}% of entry price.
 - Balanced Portfolio Sizing:
   - When the user gives you a list/group of stocks (or asks to trade/allocate capital), you MUST create a balanced portfolio by allocating the total buying power equally among all the specified stocks.
   - Support for Long (BUY) and Short (SELL) entries:
@@ -2785,29 +2896,172 @@ PLANNED VS REAL POSITIONS & SOURCE OF TRUTH:
 - When told to place a trade, add on to a position, or execute a portfolio, place the orders first, and then you MUST call 'get_positions' in the next tool round to check the actual positions obtained. The API response is the absolute source of truth.
 - In your final response, clearly tell the user both the portfolio planned and the real positions obtained, but clarify that only those executed are immediate positions.
 
-- The server's background polling system will automatically place and auto-consolidate the exit OCO GTT orders (2% SL / 4% Target) within 1 second of order execution, so you do not need to place GTT orders yourself unless explicitly asked. Focus on executing the entry trades immediately.
-
+- The server's background polling system will automatically place and auto-consolidate the exit OCO GTT orders (Equity: ${equitySl}% SL / ${equityTarget}% Target, F&O: ${fnoSl}% SL / ${fnoTarget}% Target) within 1 second of order execution, so you do not need to place GTT orders yourself unless explicitly asked. Focus on executing the entry trades immediately.
 `;
 }
 
 
+// Local Rule-Based Fallback Executor for Trading/Portfolio Requests (OpenAI Quota Exceeded / Offline)
+async function executeLocalFallback(message, mode, dbState) {
+    const isPortfolio = message.includes("Construct a balanced portfolio") || message.includes("STOCKS LIST:");
+    
+    if (isPortfolio) {
+        console.log("[Fallback Executor] Detected portfolio construction request. Parsing stocks...");
+        const regex = /(\d+)\.\s+([A-Z0-9]+):([A-Z0-9_&.-]+)\s+\(LTP:\s+₹([\d.,]+)/g;
+        const matches = [];
+        let match;
+        while ((match = regex.exec(message)) !== null) {
+            matches.push({
+                exchange: match[2],
+                symbol: match[3],
+                ltp: parseFloat(match[4].replace(/,/g, ''))
+            });
+        }
+
+        if (matches.length === 0) {
+            throw new Error("Local fallback failed: Could not parse stock list from prompt.");
+        }
+
+        // Get account margins
+        const margins = await kite.getMargins();
+        // Fallback safely if available isn't present
+        const cash = margins?.equity?.available?.live_balance || margins?.equity?.net || 0;
+        const pct = dbState?.selectedMarginPercentage || 100;
+        const availableMargin = cash * (pct / 100);
+        const buyingPower = availableMargin * 5; // 5x leverage
+        
+        const allocatedPerStock = buyingPower / matches.length;
+        const ordersPlaced = [];
+        const errors = [];
+        const transactionType = mode === 'SELL' ? 'SELL' : 'BUY';
+
+        for (const stock of matches) {
+            const qty = Math.floor(allocatedPerStock / stock.ltp);
+            if (qty <= 0) {
+                errors.push(`${stock.symbol}: Allocated cash ₹${allocatedPerStock.toFixed(2)} is less than LTP ₹${stock.ltp}`);
+                continue;
+            }
+
+            const tickSize = await getTickSizeForSymbol(stock.symbol, stock.exchange);
+            const price = transactionType === 'BUY'
+                ? roundToTickSize(stock.ltp * 1.01, tickSize)
+                : roundToTickSize(stock.ltp * 0.99, tickSize);
+
+            try {
+                const r = await placeOrderWithAIReason({
+                    exchange: stock.exchange,
+                    tradingsymbol: stock.symbol,
+                    transaction_type: transactionType,
+                    quantity: qty,
+                    product: 'MIS',
+                    order_type: 'LIMIT',
+                    price: price
+                }, `Local Fallback Portfolio Execution (OpenAI Offline/Quota Exceeded)`);
+                ordersPlaced.push({ symbol: stock.symbol, qty, price, orderId: r.order_id });
+            } catch (err) {
+                errors.push(`${stock.symbol}: Order placement failed - ${err.message}`);
+            }
+        }
+
+        let reply = `⚠️ **[Local Fallback Mode: OpenAI Quota Exceeded]** The OpenAI API request failed, but the local fallback executor successfully built the portfolio:\n\n`;
+        reply += `* **Margin Utilized**: ${pct}% of cash ₹${cash.toFixed(2)} (Buying Power: ₹${buyingPower.toFixed(2)})\n`;
+        reply += `* **Allocated per Stock**: ₹${allocatedPerStock.toFixed(2)}\n\n`;
+        reply += `**Executed Orders:**\n`;
+        if (ordersPlaced.length > 0) {
+            ordersPlaced.forEach(o => {
+                reply += `* ✅ **${o.symbol}** - ${transactionType} ${o.qty} shares @ ₹${o.price} (Order ID: ${o.orderId})\n`;
+            });
+        } else {
+            reply += `* None\n`;
+        }
+
+        if (errors.length > 0) {
+            reply += `\n❌ **Failures / Warnings:**\n` + errors.map(e => `* ${e}`).join('\n');
+        }
+
+        return reply;
+    }
+
+    // Direct buy/sell instructions parsing
+    const buyMatch = message.match(/(?:buy|purchase|take long)\s+(\d+)\s+(?:shares|qty|quantity)?\s*(?:of)?\s*([a-zA-Z0-9_&.:-]+)/i);
+    const sellMatch = message.match(/(?:sell|short|take short)\s+(\d+)\s+(?:shares|qty|quantity)?\s*(?:of)?\s*([a-zA-Z0-9_&.:-]+)/i);
+
+    if (buyMatch || sellMatch) {
+        const match = buyMatch || sellMatch;
+        const transactionType = buyMatch ? 'BUY' : 'SELL';
+        const qty = parseInt(match[1]);
+        let rawSymbol = match[2].toUpperCase();
+        let exchange = 'NSE';
+        let symbol = rawSymbol;
+
+        if (rawSymbol.includes(':')) {
+            const parts = rawSymbol.split(':');
+            exchange = parts[0];
+            symbol = parts[1];
+        }
+
+        console.log(`[Fallback Executor] Detected direct trade request: ${transactionType} ${qty} ${exchange}:${symbol}`);
+
+        // Fetch LTP
+        let ltp = 0;
+        try {
+            const quote = await kite.getOHLC([`${exchange}:${symbol}`]);
+            ltp = quote[`${exchange}:${symbol}`]?.last_price || 0;
+        } catch (err) {
+            console.error('[Fallback Executor] Failed to fetch LTP:', err.message);
+        }
+
+        const tickSize = await getTickSizeForSymbol(symbol, exchange);
+        const price = ltp > 0
+            ? (transactionType === 'BUY' ? roundToTickSize(ltp * 1.01, tickSize) : roundToTickSize(ltp * 0.99, tickSize))
+            : 0;
+
+        const orderType = price > 0 ? 'LIMIT' : 'MARKET';
+
+        try {
+            const r = await placeOrderWithAIReason({
+                exchange,
+                tradingsymbol: symbol,
+                transaction_type: transactionType,
+                quantity: qty,
+                product: 'MIS',
+                order_type: orderType,
+                price: price
+            }, `Local Fallback Direct Execution (OpenAI Offline/Quota Exceeded)`);
+
+            return `⚠️ **[Local Fallback Mode: OpenAI Quota Exceeded]** Direct order placed successfully:\n* **Action**: ${transactionType}\n* **Stock**: ${exchange}:${symbol}\n* **Qty**: ${qty}\n* **Price**: ₹${price || 'Market'}\n* **Order ID**: ${r.order_id}`;
+        } catch (err) {
+            throw new Error(`Fallback execution failed for ${symbol}: ${err.message}`);
+        }
+    }
+
+    throw new Error("No fallback parsing matched for this query.");
+}
+
 // ─── 8. AI chat ───────────────────────────────────────────────────────────────
 app.post('/api/chat', requireAuth, async (req, res) => {
-    if (!OPENAI_KEY) return res.status(400).json({ error: 'OpenAI API Key not configured in .env' });
-
     const { message, history = [], mode = 'BOTH' } = req.body;
     if (!message?.trim()) return res.status(400).json({ error: 'Empty message' });
 
+    // Load strategy options from MongoDB
+    let dbState = null;
+    try {
+        dbState = await AppState.findOne({ key: 'global_state' });
+    } catch (dbErr) {
+        console.error('[Chat API] Failed to fetch app state from DB:', dbErr.message);
+    }
+
+    if (!OPENAI_KEY) {
+        try {
+            const fallbackReply = await executeLocalFallback(message, mode, dbState);
+            return res.json({ response: fallbackReply, reply: fallbackReply });
+        } catch (fallbackErr) {
+            return res.status(400).json({ error: 'OpenAI API Key not configured in .env and local fallback could not process request.' });
+        }
+    }
+
     try {
         console.log(`[Chat] "${message.substring(0, 60)}" (Mode: ${mode})`);
-
-        // Load strategy options from MongoDB
-        let dbState = null;
-        try {
-            dbState = await AppState.findOne({ key: 'global_state' });
-        } catch (dbErr) {
-            console.error('[Chat API] Failed to fetch app state from DB:', dbErr.message);
-        }
 
         const activeStrategy = dbState ? dbState.activeStrategy : 'momentum_surfing_morning';
         const customPrompt = dbState ? dbState.customSystemPrompt : '';
@@ -2820,15 +3074,15 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
         let systemContent = '';
         if (activeStrategy === 'momentum_surfing_morning') {
-            systemContent = getMomentumSurfingMorningPrompt(marginPercentage);
+            systemContent = getMomentumSurfingMorningPrompt(marginPercentage, dbState);
         } else if (activeStrategy === 'portfolio_gtt') {
-            systemContent = getPortfolioGttPrompt(marginPercentage);
+            systemContent = getPortfolioGttPrompt(marginPercentage, dbState);
         } else if (activeStrategy === 'standard_rr') {
-            systemContent = getStandardRrPrompt(marginPercentage);
+            systemContent = getStandardRrPrompt(marginPercentage, dbState);
         } else if (activeStrategy === 'custom') {
-            systemContent = (customPrompt || getMomentumSurfingMorningPrompt(marginPercentage)).replace(/\$\{marginPercentage\}/g, marginPercentage.toString());
+            systemContent = (customPrompt || getMomentumSurfingMorningPrompt(marginPercentage, dbState)).replace(/\$\{marginPercentage\}/g, marginPercentage.toString());
         } else {
-            systemContent = getMomentumSurfingMorningPrompt(marginPercentage);
+            systemContent = getMomentumSurfingMorningPrompt(marginPercentage, dbState);
         }
 
         if (mode === 'BUY') {
@@ -3273,6 +3527,9 @@ app.post('/api/chat', requireAuth, async (req, res) => {
                         if (e.message?.includes('TokenException') || e.message?.includes('Invalid token') || e.message?.includes('token')) {
                             access_token = null;
                             try { fs.unlinkSync(tokenCachePath); } catch {}
+                            if (redisClient) {
+                                delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
+                            }
                             throw Object.assign(new Error('SESSION_EXPIRED'), { sessionExpired: true });
                         }
                         return { id: tc.id, name, result: { error: e.message } };
@@ -3299,13 +3556,19 @@ app.post('/api/chat', requireAuth, async (req, res) => {
             msg  = data.choices[0].message;
         }
 
-        res.json({ response: msg.content });
+        res.json({ response: msg.content, reply: msg.content });
 
         // (Mem0 layer has been removed)
 
     } catch (err) {
         console.error('[Chat] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        try {
+            const fallbackReply = await executeLocalFallback(message, mode, dbState);
+            return res.json({ response: fallbackReply, reply: fallbackReply });
+        } catch (fallbackErr) {
+            console.error('[Fallback Executor] Failed:', fallbackErr.message);
+            res.status(500).json({ error: err.message, reply: `Error: ${err.message}` });
+        }
     }
 });
 
@@ -4982,6 +5245,9 @@ let pnlBreachStartTime = null;
 let currentBreachType = null;
 let lastProfitTargetExit = null;
 let lastLossTargetExit = null;
+let shouldAutoSetPnL = false;
+let lastActivePositionsCount = 0;
+let positionsStableSince = null;
 const positionTrailedSl = new Map();
 let lastTrailingCheckTime = 0;
 
@@ -4991,7 +5257,7 @@ let lastChargesFetchTime = 0;
 async function getCachedCharges() {
     if (!kite || !access_token) return 0;
     const now = Date.now();
-    if (now - lastChargesFetchTime < 10000 && latestChargesCached > 0) {
+    if (now - lastChargesFetchTime < 10000) {
         return latestChargesCached;
     }
     
@@ -5223,6 +5489,9 @@ async function runServerConsolidation() {
                 console.log('[BG Poller] Session expired or invalid token. Clearing cached credentials.');
                 access_token = null;
                 try { fs.unlinkSync(tokenCachePath); } catch {}
+                if (redisClient) {
+                    delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
+                }
             }
             isConsolidationRunning = false;
             return;
@@ -5242,6 +5511,9 @@ async function runServerConsolidation() {
                     console.log('[BG Poller] Session expired or invalid token. Clearing cached credentials.');
                     access_token = null;
                     try { fs.unlinkSync(tokenCachePath); } catch {}
+                    if (redisClient) {
+                        delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
+                    }
                 }
                 isConsolidationRunning = false;
                 return;
@@ -5261,6 +5533,9 @@ async function runServerConsolidation() {
                     console.log('[BG Poller] Session expired or invalid token during margin check. Clearing cached credentials.');
                     access_token = null;
                     try { fs.unlinkSync(tokenCachePath); } catch {}
+                    if (redisClient) {
+                        delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
+                    }
                     isConsolidationRunning = false;
                     return;
                 }
@@ -5280,6 +5555,76 @@ async function runServerConsolidation() {
         
         const activeMisPositions = netPositions.filter(p => p.product === 'MIS' && Math.abs(p.quantity) > 0);
         const misTradingSymbols = new Set(activeMisPositions.map(p => p.tradingsymbol));
+
+        // Check if positions are active and have stabilized to auto-set PnL targets
+        if (activeMisPositions.length > 0) {
+            if (lastActivePositionsCount === 0) {
+                shouldAutoSetPnL = true;
+                positionsStableSince = Date.now();
+                lastActivePositionsCount = activeMisPositions.length;
+                console.log(`[Auto PnL] Active MIS positions detected: ${lastActivePositionsCount}. Monitoring for stabilization...`);
+            } else if (activeMisPositions.length !== lastActivePositionsCount) {
+                lastActivePositionsCount = activeMisPositions.length;
+                positionsStableSince = Date.now();
+                console.log(`[Auto PnL] Positions count changed to ${lastActivePositionsCount}. Resetting stabilization timer...`);
+            } else if (shouldAutoSetPnL && positionsStableSince && (Date.now() - positionsStableSince >= 3000)) {
+                // Positions have been stable for at least 3 seconds. Let's make sure no orders are pending.
+                let hasPendingOrders = false;
+                try {
+                    const orders = await kite.getOrders();
+                    hasPendingOrders = orders.some(o => ['OPEN', 'VALIDATION PENDING', 'PUT ORDER REQ RECEIVED', 'MODIFY VALIDATION PENDING'].includes(o.status));
+                } catch (orderErr) {
+                    console.error('[Auto PnL] Error fetching orders:', orderErr.message);
+                    hasPendingOrders = true; // Assume true on error to be safe
+                }
+                
+                if (!hasPendingOrders) {
+                    let utilisedMargin = 0;
+                    // Try getting utilized margin from Zerodha
+                    if (latestMarginsResponseCached && latestMarginsResponseCached.equity && latestMarginsResponseCached.equity.utilised) {
+                        utilisedMargin = latestMarginsResponseCached.equity.utilised.debits || 0;
+                    }
+                    
+                    // Fallback to calculation based on 5x leverage if Zerodha reports 0 or simulation mode
+                    if (utilisedMargin <= 0) {
+                        for (const p of activeMisPositions) {
+                            const avgPrice = p.average_price || p.buy_price || p.sell_price || scanner.getLtpBySymbol(p.tradingsymbol) || p.last_price || 0;
+                            const leverage = (p.tradingsymbol.match(/(FUT|CE|PE)$/i) || p.tradingsymbol.match(/\d{2}[A-Z]{3}\d+/)) ? 1 : 5;
+                            utilisedMargin += (Math.abs(p.quantity) * avgPrice) / leverage;
+                        }
+                    }
+                    
+                    if (utilisedMargin > 0) {
+                        const halfPercent = utilisedMargin * 0.005; // 0.5% (1/2 %) of utilized margin
+                        console.log(`[Auto PnL] Positions stabilized. Calculated utilised margin: ₹${utilisedMargin.toFixed(2)}. Setting PnL exit values: Profit Target = ₹${halfPercent.toFixed(2)}, Loss Target = -₹${halfPercent.toFixed(2)}`);
+                        
+                        try {
+                            const state = await AppState.findOneAndUpdate(
+                                { key: 'global_state' },
+                                { $set: { 
+                                    profitTargetExit: Number(halfPercent.toFixed(2)), 
+                                    lossTargetExit: Number((-halfPercent).toFixed(2)),
+                                    pnlExitMode: 'current',
+                                    pnlExitAutoEnabled: true
+                                } },
+                                { new: true }
+                            );
+                            if (state) cachedDbState = state;
+                            shouldAutoSetPnL = false;
+                        } catch (dbErr) {
+                            console.error('[Auto PnL] Failed to update global state in DB:', dbErr.message);
+                        }
+                    }
+                }
+            }
+        } else {
+            if (lastActivePositionsCount > 0) {
+                console.log('[Auto PnL] Active MIS positions count reset to 0.');
+            }
+            lastActivePositionsCount = 0;
+            positionsStableSince = null;
+            shouldAutoSetPnL = false;
+        }
 
         // Clean up closed positions from positionTrailedSl
         for (const symbol of positionTrailedSl.keys()) {
@@ -5449,21 +5794,6 @@ async function runServerConsolidation() {
             totalPortfolioValue += Math.abs(p.quantity) * entryPrice;
         }
 
-        let slPercent = 0.01;
-        let targetPercent = 0.02;
-
-        if (activeStrategy === 'portfolio_gtt') {
-            // Standard safe stock-level GTT exits (1% SL / 2% Target)
-            slPercent = 0.01;
-            targetPercent = 0.02;
-        } else if (activeStrategy === 'standard_rr' || activeStrategy === 'momentum_surfing_morning') {
-            slPercent = 0.01;
-            targetPercent = 0.02;
-        } else if (activeStrategy === 'custom') {
-            slPercent = (dbState && dbState.customStopLossPercent !== undefined) ? (dbState.customStopLossPercent / 100) : 0.01;
-            targetPercent = (dbState && dbState.customTargetPercent !== undefined) ? (dbState.customTargetPercent / 100) : 0.02;
-        }
-
         for (let p of activeMisPositions) {
             const qty = Math.abs(p.quantity);
             const entryPrice = p.average_price || (p.quantity > 0 ? p.buy_price : p.sell_price) || 0;
@@ -5482,13 +5812,30 @@ async function runServerConsolidation() {
                 continue;
             }
 
+            const isFno = (p.exchange === 'NFO' || p.exchange === 'MCX' || p.exchange === 'CDS');
+            let posSlPercent = 0.01;
+            let posTargetPercent = 0.02;
+
+            if (isFno) {
+                posSlPercent = (dbState && dbState.fnoStopLossPercent !== undefined) ? (dbState.fnoStopLossPercent / 100) : 0.15;
+                posTargetPercent = (dbState && dbState.fnoTargetPercent !== undefined) ? (dbState.fnoTargetPercent / 100) : 0.30;
+            } else {
+                if (activeStrategy === 'custom') {
+                    posSlPercent = (dbState && dbState.customStopLossPercent !== undefined) ? (dbState.customStopLossPercent / 100) : 0.01;
+                    posTargetPercent = (dbState && dbState.customTargetPercent !== undefined) ? (dbState.customTargetPercent / 100) : 0.02;
+                } else {
+                    posSlPercent = (dbState && dbState.equityStopLossPercent !== undefined) ? (dbState.equityStopLossPercent / 100) : 0.01;
+                    posTargetPercent = (dbState && dbState.equityTargetPercent !== undefined) ? (dbState.equityTargetPercent / 100) : 0.02;
+                }
+            }
+
             const tickSize = await getTickSizeForSymbol(p.tradingsymbol, p.exchange);
 
             // Calculate allocated loss and target for this stock using the portfolio allocation risk algorithm
             const pValue = qty * entryPrice;
             const weight = totalPortfolioValue > 0 ? (pValue / totalPortfolioValue) : 0;
-            const totalLossAppetite = totalPortfolioValue * slPercent;
-            const totalTargetProfit = totalPortfolioValue * targetPercent;
+            const totalLossAppetite = totalPortfolioValue * posSlPercent;
+            const totalTargetProfit = totalPortfolioValue * posTargetPercent;
             const allocatedLoss = totalLossAppetite * weight;
             const allocatedTarget = totalTargetProfit * weight;
             const priceDrop = qty > 0 ? (allocatedLoss / qty) : 0;
@@ -5878,8 +6225,8 @@ function startServerPolling() {
     if (bgPollingInterval) clearInterval(bgPollingInterval);
     bgPollingInterval = setInterval(async () => {
         await runServerConsolidation();
-    }, 350);
-    console.log('[BG Poller] Background polling and GTT consolidation initialized (350ms interval).');
+    }, 1000);
+    console.log('[BG Poller] Background polling and GTT consolidation initialized (1000ms interval).');
     
     // Trigger background instruments sync
     syncInstrumentsBackground().catch(err => console.error('[Instruments] Async error:', err.message));

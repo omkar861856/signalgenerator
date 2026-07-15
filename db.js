@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
-const MONGO_URI = 'mongodb+srv://signalgenerator:D39a9Iu7WojmboSk@cluster0.wttchje.mongodb.net/signalgenerator?retryWrites=true&w=majority&appName=Cluster0';
+const MONGO_URI = process.env.MONGO_URI;
+
 
 const AppStateSchema = new mongoose.Schema({
     key: { type: String, default: 'global_state', unique: true },
@@ -18,7 +19,11 @@ const AppStateSchema = new mongoose.Schema({
     lossTargetExit: { type: Number, default: 0 },
     pnlExitMode: { type: String, default: 'current' },
     pnlExitAutoEnabled: { type: Boolean, default: true },
-    reallocationAutoEnabled: { type: Boolean, default: false }
+    reallocationAutoEnabled: { type: Boolean, default: false },
+    equityStopLossPercent: { type: Number, default: 1 },
+    equityTargetPercent: { type: Number, default: 2 },
+    fnoStopLossPercent: { type: Number, default: 15 },
+    fnoTargetPercent: { type: Number, default: 30 }
 }, { minimize: false, timestamps: true });
 
 const AppState = mongoose.model('AppState', AppStateSchema);
@@ -42,16 +47,25 @@ HistoricalCandleSchema.index({ instrumentToken: 1 });
 const HistoricalCandle = mongoose.model('HistoricalCandle', HistoricalCandleSchema);
 
 async function connectDB() {
+    if (!MONGO_URI) {
+        console.error('[FATAL] MONGO_URI is not defined in the environment variables. Please check your .env file.');
+        process.exit(1);
+    }
     try {
         await mongoose.connect(MONGO_URI);
-        console.log('[MongoDB] Connected successfully to Cluster0/signalgenerator database.');
+        console.log('[MongoDB] Connected successfully to database.');
         
         // Ensure default global state document exists
         let state = await AppState.findOne({ key: 'global_state' });
         if (!state) {
-            state = new AppState({ key: 'global_state' });
+            state = new AppState({ key: 'global_state', pnlExitMode: 'current', pnlExitAutoEnabled: true });
             await state.save();
             console.log('[MongoDB] Created default global state document.');
+        } else {
+            state.pnlExitMode = 'current';
+            state.pnlExitAutoEnabled = true;
+            await state.save();
+            console.log('[MongoDB] Updated global state to set pnlExitMode: current and pnlExitAutoEnabled: true.');
         }
     } catch (err) {
         console.error('[MongoDB] Connection failed:', err.message);

@@ -72,6 +72,13 @@ export default function App() {
   const [lastReallocationTime, setLastReallocationTime] = useState(null);
   const [showMorningIpModal, setShowMorningIpModal] = useState(false);
 
+  // Equity vs F&O Risk settings states
+  const [settingsTab, setSettingsTab] = useState('equity'); // 'equity' or 'fno'
+  const [equityStopLossPercent, setEquityStopLossPercent] = useState(1);
+  const [equityTargetPercent, setEquityTargetPercent] = useState(2);
+  const [fnoStopLossPercent, setFnoStopLossPercent] = useState(15);
+  const [fnoTargetPercent, setFnoTargetPercent] = useState(30);
+
   // Draft/form states for MIS P&L Exit Controls to prevent poller overwriting
   const [profitTargetExitDraft, setProfitTargetExitDraft] = useState('');
   const [lossTargetExitDraft, setLossTargetExitDraft] = useState('');
@@ -531,7 +538,7 @@ export default function App() {
       runIntradayPipelineRef.current();
       fastTimer = setInterval(() => {
         runIntradayPipelineRef.current();
-      }, 300);
+      }, 1000);
     }
 
     return () => {
@@ -603,6 +610,10 @@ export default function App() {
         if (data.reallocationAutoEnabled !== undefined) {
           setReallocationAutoEnabled(data.reallocationAutoEnabled);
         }
+        if (data.equityStopLossPercent !== undefined) setEquityStopLossPercent(data.equityStopLossPercent);
+        if (data.equityTargetPercent !== undefined) setEquityTargetPercent(data.equityTargetPercent);
+        if (data.fnoStopLossPercent !== undefined) setFnoStopLossPercent(data.fnoStopLossPercent);
+        if (data.fnoTargetPercent !== undefined) setFnoTargetPercent(data.fnoTargetPercent);
         if (data.subscribedTokens !== undefined && Array.isArray(data.subscribedTokens)) {
           setSubscribedTokens(data.subscribedTokens);
         }
@@ -1216,6 +1227,15 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         sender: 'ai', 
         text: chatData.reply 
       }]);
+
+      if (chatData.reply && (
+        chatData.reply.includes("not allowed to place orders") || 
+        chatData.reply.includes("quota exceeded") || 
+        chatData.reply.includes("exceeded your current quota") || 
+        chatData.reply.includes("IP (")
+      )) {
+        showAlert(chatData.reply, 'Execution Error / Warning');
+      }
     } catch (err) {
       console.error(`Error processing scanner ${scannerName}:`, err);
       showAlert(`Error: ${err.message}`);
@@ -1275,6 +1295,15 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
       const data = await response.json();
       setChatMessages(prev => [...prev, { id: Date.now() + 1, sender: 'assistant', text: data.response }]);
+
+      if (data.response && (
+        data.response.includes("not allowed to place orders") || 
+        data.response.includes("quota exceeded") || 
+        data.response.includes("exceeded your current quota") || 
+        data.response.includes("IP (")
+      )) {
+        showAlert(data.response, 'Execution Error / Warning');
+      }
       setChatHistory(prev => {
         const next = [...prev, { role: 'user', content: query }, { role: 'assistant', content: data.response }];
         return next.slice(-20);
@@ -2014,7 +2043,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
   const handleSaveStrategySettings = async () => {
     setBuilderStatus('Applying changes...');
     try {
-      const payload = { activeStrategy };
+      const payload = { 
+        activeStrategy,
+        equityStopLossPercent,
+        equityTargetPercent,
+        fnoStopLossPercent,
+        fnoTargetPercent
+      };
       if (activeStrategy === 'custom') {
         payload.customSystemPrompt = customSystemPrompt;
       }
@@ -2999,6 +3034,84 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       </select>
                     </div>
 
+                    {/* Equity vs F&O Risk Toggle */}
+                    <div className="flex flex-col gap-2.5 mt-2 border-t border-white/5 pt-3">
+                      <label className="text-slate-400 font-semibold text-xs">Risk/Reward Configuration</label>
+                      <div className="flex bg-black/40 border border-white/5 p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setSettingsTab('equity')}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            settingsTab === 'equity' 
+                              ? 'bg-indigo-600 text-white shadow' 
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Equity Intraday
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSettingsTab('fno')}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            settingsTab === 'fno' 
+                              ? 'bg-purple-600 text-white shadow' 
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          F&O Derivatives
+                        </button>
+                      </div>
+
+                      {/* Config Inputs */}
+                      {settingsTab === 'equity' ? (
+                        <div className="grid grid-cols-2 gap-3 mt-1 bg-white/[0.01] p-3 rounded-xl border border-white/5">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Stop-Loss (%)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={equityStopLossPercent}
+                              onChange={(e) => setEquityStopLossPercent(parseFloat(e.target.value) || 0)}
+                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Target Profit (%)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={equityTargetPercent}
+                              onChange={(e) => setEquityTargetPercent(parseFloat(e.target.value) || 0)}
+                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3 mt-1 bg-white/[0.01] p-3 rounded-xl border border-white/5">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Stop-Loss (%)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={fnoStopLossPercent}
+                              onChange={(e) => setFnoStopLossPercent(parseFloat(e.target.value) || 0)}
+                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Target Profit (%)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={fnoTargetPercent}
+                              onChange={(e) => setFnoTargetPercent(parseFloat(e.target.value) || 0)}
+                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex flex-col gap-1.5 text-xs">
                       <div className="flex justify-between items-center">
                         <label className="text-slate-400 font-semibold">Prompt Template Content</label>
@@ -3488,11 +3601,275 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     )}
                   </div>
                 </div>
-
               </div>
 
+              {/* SignalGenerator System Blueprint & Documentation Console */}
+              <div className="glass-panel p-6 flex flex-col gap-6">
+                {/* Header */}
+                <div className="flex items-center gap-2.5 border-b border-white/5 pb-4">
+                  <Sliders className="h-6 w-6 text-indigo-400 animate-pulse" />
+                  <div>
+                    <h3 className="font-display font-bold text-base text-white">SignalGenerator Blueprint & Documentation Console</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Interactive architectural directory, data structures, and configuration telemetry</p>
+                  </div>
+                </div>
 
+                {/* Subsystem Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs text-slate-300">
+                  
+                  {/* Card 1: Zerodha Kite Connect API & Rate Limits */}
+                  <div className="bg-[#0f1524]/60 border border-white/5 p-4 rounded-xl flex flex-col gap-3.5 relative">
+                    <h4 className="font-semibold text-indigo-300 flex items-center gap-2 border-b border-white/5 pb-2">
+                      <Globe className="h-4.5 w-4.5 text-indigo-400" /> API Rate Limit Categories
+                    </h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Outgoing API requests to Zerodha are rate-limited. Hover over any category to view the complete list of mapped API methods:
+                    </p>
+                    <ul className="flex flex-col gap-2.5">
+                      <li className="flex items-center justify-between border-b border-white/5 pb-1.5 relative group cursor-help hover:bg-white/[0.01] px-1 rounded transition-all">
+                        <span className="font-medium text-slate-200">Quote Endpoint (1 r/s)</span>
+                        <span className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">getOHLC, getQuote, getLTP</span>
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block bg-slate-900 border border-white/10 p-2.5 rounded-lg shadow-2xl text-[11px] font-mono text-indigo-200 z-50 min-w-[200px] backdrop-blur-md">
+                          <div className="font-sans font-semibold text-slate-300 border-b border-white/5 pb-1 mb-1.5 flex justify-between">
+                            <span>Quote Endpoints</span>
+                            <span className="text-indigo-400">1 r/s</span>
+                          </div>
+                          <div className="flex flex-col gap-1 text-[10px] text-slate-400">
+                            <div>• getOHLC</div>
+                            <div>• getQuote</div>
+                            <div>• getLTP</div>
+                          </div>
+                        </div>
+                      </li>
+                      <li className="flex items-center justify-between border-b border-white/5 pb-1.5 relative group cursor-help hover:bg-white/[0.01] px-1 rounded transition-all">
+                        <span className="font-medium text-slate-200">Historical Endpoint (3 r/s)</span>
+                        <span className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">getHistoricalData</span>
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block bg-slate-900 border border-white/10 p-2.5 rounded-lg shadow-2xl text-[11px] font-mono text-indigo-200 z-50 min-w-[200px] backdrop-blur-md">
+                          <div className="font-sans font-semibold text-slate-300 border-b border-white/5 pb-1 mb-1.5 flex justify-between">
+                            <span>Historical Endpoints</span>
+                            <span className="text-indigo-400">3 r/s</span>
+                          </div>
+                          <div className="flex flex-col gap-1 text-[10px] text-slate-400">
+                            <div>• getHistoricalData</div>
+                          </div>
+                        </div>
+                      </li>
+                      <li className="flex items-center justify-between border-b border-white/5 pb-1.5 relative group cursor-help hover:bg-white/[0.01] px-1 rounded transition-all">
+                        <span className="font-medium text-slate-200">Order Placement (10 r/s)</span>
+                        <span className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">placeOrder, cancelOrder...</span>
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block bg-slate-900 border border-white/10 p-2.5 rounded-lg shadow-2xl text-[11px] font-mono text-indigo-200 z-50 min-w-[200px] backdrop-blur-md">
+                          <div className="font-sans font-semibold text-slate-300 border-b border-white/5 pb-1 mb-1.5 flex justify-between">
+                            <span>Order Endpoints</span>
+                            <span className="text-indigo-400">10 r/s</span>
+                          </div>
+                          <div className="flex flex-col gap-1 text-[10px] text-slate-400">
+                            <div>• placeOrder</div>
+                            <div>• modifyOrder</div>
+                            <div>• cancelOrder</div>
+                            <div>• placeGTT</div>
+                            <div>• modifyGTT</div>
+                            <div>• deleteGTT</div>
+                          </div>
+                        </div>
+                      </li>
+                      <li className="flex items-center justify-between pb-1 relative group cursor-help hover:bg-white/[0.01] px-1 rounded transition-all">
+                        <span className="font-medium text-slate-200">Other Endpoints (10 r/s)</span>
+                        <span className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">getPositions, getMargins...</span>
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block bg-slate-900 border border-white/10 p-2.5 rounded-lg shadow-2xl text-[11px] font-mono text-indigo-200 z-50 min-w-[200px] backdrop-blur-md">
+                          <div className="font-sans font-semibold text-slate-300 border-b border-white/5 pb-1 mb-1.5 flex justify-between">
+                            <span>Other Endpoints</span>
+                            <span className="text-indigo-400">10 r/s</span>
+                          </div>
+                          <div className="flex flex-col gap-1 text-[10px] text-slate-400">
+                            <div>• getPositions</div>
+                            <div>• getGTTs</div>
+                            <div>• getMargins</div>
+                            <div>• getHoldings</div>
+                            <div>• generateSession</div>
+                            <div>• getvirtualContractNote</div>
+                          </div>
+                        </div>
+                      </li>
+                    </ul>
+                  </div>
 
+                  {/* Card 2: Server Background Polling Loops */}
+                  <div className="bg-[#0f1524]/60 border border-white/5 p-4 rounded-xl flex flex-col gap-3.5">
+                    <h4 className="font-semibold text-indigo-300 flex items-center gap-2 border-b border-white/5 pb-2">
+                      <Activity className="h-4.5 w-4.5 text-indigo-400" /> Server Background Polling
+                    </h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      The Express server maintains asynchronous, optimized polling loops to sync states, trailing stop-losses, and execute capital reallocations:
+                    </p>
+                    <ul className="flex flex-col gap-2.5">
+                      <li className="flex items-start gap-2 border-b border-white/5 pb-2">
+                        <div className="bg-indigo-500/10 px-2 py-0.5 rounded text-[10px] font-mono font-bold text-indigo-400">1000ms</div>
+                        <div>
+                          <span className="font-medium text-slate-200 block">Positions Polling & Trailing SL</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">Calls <code>getPositions()</code> to track active MIS trades, calculate trailing stop-losses, and check target exits.</span>
+                        </div>
+                      </li>
+                      <li className="flex items-start gap-2 border-b border-white/5 pb-2">
+                        <div className="bg-indigo-500/10 px-2 py-0.5 rounded text-[10px] font-mono font-bold text-indigo-400">3s</div>
+                        <div>
+                          <span className="font-medium text-slate-200 block">GTT Triggers Update</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">Calls <code>getGTTs()</code> to sync exit GTT order statuses and remove out-of-sync or duplicate triggers.</span>
+                        </div>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <div className="bg-indigo-500/10 px-2 py-0.5 rounded text-[10px] font-mono font-bold text-indigo-400">5s</div>
+                        <div>
+                          <span className="font-medium text-slate-200 block">Margins & Funds Sync</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">Calls <code>getMargins()</code> to update available cash limits and track capital allocations.</span>
+                        </div>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Card 3: MongoDB Database Schema & Caches */}
+                  <div className="bg-[#0f1524]/60 border border-white/5 p-4 rounded-xl flex flex-col gap-3.5">
+                    <h4 className="font-semibold text-indigo-300 flex items-center gap-2 border-b border-white/5 pb-2">
+                      <Database className="h-4.5 w-4.5 text-indigo-400" /> Database Collections
+                    </h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      MongoDB tracks configuration states and local cached market data to minimize external API roundtrips:
+                    </p>
+                    <ul className="flex flex-col gap-2.5">
+                      <li className="flex items-start justify-between border-b border-white/5 pb-2">
+                        <div>
+                          <span className="font-medium text-slate-200 block">AppState Schema</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">Global configuration, active strategy, watchlisted stocks, stop-loss/target, and chat memories.</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-white/5 text-slate-400 font-mono">Document</span>
+                      </li>
+                      <li className="flex items-start justify-between border-b border-white/5 pb-2">
+                        <div>
+                          <span className="font-medium text-slate-200 block">HistoricalCandles Schema</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">Caches 15-minute and daily candle records (high, low, open, close, volume) for indicators.</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-white/5 text-slate-400 font-mono">Collection</span>
+                      </li>
+                      <li className="flex items-start justify-between">
+                        <div>
+                          <span className="font-medium text-slate-200 block">Instruments & Docs Schemas</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">Tracks 100K+ Zerodha instrument tokens and crawls docs to feed API parameters to OpenAI.</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-white/5 text-slate-400 font-mono">Collection</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Card 4: OpenAI Strategy Engine & SDK Modification */}
+                  <div className="bg-[#0f1524]/60 border border-white/5 p-4 rounded-xl flex flex-col gap-3.5">
+                    <h4 className="font-semibold text-indigo-300 flex items-center gap-2 border-b border-white/5 pb-2">
+                      <Brain className="h-4.5 w-4.5 text-indigo-400" /> AI Engine & Local SDK Patches
+                    </h4>
+                    
+                    <div className="flex flex-col gap-2.5">
+                      <div className="bg-slate-900/50 border border-white/5 p-2.5 rounded-lg">
+                        <div className="flex items-center gap-1.5 text-slate-200 font-medium mb-1">
+                          <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> OpenAI Chat Decision Engine
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          Extracts trading symbols from user conversation, structures index lists, and returns system actions. Real-time indicators are compiled locally, structured, and fed to GPT models for strategic decisions.
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-900/50 border border-white/5 p-2.5 rounded-lg">
+                        <div className="flex items-center gap-1.5 text-slate-200 font-medium mb-1">
+                          <Shield className="h-3.5 w-3.5 text-emerald-400" /> Local SDK Reconnection Patch
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          The local <code>kiteconnect-sdk</code> code has been modified in <code>ticker.ts/ticker.js</code> to remove the default <code>process.exit(1)</code> triggers on connection limit failures, preventing WebSocket timeouts from crashing the server.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-white/5 my-2"></div>
+
+                {/* Section: Operational Pipeline Timeline */}
+                <div className="flex flex-col gap-4">
+                  <h4 className="font-semibold text-indigo-300 flex items-center gap-2">
+                    <Activity className="h-4.5 w-4.5 text-indigo-400 animate-pulse" /> Complete App Execution & Lifecycle Pipeline
+                  </h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed -mt-2">
+                    Understanding the end-to-end data flow: from initial session authorization to real-time execution loops and AI decisions.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {/* Step 1 */}
+                    <div className="bg-[#0f1524]/40 border border-white/5 p-3.5 rounded-lg flex flex-col gap-1.5 hover:border-indigo-500/20 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-bold px-1.5 py-0.5 rounded font-mono">STEP 1</span>
+                        <span className="font-medium text-slate-200">Session & Cache Init</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        On startup, <code>server.js</code> restores token keys from <code>.session_cache.json</code>. If expired or empty, it triggers the Zerodha OAuth login callback to secure Kite API client authorization.
+                      </p>
+                    </div>
+
+                    {/* Step 2 */}
+                    <div className="bg-[#0f1524]/40 border border-white/5 p-3.5 rounded-lg flex flex-col gap-1.5 hover:border-indigo-500/20 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-bold px-1.5 py-0.5 rounded font-mono">STEP 2</span>
+                        <span className="font-medium text-slate-200">DB Sync & Cache Warmup</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        Connects to MongoDB, synchronizes 100K+ Zerodha instrument definitions, loads cached historical 15-minute/daily candles, and retrieves previous chatbot memory context.
+                      </p>
+                    </div>
+
+                    {/* Step 3 */}
+                    <div className="bg-[#0f1524]/40 border border-white/5 p-3.5 rounded-lg flex flex-col gap-1.5 hover:border-indigo-500/20 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-bold px-1.5 py-0.5 rounded font-mono">STEP 3</span>
+                        <span className="font-medium text-slate-200">Live WebSocket Streaming</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        Launches the <code>KiteTicker</code> WebSocket stream in <code>scanner.js</code> to capture real-time price ticks. Modified SDK catches reconnection limits without crashing the server.
+                      </p>
+                    </div>
+
+                    {/* Step 4 */}
+                    <div className="bg-[#0f1524]/40 border border-white/5 p-3.5 rounded-lg flex flex-col gap-1.5 hover:border-indigo-500/20 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-bold px-1.5 py-0.5 rounded font-mono">STEP 4</span>
+                        <span className="font-medium text-slate-200">Indicator Compilation</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        Raw price ticks are aggregated into 1m and 15m candlestick logs inside memory. Tech indicators (RSI, MACD, Moving Averages, Supertrend) are compiled on each fresh candle arrival.
+                      </p>
+                    </div>
+
+                    {/* Step 5 */}
+                    <div className="bg-[#0f1524]/40 border border-white/5 p-3.5 rounded-lg flex flex-col gap-1.5 hover:border-indigo-500/20 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-bold px-1.5 py-0.5 rounded font-mono">STEP 5</span>
+                        <span className="font-medium text-slate-200">Background SL Guard</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        Every <code>1000ms</code>, the server fetches net positions to check trailing stop-loss, target exits, or auto-exit timers (at 3:24 PM), triggering exit orders if metrics are crossed.
+                      </p>
+                    </div>
+
+                    {/* Step 6 */}
+                    <div className="bg-[#0f1524]/40 border border-white/5 p-3.5 rounded-lg flex flex-col gap-1.5 hover:border-indigo-500/20 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-bold px-1.5 py-0.5 rounded font-mono">STEP 6</span>
+                        <span className="font-medium text-slate-200">AI Consult & Reallocation</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        OpenAI parses prompt context to structure trade calls. Every 15 minutes during market hours, capital reallocations are run to optimize active margin assignments dynamically.
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
 
             </div>
 
