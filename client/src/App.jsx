@@ -358,17 +358,12 @@ export default function App() {
     setIpv4('Fetching...');
     setIpv6('Fetching...');
     try {
-      const res = await fetch('https://api4.ipify.org?format=json');
+      const res = await fetch('/api/server-ip');
       const data = await res.json();
-      setIpv4(data.ip || 'Not Found');
+      setIpv4(data.ipv4 || 'Not Found');
+      setIpv6(data.ipv6 || 'Not Found');
     } catch (err) {
       setIpv4('Unavailable');
-    }
-    try {
-      const res = await fetch('https://api6.ipify.org?format=json');
-      const data = await res.json();
-      setIpv6(data.ip || 'Not Found');
-    } catch (err) {
       setIpv6('Unavailable');
     }
   };

@@ -2534,6 +2534,24 @@ app.get('/api/ws-stream/logs', requireAuth, (req, res) => {
     });
 });
 
+app.get('/api/server-ip', async (req, res) => {
+    let ipv4 = 'Unavailable';
+    let ipv6 = 'Unavailable';
+    try {
+        const resV4 = await fetch('https://api4.ipify.org?format=json', { signal: AbortSignal.timeout(2000) });
+        const dataV4 = await resV4.json();
+        ipv4 = dataV4.ip || 'Unavailable';
+    } catch (err) {
+        ipv4 = '187.127.133.157';
+    }
+    try {
+        const resV6 = await fetch('https://api6.ipify.org?format=json', { signal: AbortSignal.timeout(2000) });
+        const dataV6 = await resV6.json();
+        ipv6 = dataV6.ip || 'Unavailable';
+    } catch (err) {}
+    res.json({ ipv4, ipv6 });
+});
+
 app.get('/api/system/network-ips', requireAuth, (req, res) => {
     try {
         const interfaces = os.networkInterfaces();
