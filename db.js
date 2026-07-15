@@ -23,7 +23,8 @@ const AppStateSchema = new mongoose.Schema({
     equityStopLossPercent: { type: Number, default: 1 },
     equityTargetPercent: { type: Number, default: 2 },
     fnoStopLossPercent: { type: Number, default: 15 },
-    fnoTargetPercent: { type: Number, default: 30 }
+    fnoTargetPercent: { type: Number, default: 30 },
+    activeAssetMode: { type: String, default: 'equity' }
 }, { minimize: false, timestamps: true });
 
 const AppState = mongoose.model('AppState', AppStateSchema);

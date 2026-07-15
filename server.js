@@ -1460,7 +1460,8 @@ app.post('/api/state', requireAuth, async (req, res) => {
             'equityStopLossPercent',
             'equityTargetPercent',
             'fnoStopLossPercent',
-            'fnoTargetPercent'
+            'fnoTargetPercent',
+            'activeAssetMode'
         ];
         
         for (const f of allowedFields) {
@@ -5830,11 +5831,11 @@ async function runServerConsolidation() {
                 continue;
             }
 
-            const isFno = (p.exchange === 'NFO' || p.exchange === 'MCX' || p.exchange === 'CDS');
+            const assetMode = (dbState && dbState.activeAssetMode) ? dbState.activeAssetMode : 'equity';
             let posSlPercent = 0.01;
             let posTargetPercent = 0.02;
 
-            if (isFno) {
+            if (assetMode === 'fno') {
                 posSlPercent = (dbState && dbState.fnoStopLossPercent !== undefined) ? (dbState.fnoStopLossPercent / 100) : 0.15;
                 posTargetPercent = (dbState && dbState.fnoTargetPercent !== undefined) ? (dbState.fnoTargetPercent / 100) : 0.30;
             } else {

@@ -63,6 +63,7 @@ export default function App() {
 
   // Strategy & Prompt State
   const [activeStrategy, setActiveStrategy] = useState('momentum_surfing_morning');
+  const [activeAssetMode, setActiveAssetMode] = useState('equity');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('');
   const [profitTargetExit, setProfitTargetExit] = useState(0);
   const [lossTargetExit, setLossTargetExit] = useState(0);
@@ -605,6 +606,9 @@ export default function App() {
         if (data.reallocationAutoEnabled !== undefined) {
           setReallocationAutoEnabled(data.reallocationAutoEnabled);
         }
+        if (data.activeAssetMode !== undefined) {
+          setActiveAssetMode(data.activeAssetMode);
+        }
         if (data.equityStopLossPercent !== undefined) setEquityStopLossPercent(data.equityStopLossPercent);
         if (data.equityTargetPercent !== undefined) setEquityTargetPercent(data.equityTargetPercent);
         if (data.fnoStopLossPercent !== undefined) setFnoStopLossPercent(data.fnoStopLossPercent);
@@ -869,6 +873,17 @@ export default function App() {
     } catch (err) {
       console.error('Error saving state field:', err);
       throw err;
+    }
+  };
+
+  const handleGlobalAssetModeChange = async (mode) => {
+    setActiveAssetMode(mode);
+    try {
+      await saveAppStateField({ activeAssetMode: mode });
+      // Proactively refresh dashboard data
+      updateDashboardData();
+    } catch (err) {
+      console.error('Failed to update active asset mode:', err);
     }
   };
 
@@ -2040,6 +2055,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     try {
       const payload = { 
         activeStrategy,
+        activeAssetMode,
         equityStopLossPercent,
         equityTargetPercent,
         fnoStopLossPercent,
@@ -2179,6 +2195,28 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           <h1 className="font-display text-xl font-bold tracking-tight text-white">
             KITE<span className="font-light text-purple-400">✦CHATBOT</span>
           </h1>
+          <div className="flex bg-black/45 border border-white/5 p-0.5 rounded-xl ml-4">
+            <button
+              onClick={() => handleGlobalAssetModeChange('equity')}
+              className={`px-3 py-1.5 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer ${
+                activeAssetMode === 'equity'
+                  ? 'bg-indigo-600 text-white shadow shadow-indigo-600/10'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Equity Mode
+            </button>
+            <button
+              onClick={() => handleGlobalAssetModeChange('fno')}
+              className={`px-3 py-1.5 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer ${
+                activeAssetMode === 'fno'
+                  ? 'bg-purple-600 text-white shadow shadow-purple-600/10'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              F&O Mode
+            </button>
+          </div>
         </div>
 
         {/* Tab switcher */}
@@ -3027,6 +3065,38 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         <option value="standard_rr">Standard 1:2 Risk-Reward (Flat 2% SL / 4% Target GTT)</option>
                         <option value="custom">Custom System Prompt (Fully Editable Prompt Template)</option>
                       </select>
+                    </div>
+
+                    {/* Active Trading Mode Toggle */}
+                    <div className="flex flex-col gap-2.5 mt-2 border-t border-white/5 pt-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-400 font-semibold text-xs">Active Trading Mode</label>
+                        <span className="text-[10px] text-slate-500 font-mono">Applies settings globally</span>
+                      </div>
+                      <div className="flex bg-black/40 border border-white/5 p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setActiveAssetMode('equity')}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            activeAssetMode === 'equity' 
+                              ? 'bg-indigo-600 text-white shadow' 
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Equity Mode
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveAssetMode('fno')}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            activeAssetMode === 'fno' 
+                              ? 'bg-purple-600 text-white shadow' 
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          F&O Mode
+                        </button>
+                      </div>
                     </div>
 
                     {/* Equity vs F&O Risk Toggle */}
