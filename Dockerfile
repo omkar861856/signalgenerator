@@ -11,7 +11,7 @@ COPY kiteconnect-sdk ./kiteconnect-sdk
 
 # Install dependencies and build kiteconnect-sdk
 WORKDIR /usr/src/app/kiteconnect-sdk
-RUN npm install
+RUN npm install --legacy-peer-deps
 RUN npm run build
 
 # Return to root workdir
@@ -21,7 +21,7 @@ WORKDIR /usr/src/app
 COPY package.json package-lock.json ./
 
 # Install root dependencies
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy application files (excluding those in .dockerignore)
 COPY . .
@@ -30,7 +30,7 @@ COPY . .
 RUN npm run build:client
 
 # Remove development dependencies to keep the image slim
-RUN npm prune --production
+RUN npm prune --production --legacy-peer-deps
 
 # Expose the server port
 EXPOSE 3005
