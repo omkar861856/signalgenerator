@@ -36,4 +36,5 @@ RUN npm prune --production --legacy-peer-deps
 EXPOSE 3005
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
+
