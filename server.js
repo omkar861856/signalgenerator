@@ -98,7 +98,6 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const http = require('http');
 const { spawn, execFile } = require('child_process');
 const scanner = require('./scanner');
 
