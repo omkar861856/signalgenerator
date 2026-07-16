@@ -32,6 +32,7 @@ http.ServerResponse.prototype.setHeader = function (name, value) {
                 try {
                     const redirectUrl = new URL(value);
                     redirectUrl.protocol = protocol;
+                    redirectUrl.port = '';
                     if (protocol === 'https') {
                         redirectUrl.host = host.split(':')[0];
                     } else {
@@ -89,6 +90,7 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
                 try {
                     const redirectUrl = new URL(location);
                     redirectUrl.protocol = protocol;
+                    redirectUrl.port = '';
                     if (protocol === 'https') {
                         redirectUrl.host = host.split(':')[0];
                     } else {
