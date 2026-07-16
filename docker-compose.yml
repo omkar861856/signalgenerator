@@ -61,6 +61,7 @@ services:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    command: --config.file=/etc/prometheus/prometheus.yml --web.external-url=/prometheus/ --web.route-prefix=/
 
   grafana:
     image: grafana/grafana:latest
@@ -103,6 +104,7 @@ services:
       - "9093:9093"
     volumes:
       - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    command: --config.file=/etc/alertmanager/alertmanager.yml --web.external-url=/alertmanager/ --web.route-prefix=/
 
 volumes:
   mongodb_data:

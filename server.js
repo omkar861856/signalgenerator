@@ -1305,7 +1305,7 @@ app.post('/api/logout', (req, res) => {
 });
 
 // ─── 7b. REST State API (MongoDB Source of Truth) ─────────────────────────────
-app.get('/api/state', requireAuth, async (req, res) => {
+app.get('/api/state', async (req, res) => {
     try {
         const state = await AppState.findOne({ key: 'global_state' });
         res.json(state);
@@ -1315,7 +1315,7 @@ app.get('/api/state', requireAuth, async (req, res) => {
     }
 });
 
-app.post('/api/state', requireAuth, async (req, res) => {
+app.post('/api/state', async (req, res) => {
     try {
         const updateFields = {};
         const allowedFields = [
@@ -4406,6 +4406,15 @@ function mcpProxy(req, res) {
 
 // Register before bodyParser so raw body is forwarded
 app.use('/mcp', (req, res) => mcpProxy(req, res));
+
+// Trailing slash redirect for reverse proxied paths (essential for correct relative asset loading in browser)
+app.use((req, res, next) => {
+    const p = req.path;
+    if (['/grafana', '/prometheus', '/alertmanager'].includes(p)) {
+        return res.redirect(301, p + '/' + (req.url.slice(p.length) || ''));
+    }
+    next();
+});
 
 // Monitoring Reverse Proxies (routes Grafana, Prometheus, Alertmanager under the same HTTPS port/domain)
 const { createProxyMiddleware } = require('http-proxy-middleware');

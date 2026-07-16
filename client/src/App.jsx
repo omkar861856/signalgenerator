@@ -351,6 +351,10 @@ export default function App() {
       setChartError('Symbol is required');
       return;
     }
+    if (!appConfig.hasAccessToken) {
+      setChartError('Not authenticated. Click "Connect Zerodha".');
+      return;
+    }
     setChartLoading(true);
     setChartError('');
     try {
@@ -897,6 +901,7 @@ export default function App() {
 
   // Historical Sync Helpers
   const fetchSyncStatus = useCallback(async () => {
+    if (!appConfig.hasAccessToken) return;
     try {
       const res = await fetch('/api/admin/historical-sync/status');
       if (res.ok) {
@@ -911,7 +916,7 @@ export default function App() {
     } catch (e) {
       console.error('Error fetching sync status:', e);
     }
-  }, []);
+  }, [appConfig.hasAccessToken]);
 
   const handleStartHistoricalSync = async () => {
     try {
@@ -947,10 +952,10 @@ export default function App() {
   }, [syncPolling, fetchSyncStatus]);
 
   useEffect(() => {
-    if (view === 'admin') {
+    if (view === 'admin' && appConfig.hasAccessToken) {
       fetchSyncStatus();
     }
-  }, [view, fetchSyncStatus]);
+  }, [view, appConfig.hasAccessToken, fetchSyncStatus]);
 
 
   // Poll top 7 Nifty 500 gainers for the dashboard every 5 minutes
@@ -2301,7 +2306,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
   }
 
   return (
-    <div className="flex min-h-screen relative font-sans text-slate-100 bg-[#0b0f19]">
+    <div className="flex min-h-screen w-full overflow-x-hidden relative font-sans text-slate-100 bg-[#0b0f19]">
       
       {/* Background gradients */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,58,237,0.1),transparent_50%)] pointer-events-none" />
@@ -2319,7 +2324,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
       <aside className={`flex flex-col border-r border-white/5 bg-[#0f1524]/95 backdrop-blur-md transition-all duration-300 flex-shrink-0
         fixed md:sticky top-0 left-0 h-screen z-50
         ${isSidebarCollapsed ? 'w-20' : 'w-64'}
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        ${isMobileMenuOpen ? 'translate-x-0 visible' : '-translate-x-full invisible md:visible md:translate-x-0'}
       `}>
         {/* Logo Section */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-white/5 h-[73px]">
@@ -2839,7 +2844,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </div>
 
                   {/* Mode and Margin selector toggle */}
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4">
                     {/* Mode selector */}
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Mode:</span>
@@ -4020,16 +4025,16 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             <div className="xl:col-span-3 flex flex-col gap-6">
               
               {/* Live WebSocket Quotes Stream (At the top) */}
-              <div className="glass-panel p-5">
-                <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-5 w-5 text-indigo-400" />
+              <div className="glass-panel p-5 flex flex-col gap-4">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-white/5 pb-4">
+                  <div className="flex items-start gap-2.5">
+                    <Activity className="h-5 w-5 text-indigo-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <h3 className="font-display font-semibold text-sm">Live WebSocket Quotes Stream</h3>
-                      <p className="text-[10px] text-slate-400">Real-time binary streaming quotes from Zerodha Kite Connect WebSocket API (Backend Managed)</p>
+                      <p className="text-[10px] text-slate-400 leading-relaxed max-w-xl">Real-time binary streaming quotes from Zerodha Kite Connect WebSocket API (Backend Managed)</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-mono">
                       {subscribedCount} Tickers Subscribed
                     </span>
@@ -4059,7 +4064,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                             showAlert('Failed to connect stream: ' + e.message);
                           }
                         }}
-                        className="px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all text-xs font-semibold cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all text-xs font-semibold cursor-pointer ml-auto lg:ml-0"
                       >
                         Connect Stream
                       </button>
@@ -4073,10 +4078,26 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                             showAlert('Failed to disconnect stream: ' + e.message);
                           }
                         }}
-                        className="px-3 py-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-all text-xs font-semibold cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-all text-xs font-semibold cursor-pointer ml-auto lg:ml-0"
                       >
                         Disconnect
                       </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Real-time Ticks Terminal Logs Console */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Tick Logs & Connection Events:</span>
+                  <div className="bg-black/50 border border-white/5 rounded-xl p-3.5 font-mono text-[10px] text-indigo-300 h-36 overflow-y-auto flex flex-col-reverse gap-1.5 scrollbar-thin">
+                    {backendWsLogs.length === 0 ? (
+                      <span className="text-slate-600 italic">No ticks received yet. Connect stream and subscribe to tickers to see real-time price logs...</span>
+                    ) : (
+                      backendWsLogs.map((log, idx) => (
+                        <div key={idx} className="border-l-2 border-indigo-500/30 pl-2 py-0.5 hover:bg-white/[0.01] transition-colors break-all">
+                          {log}
+                        </div>
+                      ))
                     )}
                   </div>
                 </div>
@@ -4442,8 +4463,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     <span className="text-sm font-semibold text-white">🔑 Access Token</span>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-2 bg-black/30 p-2 rounded-lg border border-white/5">
-                      <code className="text-[11px] font-mono text-indigo-200 overflow-hidden text-ellipsis whitespace-nowrap block max-w-[140px] md:max-w-xs">
+                    <div className="flex items-center justify-between gap-2 bg-black/30 p-2 rounded-lg border border-white/5 w-full overflow-hidden">
+                      <code className="text-[11px] font-mono text-indigo-200 break-all block max-w-full">
                         {showToken ? accessToken : '••••••••••••••••••••••••••••••••'}
                       </code>
                       <div className="flex items-center gap-1">
@@ -5827,7 +5848,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
       )}
 
       {/* Mobile Bottom Navigation Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-[#0f1524]/95 backdrop-blur-md border-t border-white/5 px-6 py-2.5 flex justify-around items-center shadow-2xl">
+      <div className="fixed bottom-0 left-0 right-0 z-[999] md:hidden bg-[#0f1524]/95 backdrop-blur-md border-t border-white/5 px-6 py-2.5 flex justify-around items-center shadow-2xl">
         <button
           onClick={() => setView('dashboard')}
           className={`flex flex-col items-center gap-1 py-1 transition-all cursor-pointer ${
