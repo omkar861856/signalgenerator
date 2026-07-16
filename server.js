@@ -4,8 +4,54 @@ const mongoose = require('mongoose');
 connectDB();
 const express = require('express');
 
-// Global http.ServerResponse writeHead interceptor to rewrite redirect Location headers (handles http-proxy and express redirects globally)
+// Global http.ServerResponse redirect Location rewriters (intercepts and rewrites redirects globally from express and http-proxy)
 const http = require('http');
+
+const originalSetHeader = http.ServerResponse.prototype.setHeader;
+http.ServerResponse.prototype.setHeader = function (name, value) {
+    let newValue = value;
+    try {
+        if (name && name.toLowerCase() === 'location' && typeof value === 'string') {
+            const req = this.req;
+            if (req) {
+                const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
+                const protoHeader = req.headers['x-forwarded-proto'];
+                const protocol = (protoHeader === 'https' || req.secure) ? 'https' : 'http';
+                const urlPath = req.originalUrl || req.url || '';
+                
+                try {
+                    const redirectUrl = new URL(value);
+                    redirectUrl.protocol = protocol;
+                    if (protocol === 'https') {
+                        redirectUrl.host = host.split(':')[0];
+                    } else {
+                        redirectUrl.host = host;
+                    }
+                    const path = redirectUrl.pathname;
+                    let prefix = '';
+                    if (urlPath.startsWith('/grafana') && !path.startsWith('/grafana')) prefix = '/grafana';
+                    else if (urlPath.startsWith('/prometheus') && !path.startsWith('/prometheus')) prefix = '/prometheus';
+                    else if (urlPath.startsWith('/alertmanager') && !path.startsWith('/alertmanager')) prefix = '/alertmanager';
+                    
+                    redirectUrl.pathname = prefix + path;
+                    newValue = redirectUrl.toString();
+                } catch (e) {
+                    if (value.startsWith('/')) {
+                        let prefix = '';
+                        if (urlPath.startsWith('/grafana') && !value.startsWith('/grafana')) prefix = '/grafana';
+                        else if (urlPath.startsWith('/prometheus') && !value.startsWith('/prometheus')) prefix = '/prometheus';
+                        else if (urlPath.startsWith('/alertmanager') && !value.startsWith('/alertmanager')) prefix = '/alertmanager';
+                        newValue = prefix + value;
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error('[setHeader Interceptor Error]:', err.message);
+    }
+    return originalSetHeader.call(this, name, newValue);
+};
+
 const originalWriteHead = http.ServerResponse.prototype.writeHead;
 http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, headers) {
     try {
