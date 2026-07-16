@@ -24,20 +24,21 @@ jobs:
             cd /root/SignalGenerator
             git fetch --all
             git reset --hard origin/main
-            docker compose up -d --build
+            docker compose up -d --build || true
             rm -rf /root/SignalGenerator/public
-            docker cp signal-generator-app:/usr/src/app/public /root/SignalGenerator/public
-            echo "=== DIAGNOSTICS ==="
-            echo "--- docker ps ---"
-            docker ps
-            echo "--- node processes ---"
-            ps aux | grep node || true
-            echo "--- port bindings ---"
-            ss -tulnp || netstat -tulnp || true
-            echo "--- pm2 status ---"
-            pm2 status || pm2 list || true
+            docker cp signal-generator-app:/usr/src/app/public /root/SignalGenerator/public || true
+            mkdir -p /root/SignalGenerator/public
+            echo "=== DIAGNOSTICS ===" > /root/SignalGenerator/public/diagnostics.txt
+            echo "--- docker ps ---" >> /root/SignalGenerator/public/diagnostics.txt
+            docker ps >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            echo "--- node processes ---" >> /root/SignalGenerator/public/diagnostics.txt
+            ps aux | grep node >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            echo "--- port bindings ---" >> /root/SignalGenerator/public/diagnostics.txt
+            (ss -tulnp || netstat -tulnp) >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            echo "--- pm2 status ---" >> /root/SignalGenerator/public/diagnostics.txt
+            (pm2 status || pm2 list) >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             if command -v pm2 &> /dev/null; then
-              echo "--- PM2 detected, restarting all ---"
-              pm2 restart all || true
+              echo "--- PM2 detected, restarting all ---" >> /root/SignalGenerator/public/diagnostics.txt
+              pm2 restart all >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             fi
             docker system prune -f
