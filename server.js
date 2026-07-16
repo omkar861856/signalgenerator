@@ -4407,12 +4407,61 @@ function mcpProxy(req, res) {
 // Register before bodyParser so raw body is forwarded
 app.use('/mcp', (req, res) => mcpProxy(req, res));
 
-// Trailing slash redirect for reverse proxied paths (essential for correct relative asset loading in browser)
+// Trailing slash redirect and dynamic redirect rewriter for reverse proxied paths (essential for correct asset loading)
 app.use((req, res, next) => {
     const p = req.path;
     if (['/grafana', '/prometheus', '/alertmanager'].includes(p)) {
         return res.redirect(301, p + '/' + (req.url.slice(p.length) || ''));
     }
+
+    const originalWriteHead = res.writeHead;
+    res.writeHead = function (statusCode, headers) {
+        let location = res.getHeader('Location') || (headers && (headers.Location || headers.location));
+        if (location) {
+            const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
+            const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+            
+            try {
+                // If absolute URL, rewrite origin to correct HTTPS domain
+                const redirectUrl = new URL(location);
+                redirectUrl.protocol = protocol;
+                if (protocol === 'https') {
+                    redirectUrl.host = host.split(':')[0];
+                } else {
+                    redirectUrl.host = host;
+                }
+                
+                // Keep subpath prefix if needed
+                const path = redirectUrl.pathname;
+                let prefix = '';
+                if (req.originalUrl.startsWith('/grafana') && !path.startsWith('/grafana')) prefix = '/grafana';
+                else if (req.originalUrl.startsWith('/prometheus') && !path.startsWith('/prometheus')) prefix = '/prometheus';
+                else if (req.originalUrl.startsWith('/alertmanager') && !path.startsWith('/alertmanager')) prefix = '/alertmanager';
+                
+                redirectUrl.pathname = prefix + path;
+                res.setHeader('Location', redirectUrl.toString());
+                if (headers) {
+                    if (headers.Location) headers.Location = redirectUrl.toString();
+                    if (headers.location) headers.location = redirectUrl.toString();
+                }
+            } catch (e) {
+                // Prepend correct prefix to relative redirects
+                if (location.startsWith('/')) {
+                    let prefix = '';
+                    if (req.originalUrl.startsWith('/grafana') && !location.startsWith('/grafana')) prefix = '/grafana';
+                    else if (req.originalUrl.startsWith('/prometheus') && !location.startsWith('/prometheus')) prefix = '/prometheus';
+                    else if (req.originalUrl.startsWith('/alertmanager') && !location.startsWith('/alertmanager')) prefix = '/alertmanager';
+                    res.setHeader('Location', prefix + location);
+                    if (headers) {
+                        if (headers.Location) headers.Location = prefix + location;
+                        if (headers.location) headers.location = prefix + location;
+                    }
+                }
+            }
+        }
+        return originalWriteHead.apply(this, arguments);
+    };
+
     next();
 });
 
