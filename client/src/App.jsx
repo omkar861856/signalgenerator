@@ -3862,9 +3862,12 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             {/* Monitoring Stack Check Row */}
             <div className="glass-panel p-3.5 flex flex-wrap items-center justify-between border-slate-800 bg-[#0f1524]/40 backdrop-blur-md rounded-xl gap-4">
               <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-                  <Activity className="h-4 w-4 text-rose-500 animate-pulse" />
-                  Monitoring Stack Check:
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
+                    <Activity className="h-4 w-4 text-rose-500 animate-pulse" />
+                    Monitoring Stack Check:
+                  </div>
+                  <span className="text-[10px] text-slate-500">Grafana Credentials: <code className="text-slate-400 bg-white/5 px-1 py-0.5 rounded font-mono">admin</code> / <code className="text-slate-400 bg-white/5 px-1 py-0.5 rounded font-mono">admin</code></span>
                 </div>
 
                 {/* Grafana Button */}
