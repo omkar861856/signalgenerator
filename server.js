@@ -63,7 +63,10 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
     } catch (globalErr) {
         console.error('[writeHead Interceptor Error]:', globalErr.message);
     }
-    return originalWriteHead.apply(this, arguments);
+    if (typeof statusMessage === 'object') {
+        return originalWriteHead.call(this, statusCode, actualHeaders);
+    }
+    return originalWriteHead.call(this, statusCode, statusMessage, headers);
 };
 
 
