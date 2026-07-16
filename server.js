@@ -4415,12 +4415,18 @@ const alertmanagerHost = process.env.ALERTMANAGER_HOST || 'localhost';
 
 const rewriteRedirect = (proxyRes, req, res) => {
     if (proxyRes.headers.location) {
-        const host = req.headers.host;
-        const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+        const host = req.headers['x-forwarded-host'] || req.headers.host;
+        const protocol = req.headers['x-forwarded-proto'] || (req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http');
         try {
             const redirectUrl = new URL(proxyRes.headers.location);
             redirectUrl.protocol = protocol;
-            redirectUrl.host = host;
+            
+            // If secure production HTTPS, strip any port number from host
+            if (protocol === 'https') {
+                redirectUrl.host = host.split(':')[0];
+            } else {
+                redirectUrl.host = host;
+            }
             
             // Ensure the path retains the subpath prefix if the target didn't prepend it
             const path = redirectUrl.pathname;
@@ -4460,7 +4466,6 @@ app.use('/grafana', createProxyMiddleware({
         '^/grafana': '', // Strip /grafana prefix before forwarding
     },
     ws: true, // Enable websocket proxying for live feeds
-    autoRewrite: true,
     onProxyRes: rewriteRedirect,
     logLevel: 'warn',
 }));
@@ -4471,7 +4476,6 @@ app.use('/prometheus', createProxyMiddleware({
     pathRewrite: {
         '^/prometheus': '',
     },
-    autoRewrite: true,
     onProxyRes: rewriteRedirect,
     logLevel: 'warn',
 }));
@@ -4482,7 +4486,6 @@ app.use('/alertmanager', createProxyMiddleware({
     pathRewrite: {
         '^/alertmanager': '',
     },
-    autoRewrite: true,
     onProxyRes: rewriteRedirect,
     logLevel: 'warn',
 }));
