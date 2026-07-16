@@ -1023,24 +1023,37 @@ export default function App() {
   };
 
   const updateDashboardData = async () => {
+    if (!appConfig.hasAccessToken) return;
     try {
+      const fetchJson = async (url) => {
+        const res = await fetch(url);
+        if (res.status === 401) {
+          setAppConfig(prev => ({ ...prev, hasAccessToken: false }));
+          throw new Error('Unauthorized');
+        }
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return res.json();
+      };
+
       // Parallel fetches for standard dashboard info
       const [marginsRes, gttRes, holdingsRes, positionsRes, memoriesRes] = await Promise.all([
-        fetch('/api/margins').then(r => r.json()),
-        fetch('/api/gtt/triggers').then(r => r.json()),
-        fetch('/api/holdings').then(r => r.json()),
-        fetch('/api/positions').then(r => r.json()),
-        fetch('/api/memory').then(r => r.json())
+        fetchJson('/api/margins').catch(() => null),
+        fetchJson('/api/gtt/triggers').catch(() => []),
+        fetchJson('/api/holdings').catch(() => []),
+        fetchJson('/api/positions').catch(() => ({ net: [] })),
+        fetchJson('/api/memory').catch(() => ({ memories: [] }))
       ]);
 
-      setMargins(marginsRes);
-      if (marginsRes?.lastReallocationTime) {
-        setLastReallocationTime(marginsRes.lastReallocationTime);
+      if (marginsRes) {
+        setMargins(marginsRes);
+        if (marginsRes.lastReallocationTime) {
+          setLastReallocationTime(marginsRes.lastReallocationTime);
+        }
       }
-      setGttTriggers(gttRes || []);
-      setHoldings(holdingsRes || []);
-      setPositions(positionsRes.net || []);
-      setMemories(memoriesRes.memories || []);
+      setGttTriggers(Array.isArray(gttRes) ? gttRes : []);
+      setHoldings(Array.isArray(holdingsRes) ? holdingsRes : []);
+      setPositions(positionsRes && Array.isArray(positionsRes.net) ? positionsRes.net : []);
+      setMemories(memoriesRes && Array.isArray(memoriesRes.memories) ? memoriesRes.memories : []);
 
       console.log('[Dashboard Data] margins:', marginsRes);
       console.log('[Dashboard Data] positions & charges:', positionsRes);
@@ -1051,15 +1064,26 @@ export default function App() {
 
   // 1-second pipeline check
   const runIntradayPipeline = async () => {
+    if (!appConfig.hasAccessToken) return;
     if (isPipelineRunning.current) return;
     isPipelineRunning.current = true;
 
     try {
+      const fetchJson = async (url) => {
+        const res = await fetch(url);
+        if (res.status === 401) {
+          setAppConfig(prev => ({ ...prev, hasAccessToken: false }));
+          throw new Error('Unauthorized');
+        }
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return res.json();
+      };
+
       // Standard pipeline sync
       const [positionsRes, gttRes, marginsRes] = await Promise.all([
-        fetch('/api/positions').then(r => r.json()),
-        fetch('/api/gtt/triggers').then(r => r.json()),
-        fetch('/api/margins').then(r => r.json())
+        fetchJson('/api/positions').catch(() => ({ net: [] })),
+        fetchJson('/api/gtt/triggers').catch(() => []),
+        fetchJson('/api/margins').catch(() => null)
       ]);
 
       // Time-based exit check (at/after 3:24 PM)
@@ -1068,7 +1092,7 @@ export default function App() {
       const minutes = now.getMinutes();
       const isAutoExitTime = (hours === 15 && minutes >= 24) || (hours >= 16);
 
-      const netPositions = positionsRes.net || [];
+      const netPositions = (positionsRes && Array.isArray(positionsRes.net)) ? positionsRes.net : [];
       const hasActiveMis = netPositions.some(p => p.product === 'MIS' && Math.abs(p.quantity) > 0);
 
       if (isAutoExitTime && hasActiveMis) {
@@ -1076,12 +1100,12 @@ export default function App() {
       }
 
       // Update API calls statistics
-      if (positionsRes.apiStats) {
+      if (positionsRes && positionsRes.apiStats) {
         setApiStats(positionsRes.apiStats);
       }
 
       // Extract and set liveQuotes from backend in-memory cache, preserving high-fidelity browser WS quotes if connected
-      if (positionsRes.liveQuotes) {
+      if (positionsRes && positionsRes.liveQuotes) {
         setLiveQuotes(prev => {
           const next = { ...prev };
           Object.keys(positionsRes.liveQuotes).forEach(tok => {
@@ -1095,27 +1119,29 @@ export default function App() {
       }
 
       // Synchronize database state limits
-      if (positionsRes.profitTargetExit !== undefined) {
+      if (positionsRes && positionsRes.profitTargetExit !== undefined) {
         setProfitTargetExit(positionsRes.profitTargetExit);
         if (!isPnlFormDirty) setProfitTargetExitDraft(positionsRes.profitTargetExit === 0 ? '' : String(positionsRes.profitTargetExit));
       }
-      if (positionsRes.lossTargetExit !== undefined) {
+      if (positionsRes && positionsRes.lossTargetExit !== undefined) {
         setLossTargetExit(positionsRes.lossTargetExit);
         if (!isPnlFormDirty) setLossTargetExitDraft(positionsRes.lossTargetExit === 0 ? '' : String(positionsRes.lossTargetExit));
       }
-      if (positionsRes.pnlExitMode !== undefined) {
+      if (positionsRes && positionsRes.pnlExitMode !== undefined) {
         setPnlExitMode(positionsRes.pnlExitMode);
         if (!isPnlFormDirty) setPnlExitModeDraft(positionsRes.pnlExitMode);
       }
-      if (positionsRes.pnlExitAutoEnabled !== undefined) {
+      if (positionsRes && positionsRes.pnlExitAutoEnabled !== undefined) {
         setPnlExitAutoEnabled(positionsRes.pnlExitAutoEnabled);
         if (!isPnlFormDirty) setPnlExitAutoEnabledDraft(positionsRes.pnlExitAutoEnabled);
       }
-      if (positionsRes.totalCharges !== undefined) setTotalCharges(positionsRes.totalCharges);
+      if (positionsRes && positionsRes.totalCharges !== undefined) setTotalCharges(positionsRes.totalCharges);
 
-      setPositions(positionsRes.net || []);
-      setGttTriggers(gttRes || []);
-      setMargins(marginsRes);
+      setPositions(netPositions);
+      setGttTriggers(Array.isArray(gttRes) ? gttRes : []);
+      if (marginsRes) {
+        setMargins(marginsRes);
+      }
 
       // Track active check time
       setLastIntradayCheckedTime(Date.now());
@@ -6649,10 +6675,13 @@ function TradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subscri
       const res = await fetch('/api/positions');
       if (res.ok) {
         const data = await res.json();
-        setPositions(data.net || []);
+        setPositions(Array.isArray(data.net) ? data.net : []);
+      } else {
+        setPositions([]);
       }
     } catch (err) {
       console.error('Error fetching positions for TradingView matrix:', err);
+      setPositions([]);
     } finally {
       setLoading(false);
     }
@@ -7087,10 +7116,13 @@ function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subs
       const res = await fetch('/api/positions?type=fno');
       if (res.ok) {
         const data = await res.json();
-        setPositions(data.net || []);
+        setPositions(Array.isArray(data.net) ? data.net : []);
+      } else {
+        setPositions([]);
       }
     } catch (err) {
       console.error('Error fetching positions for F&O matrix:', err);
+      setPositions([]);
     } finally {
       setLoading(false);
     }
