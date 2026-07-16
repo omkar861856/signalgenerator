@@ -3859,6 +3859,70 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               </Button>
             </div>
 
+            {/* Monitoring Stack Check Row */}
+            <div className="glass-panel p-3.5 flex flex-wrap items-center justify-between border-slate-800 bg-[#0f1524]/40 backdrop-blur-md rounded-xl gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
+                  <Activity className="h-4 w-4 text-rose-500 animate-pulse" />
+                  Monitoring Stack Check:
+                </div>
+
+                {/* Grafana Button */}
+                <a 
+                  href="http://localhost:3000/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 text-xs text-slate-300 transition-all hover:border-rose-500/30 group cursor-pointer"
+                  title="Open Grafana Dashboard"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] uppercase font-bold text-rose-400">Grafana</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Port 3000</span>
+                </a>
+
+                {/* Prometheus Button */}
+                <a 
+                  href="http://localhost:9090" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 text-xs text-slate-300 transition-all hover:border-orange-500/30 group cursor-pointer"
+                  title="Open Prometheus Scraper"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] uppercase font-bold text-orange-400">Prometheus</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Port 9090</span>
+                </a>
+
+                {/* Alertmanager Button */}
+                <a 
+                  href="http://localhost:9093" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 text-xs text-slate-300 transition-all hover:border-amber-500/30 group cursor-pointer"
+                  title="Open Alertmanager"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] uppercase font-bold text-amber-400">Alertmanager</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Port 9093</span>
+                </a>
+
+                {/* Loki Indicator */}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-white/5 text-xs text-slate-300">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] uppercase font-bold text-indigo-400">Loki Logs</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Port 3100</span>
+                </div>
+              </div>
+              
+              <button 
+                onClick={() => setView('monitoring')}
+                className="px-3.5 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border-0"
+              >
+                <Cpu className="h-3.5 w-3.5" />
+                Go to Telemetry Tab
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
             {/* LEFT COLUMN: Live WebSocket Quotes Stream at the top, Order Decisions Sheet below it */}
             <div className="xl:col-span-3 flex flex-col gap-6">
