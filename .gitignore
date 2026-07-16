@@ -3,7 +3,8 @@ node_modules/
 .session_cache.json
 __pycache__/
 .venv/
-scratch/
+scratch/*
+!scratch/vectorbt/
 .DS_Store
 
 # Vite Client Build Outputs
