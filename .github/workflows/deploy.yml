@@ -24,31 +24,7 @@ jobs:
             cd /root/SignalGenerator
             git fetch --all
             git reset --hard origin/main
-            docker compose up -d --build > /root/compose_output.txt 2>&1 || true
+            docker compose up -d --build
             rm -rf /root/SignalGenerator/public
-            docker cp signal-generator-app:/usr/src/app/public /root/SignalGenerator/public || true
-            mkdir -p /root/SignalGenerator/public
-            echo "=== DIAGNOSTICS ===" > /root/SignalGenerator/public/diagnostics.txt
-            echo "--- docker compose build output ---" >> /root/SignalGenerator/public/diagnostics.txt
-            cat /root/compose_output.txt >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            echo "--- docker ps ---" >> /root/SignalGenerator/public/diagnostics.txt
-            docker ps >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            echo "--- node processes ---" >> /root/SignalGenerator/public/diagnostics.txt
-            ps aux | grep node >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            echo "--- port bindings ---" >> /root/SignalGenerator/public/diagnostics.txt
-            (ss -tulnp || netstat -tulnp) >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            echo "--- pm2 status ---" >> /root/SignalGenerator/public/diagnostics.txt
-            (pm2 status || pm2 list) >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            echo "--- nginx config ---" >> /root/SignalGenerator/public/diagnostics.txt
-            echo "--- docker ps -a ---" >> /root/SignalGenerator/public/diagnostics.txt
-            docker ps -a >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            echo "--- docker logs signal-generator-app ---" >> /root/SignalGenerator/public/diagnostics.txt
-            docker logs --tail 100 signal-generator-app >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            echo "--- docker logs signal-generator-vectorbt ---" >> /root/SignalGenerator/public/diagnostics.txt
-            docker logs --tail 100 signal-generator-vectorbt >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            if command -v pm2 &> /dev/null; then
-              echo "--- PM2 detected, restarting all ---" >> /root/SignalGenerator/public/diagnostics.txt
-              pm2 restart all >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            fi
-            curl -d "$(cat /root/SignalGenerator/public/diagnostics.txt)" ntfy.sh/signalgenerator_diagnostics_omkar || true
+            docker cp signal-generator-app:/usr/src/app/public /root/SignalGenerator/public
             docker system prune -f
