@@ -1269,6 +1269,10 @@ app.get('/api/candles', requireAuth, async (req, res) => {
     }
 });
 
+app.get('/api/test-redirect', (req, res) => {
+    res.redirect(302, 'http://localhost:3000/test-path');
+});
+
 app.get('/api/backtest/collections', requireAuth, async (req, res) => {
     try {
         const stats = await HistoricalCandle.aggregate([
