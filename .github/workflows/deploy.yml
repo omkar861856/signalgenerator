@@ -25,4 +25,6 @@ jobs:
             git fetch --all
             git reset --hard origin/main
             docker compose up -d --build
+            rm -rf /root/SignalGenerator/public
+            docker cp signal-generator-app:/usr/src/app/public /root/SignalGenerator/public
             docker system prune -f
