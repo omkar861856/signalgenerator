@@ -7,17 +7,27 @@ const express = require('express');
 // Global http.ServerResponse redirect Location rewriters (intercepts and rewrites redirects globally from express and http-proxy)
 const http = require('http');
 
+global.redirectDebugLogs = [];
+function logRedirect(msg) {
+    global.redirectDebugLogs.push(`[${new Date().toISOString()}] ${msg}`);
+    if (global.redirectDebugLogs.length > 100) global.redirectDebugLogs.shift();
+}
+
 const originalSetHeader = http.ServerResponse.prototype.setHeader;
 http.ServerResponse.prototype.setHeader = function (name, value) {
     let newValue = value;
     try {
         if (name && name.toLowerCase() === 'location' && typeof value === 'string') {
             const req = this.req;
-            if (req) {
+            if (!req) {
+                logRedirect(`setHeader: [req is undefined] Location=${value}`);
+            } else {
                 const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
                 const protoHeader = req.headers['x-forwarded-proto'];
                 const protocol = (protoHeader === 'https' || req.secure) ? 'https' : 'http';
                 const urlPath = req.originalUrl || req.url || '';
+                
+                logRedirect(`setHeader: req.url=${req.url}, originalUrl=${req.originalUrl}, host=${host}, proto=${protocol}, value=${value}`);
                 
                 try {
                     const redirectUrl = new URL(value);
@@ -35,6 +45,7 @@ http.ServerResponse.prototype.setHeader = function (name, value) {
                     
                     redirectUrl.pathname = prefix + path;
                     newValue = redirectUrl.toString();
+                    logRedirect(`setHeader: SUCCESS absolute rewrite. newValue=${newValue}`);
                 } catch (e) {
                     if (value.startsWith('/')) {
                         let prefix = '';
@@ -42,12 +53,15 @@ http.ServerResponse.prototype.setHeader = function (name, value) {
                         else if (urlPath.startsWith('/prometheus') && !value.startsWith('/prometheus')) prefix = '/prometheus';
                         else if (urlPath.startsWith('/alertmanager') && !value.startsWith('/alertmanager')) prefix = '/alertmanager';
                         newValue = prefix + value;
+                        logRedirect(`setHeader: SUCCESS relative rewrite. newValue=${newValue}`);
+                    } else {
+                        logRedirect(`setHeader: IGNORED relative value=${value}`);
                     }
                 }
             }
         }
     } catch (err) {
-        console.error('[setHeader Interceptor Error]:', err.message);
+        logRedirect(`setHeader: ERROR message=${err.message}`);
     }
     return originalSetHeader.call(this, name, newValue);
 };
@@ -62,11 +76,15 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
         let location = this.getHeader('Location') || (actualHeaders && (actualHeaders.Location || actualHeaders.location));
         if (location && typeof location === 'string') {
             const req = this.req;
-            if (req) {
+            if (!req) {
+                logRedirect(`writeHead: [req is undefined] Location=${location}`);
+            } else {
                 const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
                 const protoHeader = req.headers['x-forwarded-proto'];
                 const protocol = (protoHeader === 'https' || req.secure) ? 'https' : 'http';
                 const urlPath = req.originalUrl || req.url || '';
+                
+                logRedirect(`writeHead: req.url=${req.url}, originalUrl=${req.originalUrl}, host=${host}, proto=${protocol}, location=${location}`);
                 
                 try {
                     const redirectUrl = new URL(location);
@@ -89,6 +107,7 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
                         if (actualHeaders.Location) actualHeaders.Location = newLocation;
                         if (actualHeaders.location) actualHeaders.location = newLocation;
                     }
+                    logRedirect(`writeHead: SUCCESS absolute rewrite. newLocation=${newLocation}`);
                 } catch (e) {
                     if (location.startsWith('/')) {
                         let prefix = '';
@@ -102,12 +121,15 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
                             if (actualHeaders.Location) actualHeaders.Location = newLocation;
                             if (actualHeaders.location) actualHeaders.location = newLocation;
                         }
+                        logRedirect(`writeHead: SUCCESS relative rewrite. newLocation=${newLocation}`);
+                    } else {
+                        logRedirect(`writeHead: IGNORED relative location=${location}`);
                     }
                 }
             }
         }
     } catch (globalErr) {
-        console.error('[writeHead Interceptor Error]:', globalErr.message);
+        logRedirect(`writeHead: GLOBAL ERROR message=${globalErr.message}`);
     }
     if (typeof statusMessage === 'object') {
         return originalWriteHead.call(this, statusCode, actualHeaders);
@@ -1317,6 +1339,10 @@ app.get('/api/candles', requireAuth, async (req, res) => {
 
 app.get('/api/test-redirect', (req, res) => {
     res.redirect(302, 'http://localhost:3000/test-path');
+});
+
+app.get('/api/debug-redirects', (req, res) => {
+    res.json({ logs: global.redirectDebugLogs || [] });
 });
 
 app.get('/api/backtest/collections', requireAuth, async (req, res) => {
