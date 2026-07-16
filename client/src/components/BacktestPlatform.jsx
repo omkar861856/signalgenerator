@@ -1,11 +1,59 @@
-import React, { useState, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Info, Search, ListFilter, Sliders } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { TrendingUp, TrendingDown, Info, Search, ListFilter, Sliders, AreaChart } from 'lucide-react';
+import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 
-export default function BacktestPlatform({ candles, symbol, interval }) {
+// Helper to calculate EMA
+const calculateEMA = (data, period) => {
+  if (data.length === 0) return [];
+  const k = 2 / (period + 1);
+  let emaArray = [];
+  let ema = data[0].close;
+  emaArray.push({ time: data[0].time, value: ema });
+  for (let i = 1; i < data.length; i++) {
+    ema = data[i].close * k + ema * (1 - k);
+    emaArray.push({ time: data[i].time, value: parseFloat(ema.toFixed(2)) });
+  }
+  return emaArray;
+};
+
+// Helper to calculate Bollinger Bands
+const calculateBB = (data, period = 20, multiplier = 2) => {
+  if (!data || data.length < period) return [];
+  const bands = [];
+  
+  for (let i = period - 1; i < data.length; i++) {
+    const slice = data.slice(i - period + 1, i + 1);
+    const sum = slice.reduce((acc, c) => acc + c.close, 0);
+    const middle = sum / period;
+    
+    const variance = slice.reduce((acc, c) => acc + Math.pow(c.close - middle, 2), 0) / period;
+    const stdDev = Math.sqrt(variance);
+    
+    bands.push({
+      time: data[i].time,
+      middle: parseFloat(middle.toFixed(2)),
+      upper: parseFloat((middle + multiplier * stdDev).toFixed(2)),
+      lower: parseFloat((middle - multiplier * stdDev).toFixed(2))
+    });
+  }
+  
+  return bands;
+};
+
+export default function BacktestPlatform({ candles, symbol, interval, trades = [] }) {
   // Filters state
   const [filterType, setFilterType] = useState('all'); // 'all' | 'bullish' | 'bearish'
   const [minVolume, setMinVolume] = useState('');
   const [dateSearch, setDateSearch] = useState('');
+  
+  // Indicator states
+  const [showEMA9, setShowEMA9] = useState(true);
+  const [showEMA21, setShowEMA21] = useState(true);
+  const [showBB, setShowBB] = useState(false);
+
+  const chartContainerRef = useRef();
+  const candlestickSeriesRef = useRef(null);
+  const markersApiRef = useRef(null);
 
   // 1. Filter the raw data
   const filteredCandles = useMemo(() => {
@@ -75,6 +123,189 @@ export default function BacktestPlatform({ candles, symbol, interval }) {
       avgChangePct: totalChangePct / total
     };
   }, [filteredCandles]);
+
+  // Format candles strictly for lightweight-charts rendering
+  const chartData = useMemo(() => {
+    if (!candles || candles.length === 0) return [];
+    const seenTimes = new Set();
+    const unique = [];
+    
+    // Sort to ensure chronological order
+    const sorted = [...candles].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    
+    sorted.forEach(c => {
+      const tSec = Math.floor(new Date(c.time).getTime() / 1000);
+      if (!seenTimes.has(tSec)) {
+        seenTimes.add(tSec);
+        unique.push({
+          time: tSec,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close
+        });
+      }
+    });
+    return unique;
+  }, [candles]);
+
+  // Effect to construct lightweight-chart
+  useEffect(() => {
+    if (!chartContainerRef.current || chartData.length === 0) return;
+    
+    chartContainerRef.current.innerHTML = '';
+    
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth || 800,
+      height: 380,
+      layout: {
+        background: { color: '#0B0F19' },
+        textColor: '#94A3B8',
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+      },
+      crosshair: {
+        mode: 0,
+      },
+      localization: {
+        timeFormatter: (time) => {
+          const date = new Date(time * 1000);
+          return date.toLocaleString('en-US', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+        }
+      },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+    
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#10b981',
+      downColor: '#ef4444',
+      borderVisible: false,
+      wickUpColor: '#10b981',
+      wickDownColor: '#ef4444',
+    });
+    
+    candlestickSeries.setData(chartData);
+    candlestickSeriesRef.current = candlestickSeries;
+    markersApiRef.current = createSeriesMarkers(candlestickSeries);
+    
+    // Fit content
+    chart.timeScale().fitContent();
+
+    // EMA 9 Line
+    if (showEMA9) {
+      const ema9Data = calculateEMA(chartData, 9);
+      const ema9Series = chart.addSeries(LineSeries, {
+        color: '#3b82f6',
+        lineWidth: 1.5,
+        title: 'EMA 9',
+      });
+      ema9Series.setData(ema9Data);
+    }
+    
+    // EMA 21 Line
+    if (showEMA21) {
+      const ema21Data = calculateEMA(chartData, 21);
+      const ema21Series = chart.addSeries(LineSeries, {
+        color: '#f97316',
+        lineWidth: 1.5,
+        title: 'EMA 21',
+      });
+      ema21Series.setData(ema21Data);
+    }
+    
+    // Bollinger Bands Lines
+    if (showBB) {
+      const bbData = calculateBB(chartData, 20, 2);
+      
+      const upperSeries = chart.addSeries(LineSeries, {
+        color: 'rgba(168, 85, 247, 0.4)',
+        lineWidth: 1,
+        title: 'BB Upper',
+      });
+      const middleSeries = chart.addSeries(LineSeries, {
+        color: 'rgba(168, 85, 247, 0.2)',
+        lineWidth: 1,
+        title: 'BB Basis',
+      });
+      const lowerSeries = chart.addSeries(LineSeries, {
+        color: 'rgba(168, 85, 247, 0.4)',
+        lineWidth: 1,
+        title: 'BB Lower',
+      });
+      
+      upperSeries.setData(bbData.map(d => ({ time: d.time, value: d.upper })));
+      middleSeries.setData(bbData.map(d => ({ time: d.time, value: d.middle })));
+      lowerSeries.setData(bbData.map(d => ({ time: d.time, value: d.lower })));
+    }
+    
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.resize(chartContainerRef.current.clientWidth, 380);
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+      candlestickSeriesRef.current = null;
+      markersApiRef.current = null;
+    };
+  }, [chartData, showEMA9, showEMA21, showBB]);
+
+  useEffect(() => {
+    if (!markersApiRef.current) return;
+    
+    if (trades && trades.length > 0) {
+      const markers = [];
+      trades.forEach(trade => {
+        const entrySec = Math.floor(new Date(trade.entryTime).getTime() / 1000);
+        const exitSec = Math.floor(new Date(trade.exitTime).getTime() / 1000);
+        
+        // Add Entry marker
+        markers.push({
+          time: entrySec,
+          position: trade.direction === 'LONG' ? 'belowBar' : 'aboveBar',
+          color: trade.direction === 'LONG' ? '#10b981' : '#ef4444',
+          shape: trade.direction === 'LONG' ? 'arrowUp' : 'arrowDown',
+          text: `${trade.direction === 'LONG' ? 'BUY' : 'SELL'} @ ₹${trade.entryPrice.toFixed(1)}`
+        });
+        
+        // Add Exit marker
+        markers.push({
+          time: exitSec,
+          position: trade.direction === 'LONG' ? 'aboveBar' : 'belowBar',
+          color: '#a855f7',
+          shape: trade.direction === 'LONG' ? 'arrowDown' : 'arrowUp',
+          text: `EXIT @ ₹${trade.exitPrice.toFixed(1)}`
+        });
+      });
+      
+      // Sort markers chronologically by time
+      markers.sort((a, b) => a.time - b.time);
+      
+      const validTimes = new Set(chartData.map(d => d.time));
+      const filteredMarkers = markers.filter(m => validTimes.has(m.time));
+      
+      markersApiRef.current.setMarkers(filteredMarkers);
+    } else {
+      markersApiRef.current.setMarkers([]);
+    }
+  }, [trades, chartData]);
 
   if (!candles || candles.length === 0) {
     return (
@@ -166,7 +397,53 @@ export default function BacktestPlatform({ candles, symbol, interval }) {
         </div>
       </div>
 
-      {/* 2. Interactive Search & Filters Panel */}
+      {/* 2. Interactive Candlestick Chart Widget */}
+      <div className="glass-panel border-0 p-5 rounded-2xl flex flex-col gap-4">
+        <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+          <div className="flex items-center gap-2">
+            <AreaChart className="w-4.5 h-4.5 text-indigo-400 animate-pulse" />
+            <h3 className="text-xs uppercase font-bold tracking-wider text-indigo-300 font-display">Backtest Candlestick Chart</h3>
+          </div>
+          
+          {/* Indicator toggles */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowEMA9(!showEMA9)}
+              className={`text-[9px] font-bold px-2.5 py-1 rounded-md transition-all cursor-pointer border ${
+                showEMA9
+                  ? 'bg-blue-500/20 border-blue-500/30 text-blue-300'
+                  : 'bg-white/[0.01] border-white/5 text-slate-500 hover:text-slate-400'
+              }`}
+            >
+              EMA 9
+            </button>
+            <button
+              onClick={() => setShowEMA21(!showEMA21)}
+              className={`text-[9px] font-bold px-2.5 py-1 rounded-md transition-all cursor-pointer border ${
+                showEMA21
+                  ? 'bg-orange-500/20 border-orange-500/30 text-orange-300'
+                  : 'bg-white/[0.01] border-white/5 text-slate-500 hover:text-slate-400'
+              }`}
+            >
+              EMA 21
+            </button>
+            <button
+              onClick={() => setShowBB(!showBB)}
+              className={`text-[9px] font-bold px-2.5 py-1 rounded-md transition-all cursor-pointer border ${
+                showBB
+                  ? 'bg-purple-500/20 border-purple-500/30 text-purple-300'
+                  : 'bg-white/[0.01] border-white/5 text-slate-500 hover:text-slate-400'
+              }`}
+            >
+              Bollinger Bands
+            </button>
+          </div>
+        </div>
+        
+        <div ref={chartContainerRef} className="w-full h-[380px] rounded-xl overflow-hidden bg-[#0B0F19]" />
+      </div>
+
+      {/* 3. Interactive Search & Filters Panel */}
       <div className="glass-panel border-0 p-5 rounded-2xl flex flex-col gap-4">
         <div className="flex items-center gap-2 border-b border-white/5 pb-2.5">
           <Sliders className="w-4 h-4 text-indigo-400" />
@@ -237,7 +514,7 @@ export default function BacktestPlatform({ candles, symbol, interval }) {
         </div>
       </div>
 
-      {/* 3. Detailed Data Table */}
+      {/* 4. Detailed Data Table */}
       <div className="glass-panel border-0 rounded-2xl overflow-hidden flex flex-col">
         <div className="px-5 py-4 border-b border-white/5 bg-white/[0.01]">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Historical Candles Database</h3>

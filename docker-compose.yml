@@ -12,6 +12,7 @@ services:
     depends_on:
       - mongodb
       - redis
+      - vectorbt-service
     environment:
       - PORT=3005
       - MONGO_URI=mongodb://mongodb:27017/signalgenerator
@@ -19,6 +20,15 @@ services:
       - KITE_API_KEY=${KITE_API_KEY}
       - KITE_API_SECRET=${KITE_API_SECRET}
       - OpenAiApiKey=${OpenAiApiKey}
+
+  vectorbt-service:
+    build:
+      context: ./scratch/vectorbt
+      dockerfile: Dockerfile
+    container_name: signal-generator-vectorbt
+    restart: always
+    ports:
+      - "127.0.0.1:8000:8000"
 
   mongodb:
     image: mongo:6.0

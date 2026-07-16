@@ -38,7 +38,8 @@ const HistoricalCandleSchema = new mongoose.Schema({
     high: { type: Number, required: true },
     low: { type: Number, required: true },
     close: { type: Number, required: true },
-    volume: { type: Number, default: 0 }
+    volume: { type: Number, default: 0 },
+    oi: { type: Number, default: 0 }
 }, { collection: 'candles', timestamps: true });
 
 HistoricalCandleSchema.index({ symbol: 1, interval: 1, timestamp: 1 }, { unique: true });

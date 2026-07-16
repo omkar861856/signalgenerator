@@ -12,12 +12,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import BacktestPlatform from './components/BacktestPlatform';
-import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 
 // Formatting helper
 const formatCurrency = (val) => {
   if (typeof val !== 'number' || isNaN(val)) return '0.00';
   return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatBytes = (bytes) => {
+  if (typeof bytes !== 'number' || isNaN(bytes) || bytes === 0) return '0 B';
+  const k = 1024;
+  const dm = 2;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
 export default function App() {
@@ -180,6 +189,12 @@ export default function App() {
   const [subscribedCount, setSubscribedCount] = useState(0);
   const [backendWsLogs, setBackendWsLogs] = useState([]);
   const [networkIps, setNetworkIps] = useState([]);
+  const [dbSpace, setDbSpace] = useState(null);
+  const [dbSpaceLoading, setDbSpaceLoading] = useState(false);
+  const [dbBackups, setDbBackups] = useState({ backups: [], allSymbols: [], syncStatus: null });
+  const [dbBackupsLoading, setDbBackupsLoading] = useState(false);
+  const [dbBackupsSearch, setDbBackupsSearch] = useState('');
+  const [dbBackupsFilter, setDbBackupsFilter] = useState('all'); // 'all' | 'synced' | 'pending' | 'syncing'
   const [scannerSearchFilter, setScannerSearchFilter] = useState('');
 
   // Polled Live Data (Zerodha margins, holdings, positions, etc.)
@@ -256,16 +271,19 @@ export default function App() {
   const [backtestLeverage, setBacktestLeverage] = useState(5);
   const [backtestMarginPct, setBacktestMarginPct] = useState(100);
   const [backtestAllowShorting, setBacktestAllowShorting] = useState(true);
-  const [backtestIndicatorsJson, setBacktestIndicatorsJson] = useState(
-    JSON.stringify({
-      ema_fast: { type: 'EMA', period: 9 },
-      ema_slow: { type: 'EMA', period: 21 },
-      rsi: { type: 'RSI', period: 14 }
-    }, null, 4)
-  );
+  const [fastEmaPeriod, setFastEmaPeriod] = useState(9);
+  const [slowEmaPeriod, setSlowEmaPeriod] = useState(21);
+  const [rsiPeriod, setRsiPeriod] = useState(14);
+  const [buySignalExpr, setBuySignalExpr] = useState("close > ema_fast and ema_fast > ema_slow and rsi > 50");
+  const [sellSignalExpr, setSellSignalExpr] = useState("close < ema_fast or rsi < 40");
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState('');
   const [backtestResults, setBacktestResults] = useState(null);
+  const [backtestCandles, setBacktestCandles] = useState([]);
+  const [backtestChartLoading, setBacktestChartLoading] = useState(false);
+  
+  const lastAutoSymbolRef = useRef('');
+  const lastAutoIntervalRef = useRef('');
 
   // Backtest & Analysis View States
   const [chartSymbol, setChartSymbol] = useState('NSE:RELIANCE');
@@ -297,6 +315,10 @@ export default function App() {
               setChartInterval(data.stocks[0].intervals[0]);
             }
           }
+          setBacktestSymbol(prev => {
+            if (data.stocks.some(s => s.symbol === prev)) return prev;
+            return data.stocks[0].symbol;
+          });
         }
       }
     } catch (e) {
@@ -332,6 +354,47 @@ export default function App() {
       setChartLoading(false);
     }
   }, [chartSymbol, chartInterval, chartFromDate, chartToDate]);
+
+  const fetchBacktestCandles = useCallback(async () => {
+    if (!backtestSymbol) return;
+    setBacktestChartLoading(true);
+    try {
+      let kiteInterval = '15minute';
+      if (backtestInterval === 'minute') kiteInterval = 'minute';
+      else if (backtestInterval === '5minute') kiteInterval = '5minute';
+      else if (backtestInterval === '15minute') kiteInterval = '15minute';
+      else if (backtestInterval === '30minute') kiteInterval = '30minute';
+      else if (backtestInterval === '60minute') kiteInterval = '60minute';
+      else if (backtestInterval === 'day') kiteInterval = 'day';
+
+      const cleanSymbol = backtestSymbol.toUpperCase().replace(/^(NSE|BSE|MCX|NCDEX):/, '');
+      const res = await fetch(`/api/history?symbol=${cleanSymbol}&interval=${kiteInterval}`);
+      if (res.ok) {
+        const data = await res.json();
+        const loadedCandles = data.candles || [];
+        setBacktestCandles(loadedCandles);
+        
+        if (loadedCandles.length > 0 && (backtestSymbol !== lastAutoSymbolRef.current || backtestInterval !== lastAutoIntervalRef.current)) {
+          const firstDate = new Date(loadedCandles[0].time).toISOString().split('T')[0];
+          const lastDate = new Date(loadedCandles[loadedCandles.length - 1].time).toISOString().split('T')[0];
+          setBacktestFromDate(firstDate);
+          setBacktestToDate(lastDate);
+          lastAutoSymbolRef.current = backtestSymbol;
+          lastAutoIntervalRef.current = backtestInterval;
+        }
+      }
+    } catch (err) {
+      console.error('[Fetch Backtest Candles Error]:', err);
+    } finally {
+      setBacktestChartLoading(false);
+    }
+  }, [backtestSymbol, backtestInterval]);
+
+  useEffect(() => {
+    if (view === 'strategies') {
+      fetchBacktestCandles();
+    }
+  }, [view, backtestSymbol, backtestInterval, fetchBacktestCandles]);
 
   useEffect(() => {
     if (appConfig.hasAccessToken) {
@@ -655,6 +718,40 @@ export default function App() {
     };
   }, [view, appConfig.hasAccessToken]);
 
+  const fetchDbSpace = useCallback(async () => {
+    setDbSpaceLoading(true);
+    try {
+      const res = await fetch('/api/system/db-space');
+      const data = await res.json();
+      if (data.success) {
+        setDbSpace(data);
+      }
+    } catch (err) {
+      console.error('Error fetching db space stats:', err);
+    } finally {
+      setDbSpaceLoading(false);
+    }
+  }, []);
+
+  const fetchDbBackups = useCallback(async () => {
+    setDbBackupsLoading(true);
+    try {
+      const res = await fetch('/api/admin/db-backups');
+      const data = await res.json();
+      if (data.success) {
+        setDbBackups({
+          backups: data.backups || [],
+          allSymbols: data.allSymbols || [],
+          syncStatus: data.syncStatus || null
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching db backups list:', err);
+    } finally {
+      setDbBackupsLoading(false);
+    }
+  }, []);
+
   // Fetch Network IPs when on Admin view
   useEffect(() => {
     if (view === 'admin' && appConfig.hasAccessToken) {
@@ -666,8 +763,11 @@ export default function App() {
           }
         })
         .catch(err => console.error('Error fetching network IPs:', err));
+      
+      fetchDbSpace();
+      fetchDbBackups();
     }
-  }, [view, appConfig.hasAccessToken]);
+  }, [view, appConfig.hasAccessToken, fetchDbSpace, fetchDbBackups]);
 
   const runScanner = useCallback(async (scannerName = selectedScanner, indexName = selectedScannerIndex) => {
     setScannerLoading(true);
@@ -2087,14 +2187,15 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     setBacktestError('');
     setBacktestResults(null);
 
-    let indicatorsConfig = {};
-    try {
-      indicatorsConfig = JSON.parse(backtestIndicatorsJson);
-    } catch (err) {
-      showAlert('Invalid Indicators JSON format.');
-      setBacktestLoading(false);
-      return;
-    }
+    const indicatorsConfig = {
+      indicators: {
+        ema_fast: { type: 'EMA', period: Number(fastEmaPeriod) },
+        ema_slow: { type: 'EMA', period: Number(slowEmaPeriod) },
+        rsi: { type: 'RSI', period: Number(rsiPeriod) }
+      },
+      buy_signal: buySignalExpr,
+      sell_signal: sellSignalExpr
+    };
 
     try {
       const response = await fetch('/api/backtest', {
@@ -3309,12 +3410,19 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     <form onSubmit={(e) => { e.preventDefault(); handleRunBacktest(); }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1.5 text-xs">
                         <label className="text-slate-400 font-semibold">Symbol</label>
-                        <input 
-                          type="text" 
+                        <select 
                           value={backtestSymbol}
                           onChange={(e) => setBacktestSymbol(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none"
-                        />
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white outline-none cursor-pointer"
+                        >
+                          {availableStocks.length === 0 ? (
+                            <option value="">No synced symbols available</option>
+                          ) : (
+                            availableStocks.map((s, idx) => (
+                              <option key={idx} value={s.symbol}>{s.symbol}</option>
+                            ))
+                          )}
+                        </select>
                       </div>
                       
                       <div className="flex flex-col gap-1.5 text-xs">
@@ -3394,13 +3502,54 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         <label htmlFor="allow-shorting" className="text-slate-300 font-semibold text-xs cursor-pointer">Allow Short Positions</label>
                       </div>
 
-                      <div className="flex flex-col gap-1.5 text-xs md:col-span-2">
-                        <label className="text-slate-400 font-semibold">Indicators Config (JSON)</label>
-                        <textarea 
-                          rows={4}
-                          value={backtestIndicatorsJson}
-                          onChange={(e) => setBacktestIndicatorsJson(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl p-3 text-xs text-slate-300 font-mono focus:outline-none focus:border-indigo-500/50 resize-y"
+                      {/* Interactive Form for Indicators */}
+                      <div className="md:col-span-2 grid grid-cols-3 gap-3 border-t border-white/5 pt-3">
+                        <div className="flex flex-col gap-1 text-xs">
+                          <label className="text-slate-400 font-semibold">Fast EMA Period</label>
+                          <input 
+                            type="number" 
+                            value={fastEmaPeriod}
+                            onChange={(e) => setFastEmaPeriod(parseInt(e.target.value) || 9)}
+                            className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white text-center focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 text-xs">
+                          <label className="text-slate-400 font-semibold">Slow EMA Period</label>
+                          <input 
+                            type="number" 
+                            value={slowEmaPeriod}
+                            onChange={(e) => setSlowEmaPeriod(parseInt(e.target.value) || 21)}
+                            className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white text-center focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 text-xs">
+                          <label className="text-slate-400 font-semibold">RSI Period</label>
+                          <input 
+                            type="number" 
+                            value={rsiPeriod}
+                            onChange={(e) => setRsiPeriod(parseInt(e.target.value) || 14)}
+                            className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white text-center focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1 text-xs md:col-span-2">
+                        <label className="text-slate-400 font-semibold">Buy Condition</label>
+                        <input 
+                          type="text" 
+                          value={buySignalExpr}
+                          onChange={(e) => setBuySignalExpr(e.target.value)}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1 text-xs md:col-span-2">
+                        <label className="text-slate-400 font-semibold">Sell Condition</label>
+                        <input 
+                          type="text" 
+                          value={sellSignalExpr}
+                          onChange={(e) => setSellSignalExpr(e.target.value)}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
                         />
                       </div>
 
@@ -3792,36 +3941,117 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </div>
 
                   {/* Card 3: MongoDB Database Schema & Caches */}
-                  <div className="bg-[#0f1524]/60 border border-white/5 p-4 rounded-xl flex flex-col gap-3.5">
-                    <h4 className="font-semibold text-indigo-300 flex items-center gap-2 border-b border-white/5 pb-2">
-                      <Database className="h-4.5 w-4.5 text-indigo-400" /> Database Collections
+                  <div className="bg-emerald-950/15 border border-emerald-500/20 shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.05),0_0_20px_-5px_rgba(16,185,129,0.1)] p-4 rounded-xl flex flex-col gap-3.5 backdrop-blur-md">
+                    <h4 className="font-semibold text-emerald-300 flex items-center gap-2 border-b border-emerald-500/15 pb-2">
+                      <Database className="h-4.5 w-4.5 text-emerald-400" /> Database Collections
                     </h4>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                    <p className="text-[11px] text-emerald-400/80 leading-relaxed">
                       MongoDB tracks configuration states and local cached market data to minimize external API roundtrips:
                     </p>
                     <ul className="flex flex-col gap-2.5">
-                      <li className="flex items-start justify-between border-b border-white/5 pb-2">
+                      <li className="flex items-start justify-between border-b border-emerald-500/10 pb-2">
                         <div>
-                          <span className="font-medium text-slate-200 block">AppState Schema</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">Global configuration, active strategy, watchlisted stocks, stop-loss/target, and chat memories.</span>
+                          <span className="font-medium text-emerald-200 block">AppState Schema</span>
+                          <span className="text-[10px] text-emerald-400/70 block mt-0.5">Global configuration, active strategy, watchlisted stocks, stop-loss/target, and chat memories.</span>
                         </div>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-white/5 text-slate-400 font-mono">Document</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950/40 border border-emerald-500/15 text-emerald-300 font-mono">Document</span>
                       </li>
-                      <li className="flex items-start justify-between border-b border-white/5 pb-2">
+                      <li className="flex items-start justify-between border-b border-emerald-500/10 pb-2">
                         <div>
-                          <span className="font-medium text-slate-200 block">HistoricalCandles Schema</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">Caches 15-minute and daily candle records (high, low, open, close, volume) for indicators.</span>
+                          <span className="font-medium text-emerald-200 block">HistoricalCandles Schema</span>
+                          <span className="text-[10px] text-emerald-400/70 block mt-0.5">Caches 15-minute and daily candle records (high, low, open, close, volume) for indicators.</span>
                         </div>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-white/5 text-slate-400 font-mono">Collection</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950/40 border border-emerald-500/15 text-emerald-300 font-mono">Collection</span>
                       </li>
-                      <li className="flex items-start justify-between">
+                      <li className="flex items-start justify-between border-b border-emerald-500/10 pb-2">
                         <div>
-                          <span className="font-medium text-slate-200 block">Instruments & Docs Schemas</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">Tracks 100K+ Zerodha instrument tokens and crawls docs to feed API parameters to OpenAI.</span>
+                          <span className="font-medium text-emerald-200 block">Instruments & Docs Schemas</span>
+                          <span className="text-[10px] text-emerald-400/70 block mt-0.5">Tracks 100K+ Zerodha instrument tokens and crawls docs to feed API parameters to OpenAI.</span>
                         </div>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-white/5 text-slate-400 font-mono">Collection</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950/40 border border-emerald-500/15 text-emerald-300 font-mono">Collection</span>
                       </li>
                     </ul>
+
+                    {/* MongoDB Storage Space Left Telemetry */}
+                    <div className="border-t border-emerald-500/20 pt-3.5 mt-1 flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400/80">Database Storage Telemetry</span>
+                        <button 
+                          onClick={fetchDbSpace}
+                          disabled={dbSpaceLoading}
+                          className="p-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50 transition-all cursor-pointer"
+                          title="Refresh Database Stats"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${dbSpaceLoading ? 'animate-spin' : ''}`} />
+                        </button>
+                      </div>
+
+                      {dbSpace ? (
+                        <div className="flex flex-col gap-2.5">
+                          {/* Disk Space Progress */}
+                          <div className="bg-emerald-950/20 border border-emerald-500/15 p-2.5 rounded-lg flex flex-col gap-1.5">
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span className="font-medium text-emerald-400/80">Host Disk Storage</span>
+                              <span className="font-mono text-emerald-200 font-semibold">
+                                {dbSpace.hostDisk?.avail || 'N/A'} Free of {dbSpace.hostDisk?.size || 'N/A'} ({100 - parseInt(dbSpace.hostDisk?.usePct || '0')}% left)
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-950/80 rounded-full h-1.5 overflow-hidden border border-emerald-500/10">
+                              <div 
+                                className="bg-gradient-to-r from-emerald-500 to-emerald-400 h-full rounded-full" 
+                                style={{ width: dbSpace.hostDisk?.usePct || '0%' }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* DB Stats Grid */}
+                          <div className="grid grid-cols-2 gap-2 text-[10px]">
+                            <div className="bg-emerald-950/30 border border-emerald-500/15 p-2 rounded-lg flex flex-col gap-0.5">
+                              <span className="text-emerald-400/70">Data Size</span>
+                              <span className="font-mono text-emerald-300 font-semibold">{dbSpace.db?.dataSizeMb || '0.00'} MB</span>
+                            </div>
+                            <div className="bg-emerald-950/30 border border-emerald-500/15 p-2 rounded-lg flex flex-col gap-0.5">
+                              <span className="text-emerald-400/70">Storage Size</span>
+                              <span className="font-mono text-emerald-300 font-semibold">{dbSpace.db?.storageSizeMb || '0.00'} MB</span>
+                            </div>
+                            <div className="bg-emerald-950/30 border border-emerald-500/15 p-2 rounded-lg flex flex-col gap-0.5">
+                              <span className="text-emerald-400/70">Index Size</span>
+                              <span className="font-mono text-emerald-300 font-semibold">{dbSpace.db?.indexSizeMb || '0.00'} MB</span>
+                            </div>
+                            <div className="bg-emerald-950/30 border border-emerald-500/15 p-2 rounded-lg flex flex-col gap-0.5">
+                              <span className="text-emerald-400/70">Total Documents</span>
+                              <span className="font-mono text-emerald-300 font-semibold">{(dbSpace.db?.documents || 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+
+                          {/* Database Network Traffic */}
+                          <div className="bg-emerald-950/25 border border-emerald-500/15 p-2.5 rounded-lg flex flex-col gap-1.5 mt-0.5">
+                            <div className="text-[10px] uppercase font-bold tracking-wider text-emerald-400/80 mb-0.5">
+                              Network Telemetry
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-[10px]">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-emerald-400/60">Bytes In (Incoming)</span>
+                                <span className="font-mono text-emerald-300 font-semibold">{formatBytes(dbSpace.network?.bytesIn)}</span>
+                              </div>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-emerald-400/60">Bytes Out (Outgoing)</span>
+                                <span className="font-mono text-emerald-300 font-semibold">{formatBytes(dbSpace.network?.bytesOut)}</span>
+                              </div>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-emerald-400/60">Requests</span>
+                                <span className="font-mono text-emerald-300 font-semibold">{(dbSpace.network?.numRequests || 0).toLocaleString()}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-emerald-500 italic py-2 text-center">
+                          {dbSpaceLoading ? 'Loading telemetry...' : 'Telemetry unavailable.'}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Card 4: OpenAI Strategy Engine & SDK Modification */}
@@ -4062,6 +4292,166 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       </div>
                     ))
                   )}
+                </div>
+              </div>
+
+              {/* Stock Database Backups Card */}
+              <div className="glass-panel p-5">
+                <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-5 w-5 text-indigo-400" />
+                    <h3 className="font-display font-semibold text-sm">Stock Database Backups</h3>
+                  </div>
+                  <button 
+                    onClick={fetchDbBackups}
+                    disabled={dbBackupsLoading}
+                    className="p-1 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/25 disabled:opacity-50 transition-all cursor-pointer"
+                    title="Refresh Backups"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${dbBackupsLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Search & Filters */}
+                <div className="flex flex-col gap-2 mb-3">
+                  <input 
+                    type="text"
+                    placeholder="Search stocks by symbol..."
+                    value={dbBackupsSearch}
+                    onChange={(e) => setDbBackupsSearch(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {['all', 'synced', 'pending', 'syncing'].map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setDbBackupsFilter(f)}
+                        className={`text-[9px] font-bold px-2 py-1 rounded transition-all cursor-pointer border ${
+                          dbBackupsFilter === f
+                            ? 'bg-indigo-500/25 border-indigo-500/30 text-indigo-300'
+                            : 'bg-white/[0.01] border-white/5 text-slate-500 hover:text-slate-400'
+                        }`}
+                      >
+                        {f.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="max-h-[300px] overflow-y-auto flex flex-col gap-2.5 pr-1">
+                  {dbBackupsLoading && (!dbBackups.backups || dbBackups.backups.length === 0) ? (
+                    <p className="text-xs text-slate-500 py-6 text-center">Loading backups...</p>
+                  ) : (() => {
+                    const backupsArray = dbBackups.backups || [];
+                    const allSymbols = dbBackups.allSymbols || [];
+                    const syncStatus = dbBackups.syncStatus || null;
+
+                    // Group by symbol
+                    const grouped = {};
+                    backupsArray.forEach(item => {
+                      if (!grouped[item.symbol]) {
+                        grouped[item.symbol] = [];
+                      }
+                      grouped[item.symbol].push(item);
+                    });
+
+                    // Build merged list
+                    const merged = [];
+                    allSymbols.forEach(sym => {
+                      const hasBackup = !!grouped[sym];
+                      const isSyncing = syncStatus?.status === 'running' && syncStatus?.currentSymbol === sym;
+                      merged.push({
+                        symbol: sym,
+                        timeframes: hasBackup ? grouped[sym] : [],
+                        isSynced: hasBackup,
+                        isSyncing: isSyncing,
+                        isPending: !hasBackup && !isSyncing
+                      });
+                    });
+
+                    // Add items from backups not in allSymbols
+                    Object.keys(grouped).forEach(sym => {
+                      if (!allSymbols.includes(sym)) {
+                        merged.push({
+                          symbol: sym,
+                          timeframes: grouped[sym],
+                          isSynced: true,
+                          isSyncing: syncStatus?.status === 'running' && syncStatus?.currentSymbol === sym,
+                          isPending: false
+                        });
+                      }
+                    });
+
+                    // Apply filters
+                    const filtered = merged.filter(item => {
+                      const matchesSearch = item.symbol.toLowerCase().includes(dbBackupsSearch.toLowerCase());
+                      if (!matchesSearch) return false;
+
+                      if (dbBackupsFilter === 'synced') return item.isSynced;
+                      if (dbBackupsFilter === 'pending') return item.isPending;
+                      if (dbBackupsFilter === 'syncing') return item.isSyncing;
+                      return true;
+                    });
+
+                    if (filtered.length === 0) {
+                      return <p className="text-xs text-slate-500 py-6 text-center">No stocks match filter.</p>;
+                    }
+
+                    const formatInterval = (intv) => {
+                      if (intv === '15minute') return '15m';
+                      if (intv === 'minute') return '1m';
+                      if (intv === 'day') return '1d';
+                      return intv;
+                    };
+
+                    return filtered.map(item => (
+                      <div 
+                        key={item.symbol} 
+                        className={`border p-2.5 rounded-lg flex flex-col gap-1.5 transition-all ${
+                          item.isSyncing 
+                            ? 'bg-blue-500/5 border-blue-500/30 shadow-[0_0_10px_-2px_rgba(59,130,246,0.2)]' 
+                            : item.isSynced 
+                              ? 'bg-white/[0.02] border-white/5' 
+                              : 'bg-black/20 border-white/[0.01] opacity-50'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-[11px] text-slate-200">{item.symbol}</span>
+                            {item.isSyncing && (
+                              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 animate-pulse">
+                                Syncing
+                              </span>
+                            )}
+                            {item.isPending && (
+                              <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">
+                                Pending
+                              </span>
+                            )}
+                            {item.isSynced && !item.isSyncing && (
+                              <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
+                                Synced
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {item.isSynced && (
+                          <div className="flex flex-wrap gap-1">
+                            {item.timeframes.map((tf, tIdx) => (
+                              <span 
+                                key={tIdx} 
+                                className="text-[9px] font-medium px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/15 text-indigo-300 flex items-center gap-1"
+                                title={`Range: ${new Date(tf.minTime).toLocaleDateString()} - ${new Date(tf.maxTime).toLocaleDateString()}`}
+                              >
+                                {formatInterval(tf.interval)}: <span className="font-mono font-bold text-indigo-200">{(tf.count || 0).toLocaleString()}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ));
+                  })()}
                 </div>
               </div>
             </div>
@@ -4874,125 +5264,300 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             <div>
               <h2 className="text-lg font-display font-bold text-white">Historical Data Backtest Platform</h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Select stock collections cached in your MongoDB database and execute metrics analysis and filter tests.
+                Configure indicators JSON, run simulation queries against MongoDB cached candles, and analyze visual TradingView charts.
               </p>
             </div>
           </div>
 
-          {/* Selector Form Card */}
-          <Card className="glass-panel border-0 ring-0 p-5">
-            <CardContent className="p-0">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                {/* Stock Dropdown */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Database Stock Collection</label>
-                  <Select value={chartSymbol} onValueChange={(val) => {
-                    setChartSymbol(val);
-                    const st = availableStocks.find(s => s.symbol === val);
-                    if (st && st.intervals && st.intervals.length > 0) {
-                      setChartInterval(st.intervals[0]);
-                    }
-                  }}>
-                    <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
-                      <SelectValue placeholder="Select Cached Stock" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-950 border-white/10 text-white text-xs max-h-[250px] overflow-y-auto">
-                      {availableStocks.length === 0 ? (
-                        <SelectItem disabled value="none">No stock data cached in DB</SelectItem>
-                      ) : (
-                        availableStocks.map((s) => (
-                          <SelectItem key={s.symbol} value={s.symbol}>
-                            {s.symbol} ({s.intervals.join(', ')})
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+            {/* Left/Main Column: Configuration & Parameters */}
+            <div className="xl:col-span-1 flex flex-col gap-6">
+              <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
+                <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
+                  <Sliders className="h-5 w-5 text-indigo-400" />
+                  <CardTitle className="font-display font-semibold text-sm text-white">Backtest Configuration</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 flex flex-col gap-4 mt-2">
+                  <form onSubmit={handleRunBacktest} className="flex flex-col gap-4">
+                    {/* Stock Dropdown */}
+                    <div className="flex flex-col gap-1.5 text-xs">
+                      <label className="text-slate-400 font-semibold">Cached Database Stock</label>
+                      <Select value={backtestSymbol} onValueChange={(val) => {
+                        setBacktestSymbol(val);
+                        const st = availableStocks.find(s => s.symbol === val);
+                        if (st && st.intervals && st.intervals.length > 0) {
+                          setBacktestInterval(st.intervals[0]);
+                        }
+                      }}>
+                        <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
+                          <SelectValue placeholder="Select Cached Stock" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-950 border-white/10 text-white text-xs max-h-[250px] overflow-y-auto">
+                          {availableStocks.length === 0 ? (
+                            <SelectItem disabled value="none">No stock data cached in DB</SelectItem>
+                          ) : (
+                            availableStocks.map((s) => (
+                              <SelectItem key={s.symbol} value={s.symbol}>
+                                {s.symbol} ({s.intervals.join(', ')})
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                {/* Interval Selector */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Timeframe Interval</label>
-                  <Select value={chartInterval} onValueChange={setChartInterval}>
-                    <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
-                      <SelectValue placeholder="Select Interval" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-950 border-white/10 text-white text-xs">
-                      {(() => {
-                        const activeStock = availableStocks.find(s => s.symbol === chartSymbol);
-                        const intervals = activeStock ? activeStock.intervals : ['day'];
-                        return intervals.map(inv => (
-                          <SelectItem key={inv} value={inv}>
-                            {inv === 'minute' ? '1 Minute' : inv === 'day' ? 'Daily' : inv}
-                          </SelectItem>
-                        ));
-                      })()}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    {/* Timeframe Interval */}
+                    <div className="flex flex-col gap-1.5 text-xs">
+                      <label className="text-slate-400 font-semibold">Timeframe Interval</label>
+                      <Select value={backtestInterval} onValueChange={setBacktestInterval}>
+                        <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
+                          <SelectValue placeholder="Select Interval" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-950 border-white/10 text-white text-xs">
+                          {(() => {
+                            const activeStock = availableStocks.find(s => s.symbol === backtestSymbol);
+                            const intervals = activeStock ? activeStock.intervals : ['day'];
+                            return intervals.map(inv => (
+                              <SelectItem key={inv} value={inv}>
+                                {inv === 'minute' ? '1 Minute' : inv === 'day' ? 'Daily' : inv}
+                              </SelectItem>
+                            ));
+                          })()}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                {/* From Date */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">From Date</label>
-                  <input 
-                    type="date"
-                    value={chartFromDate}
-                    onChange={(e) => setChartFromDate(e.target.value)}
-                    className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500/50 h-[38px] [color-scheme:dark]"
-                  />
-                </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* From Date */}
+                      <div className="flex flex-col gap-1.5 text-xs">
+                        <label className="text-slate-400 font-semibold">From Date</label>
+                        <input 
+                          type="date"
+                          value={backtestFromDate}
+                          onChange={(e) => setBacktestFromDate(e.target.value)}
+                          className="w-full bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50 [color-scheme:dark]"
+                        />
+                      </div>
 
-                {/* To Date & Action Buttons */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">To Date</label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="date"
-                      value={chartToDate}
-                      onChange={(e) => setChartToDate(e.target.value)}
-                      className="flex-1 bg-black/40 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500/50 h-[38px] [color-scheme:dark]"
-                    />
+                      {/* To Date */}
+                      <div className="flex flex-col gap-1.5 text-xs">
+                        <label className="text-slate-400 font-semibold">To Date</label>
+                        <input 
+                          type="date"
+                          value={backtestToDate}
+                          onChange={(e) => setBacktestToDate(e.target.value)}
+                          className="w-full bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50 [color-scheme:dark]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Capital */}
+                      <div className="flex flex-col gap-1.5 text-xs">
+                        <label className="text-slate-400 font-semibold">Initial Capital (₹)</label>
+                        <input 
+                          type="number"
+                          value={backtestCapital}
+                          onChange={(e) => setBacktestCapital(parseFloat(e.target.value) || 0)}
+                          className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
+                        />
+                      </div>
+
+                      {/* Leverage */}
+                      <div className="flex flex-col gap-1.5 text-xs">
+                        <label className="text-slate-400 font-semibold">Leverage Power</label>
+                        <input 
+                          type="number"
+                          value={backtestLeverage}
+                          onChange={(e) => setBacktestLeverage(parseFloat(e.target.value) || 0)}
+                          className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs text-center"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 items-center">
+                      {/* Target Margin % */}
+                      <div className="flex flex-col gap-1.5 text-xs">
+                        <label className="text-slate-400 font-semibold">Target Margin %</label>
+                        <input 
+                          type="number"
+                          value={backtestMarginPct}
+                          onChange={(e) => setBacktestMarginPct(parseFloat(e.target.value) || 0)}
+                          className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs text-center"
+                        />
+                      </div>
+
+                      {/* Allow Short Positions */}
+                      <div className="flex items-center gap-2 cursor-pointer select-none mt-4">
+                        <input 
+                          type="checkbox"
+                          id="chart-allow-shorting"
+                          checked={backtestAllowShorting}
+                          onChange={(e) => setBacktestAllowShorting(e.target.checked)}
+                          className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
+                        />
+                        <label htmlFor="chart-allow-shorting" className="text-slate-300 font-semibold text-xs cursor-pointer">Allow Shorts</label>
+                      </div>
+                    </div>
+
+                    {/* Interactive Form for Indicators */}
+                    <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-3">
+                      <div className="flex flex-col gap-1 text-[11px]">
+                        <label className="text-slate-400 font-semibold">Fast EMA</label>
+                        <input 
+                          type="number" 
+                          value={fastEmaPeriod}
+                          onChange={(e) => setFastEmaPeriod(parseInt(e.target.value) || 9)}
+                          className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1 text-[11px]">
+                        <label className="text-slate-400 font-semibold">Slow EMA</label>
+                        <input 
+                          type="number" 
+                          value={slowEmaPeriod}
+                          onChange={(e) => setSlowEmaPeriod(parseInt(e.target.value) || 21)}
+                          className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1 text-[11px]">
+                        <label className="text-slate-400 font-semibold">RSI Period</label>
+                        <input 
+                          type="number" 
+                          value={rsiPeriod}
+                          onChange={(e) => setRsiPeriod(parseInt(e.target.value) || 14)}
+                          className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1 text-[11px]">
+                      <label className="text-slate-400 font-semibold">Buy Condition</label>
+                      <input 
+                        type="text" 
+                        value={buySignalExpr}
+                        onChange={(e) => setBuySignalExpr(e.target.value)}
+                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1 text-[11px]">
+                      <label className="text-slate-400 font-semibold">Sell Condition</label>
+                      <input 
+                        type="text" 
+                        value={sellSignalExpr}
+                        onChange={(e) => setSellSignalExpr(e.target.value)}
+                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
+                      />
+                    </div>
+
                     <Button 
-                      onClick={fetchCandles}
-                      disabled={chartLoading || !chartSymbol}
-                      className="px-5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 h-[38px] cursor-pointer"
+                      type="submit"
+                      disabled={backtestLoading}
+                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 h-auto border-0 cursor-pointer"
                     >
-                      {chartLoading ? (
+                      {backtestLoading ? (
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                       ) : (
-                        <span>Load Data</span>
+                        <>
+                          <Play className="w-3.5 h-3.5" />
+                          <span>Run Backtest & Load Chart</span>
+                        </>
                       )}
                     </Button>
-                  </div>
-                </div>
-              </div>
-
-              {chartError && (
-                <div className="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold">
-                  {chartError}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Backtest & Data analysis Area */}
-          {chartLoading ? (
-            <div className="flex flex-col items-center justify-center h-[350px] glass-panel border-0 rounded-2xl">
-              <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin mb-3" />
-              <span className="text-sm text-slate-400 font-semibold">Querying candles from MongoDB Atlas database...</span>
-              <span className="text-xs text-slate-500 mt-1">Filtering data records based on dates.</span>
+                  </form>
+                </CardContent>
+              </Card>
             </div>
-          ) : (
-            <Card className="glass-panel border-0 ring-0 p-5">
-              <CardContent className="p-0">
-                <BacktestPlatform 
-                  candles={candlesData} 
-                  symbol={chartSymbol} 
-                  interval={chartInterval} 
-                />
-              </CardContent>
-            </Card>
-          )}
+
+            {/* Right Column: TradingView Chart, Metrics & Detailed Candle Table */}
+            <div className="xl:col-span-2 flex flex-col gap-6">
+              {/* TradingView Widget Card */}
+              {backtestSymbol && (
+                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-3">
+                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5 text-indigo-400" />
+                      <CardTitle className="font-display font-semibold text-sm text-white">TradingView Historical Chart: {backtestSymbol}</CardTitle>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono">Candlestick Feed</span>
+                  </CardHeader>
+                  <CardContent className="p-0 mt-3 h-[450px] rounded-xl overflow-hidden bg-black/45 border border-white/5 relative">
+                    <TradingViewWidget 
+                      symbol={backtestSymbol}
+                      interval={backtestInterval === 'day' ? 'D' : backtestInterval === '60minute' ? '60' : backtestInterval === '30minute' ? '15' : backtestInterval === '15minute' ? '15' : backtestInterval === '5minute' ? '5' : '1'}
+                      showEMA9={true}
+                      showEMA21={true}
+                      showBB={false}
+                      trades={backtestResults?.trades || []}
+                    />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Backtest Results Cards */}
+              {backtestResults && (
+                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
+                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-indigo-400" />
+                    <CardTitle className="font-display font-semibold text-sm text-white">Backtest Simulation Metrics</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0 flex flex-col gap-4 mt-2">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-display">
+                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Final Portfolio Value</span>
+                        <span className="text-sm font-bold text-white block mt-0.5">₹{formatCurrency(backtestResults.summary?.finalEquity)}</span>
+                        <span className={`text-[9px] font-semibold ${
+                          backtestResults.summary?.totalReturnPct >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                        }`}>
+                          {backtestResults.summary?.totalReturnPct >= 0 ? '+' : ''}
+                          {backtestResults.summary?.totalReturnPct?.toFixed(2)}% Return
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Annualized CAGR</span>
+                        <span className="text-sm font-bold text-white block mt-0.5">{backtestResults.summary?.cagr?.toFixed(2)}%</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Strategy Benchmark</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Max Drawdown</span>
+                        <span className="text-sm font-bold text-rose-400 block mt-0.5">{backtestResults.summary?.maxDrawdownPct?.toFixed(2)}%</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Peak-to-Trough risk</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Sharpe Ratio</span>
+                        <span className="text-sm font-bold text-indigo-300 block mt-0.5">{backtestResults.summary?.sharpeRatio?.toFixed(2)}</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Risk-adjusted return</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] font-semibold text-slate-300 bg-white/[0.01] border border-white/5 p-3.5 rounded-xl">
+                      <div className="flex justify-between">
+                        <span>Total Execution Days:</span>
+                        <span className="text-white">{backtestResults.summary?.totalDays} days</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Win Rate:</span>
+                        <span className="text-white">{backtestResults.summary?.winRatePct?.toFixed(1)}% ({backtestResults.summary?.winningTrades} of {backtestResults.summary?.totalTrades} trades)</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Detailed Candle Database Table */}
+              <Card className="glass-panel border-0 ring-0 p-5">
+                <CardContent className="p-0">
+                  <BacktestPlatform 
+                    candles={backtestCandles} 
+                    symbol={backtestSymbol} 
+                    interval={backtestInterval} 
+                    trades={backtestResults?.trades || []}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
       )}
 
@@ -5228,7 +5793,7 @@ const ALL_INDICATORS = [
 ];
 
 // Parameterized TradingView Widget Component using lightweight-charts
-const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showEMA21, showBB, instrumentToken, buyPrice, sellPrice }) => {
+const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showEMA21, showBB, instrumentToken, buyPrice, sellPrice, trades = [] }) => {
   const containerRef = useRef();
   const chartRef = useRef();
   const candlestickSeriesRef = useRef();
@@ -5241,6 +5806,7 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
   const bbUpperSeriesRef = useRef(null);
   const bbMiddleSeriesRef = useRef(null);
   const bbLowerSeriesRef = useRef(null);
+  const markersApiRef = useRef(null);
   const [noData, setNoData] = useState(false);
   const savePendingRef = useRef(null);
   const lastSaveTimeRef = useRef(0);
@@ -5396,6 +5962,7 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
         });
 
         candlestickSeriesRef.current = candlestickSeries;
+        markersApiRef.current = createSeriesMarkers(candlestickSeries);
         const lastCandle = data[data.length - 1];
         currentBarRef.current = {
           time: lastCandle.time,
@@ -5534,6 +6101,8 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
       if (chartInstance) {
         chartInstance.remove();
       }
+      candlestickSeriesRef.current = null;
+      markersApiRef.current = null;
       ema9SeriesRef.current = null;
       ema21SeriesRef.current = null;
       ema9DataRef.current = [];
@@ -5546,6 +6115,41 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
       }
     };
   }, [symbol, interval, showEMA9, showEMA21, showBB, buyPrice, sellPrice]);
+
+  useEffect(() => {
+    if (!markersApiRef.current) return;
+    
+    if (trades && trades.length > 0) {
+      const markers = [];
+      trades.forEach(trade => {
+        const entrySec = Math.floor(new Date(trade.entryTime).getTime() / 1000);
+        const exitSec = Math.floor(new Date(trade.exitTime).getTime() / 1000);
+        
+        markers.push({
+          time: entrySec,
+          position: trade.direction === 'LONG' ? 'belowBar' : 'aboveBar',
+          color: trade.direction === 'LONG' ? '#10b981' : '#ef4444',
+          shape: trade.direction === 'LONG' ? 'arrowUp' : 'arrowDown',
+          text: `${trade.direction === 'LONG' ? 'BUY' : 'SELL'} @ ₹${trade.entryPrice.toFixed(1)}`
+        });
+        
+        markers.push({
+          time: exitSec,
+          position: trade.direction === 'LONG' ? 'aboveBar' : 'belowBar',
+          color: '#a855f7',
+          shape: trade.direction === 'LONG' ? 'arrowDown' : 'arrowUp',
+          text: `EXIT @ ₹${trade.exitPrice.toFixed(1)}`
+        });
+      });
+      
+      markers.sort((a, b) => a.time - b.time);
+      const validTimes = new Set(candlesListRef.current.map(d => d.time));
+      const filteredMarkers = markers.filter(m => validTimes.has(m.time));
+      markersApiRef.current.setMarkers(filteredMarkers);
+    } else {
+      markersApiRef.current.setMarkers([]);
+    }
+  }, [trades]);
 
   // Real-time update handler when new WebSocket quote tick arrives
   useEffect(() => {

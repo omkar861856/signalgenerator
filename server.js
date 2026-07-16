@@ -641,184 +641,9 @@ function wrapKiteMethods(kiteInstance) {
             kiteInstance[method] = async function(...args) {
                 trackKiteCall(method);
                 
-                // Intercept calls in simulation mode
-                if (access_token && access_token.startsWith("mock_")) {
-                    if (method === 'placeOrder') {
-                        const params = args[1]; // args[0] is variety, args[1] is params
-                        const isFno = params.exchange === 'NFO' || 
-                                      (params.tradingsymbol && (params.tradingsymbol.match(/(FUT|CE|PE)$/i) || params.tradingsymbol.match(/\d{2}[A-Z]{3}\d+/)));
-                        const orderId = "mock_" + Math.floor(Date.now() + Math.random() * 1000).toString();
-                        
-                        const newOrder = {
-                            order_id: orderId,
-                            tradingsymbol: params.tradingsymbol,
-                            exchange: params.exchange || 'NSE',
-                            transaction_type: params.transaction_type,
-                            quantity: Number(params.quantity),
-                            price: Number(params.price) || 0,
-                            status: 'COMPLETE',
-                            product: params.product || 'MIS',
-                            order_type: params.order_type || 'MARKET',
-                            order_timestamp: new Date().toISOString()
-                        };
-                        
-                        if (isFno) {
-                            MOCK_FNO_ORDERS.unshift(newOrder);
-                        } else {
-                            MOCK_ORDERS.unshift(newOrder);
-                        }
-                        
-                        // Update positions
-                        const positionsList = isFno ? MOCK_FNO_POSITIONS.net : MOCK_POSITIONS.net;
-                        let pos = positionsList.find(p => p.tradingsymbol === params.tradingsymbol && p.product === (params.product || 'MIS'));
-                        const qtyChange = params.transaction_type === 'BUY' ? Number(params.quantity) : -Number(params.quantity);
-                        const executionPrice = Number(params.price) || 100;
-                        
-                        if (pos) {
-                            const oldQty = pos.quantity;
-                            pos.quantity += qtyChange;
-                            
-                            // Calculate realised profit/loss if reducing position
-                            if ((oldQty > 0 && qtyChange < 0) || (oldQty < 0 && qtyChange > 0)) {
-                                const closedQty = Math.min(Math.abs(oldQty), Number(params.quantity));
-                                const gain = oldQty > 0 ? (executionPrice - pos.average_price) * closedQty : (pos.average_price - executionPrice) * closedQty;
-                                pos.realised += gain;
-                            }
-
-                            if (params.transaction_type === 'BUY') {
-                                pos.buy_quantity += Number(params.quantity);
-                                pos.buy_value += executionPrice * Number(params.quantity);
-                                pos.buy_price = pos.buy_quantity > 0 ? (pos.buy_value / pos.buy_quantity) : executionPrice;
-                            } else {
-                                pos.sell_quantity += Number(params.quantity);
-                                pos.sell_value += executionPrice * Number(params.quantity);
-                                pos.sell_price = pos.sell_quantity > 0 ? (pos.sell_value / pos.sell_quantity) : executionPrice;
-                            }
-                            
-                            if (pos.quantity !== 0) {
-                                if (oldQty === 0) {
-                                    pos.average_price = executionPrice;
-                                } else if ((oldQty > 0 && pos.quantity > 0) || (oldQty < 0 && pos.quantity < 0)) {
-                                    // adding to position
-                                    if (params.transaction_type === 'BUY') {
-                                        pos.average_price = (pos.average_price * oldQty + executionPrice * qtyChange) / pos.quantity;
-                                    } else {
-                                        pos.average_price = (pos.average_price * Math.abs(oldQty) + executionPrice * Math.abs(qtyChange)) / Math.abs(pos.quantity);
-                                    }
-                                } else {
-                                    // position reversed direction (crossed zero)
-                                    pos.average_price = executionPrice;
-                                }
-                            }
-                            pos.last_price = executionPrice;
-                            pos.unrealised = pos.quantity === 0 ? 0 : (pos.last_price - pos.average_price) * pos.quantity;
-                            pos.pnl = pos.realised + pos.unrealised;
-                            pos.m2m = pos.pnl;
-                        } else {
-                            const instrumentToken = Math.floor(Math.random() * 900000) + 100000;
-                            pos = {
-                                tradingsymbol: params.tradingsymbol,
-                                exchange: params.exchange || 'NSE',
-                                instrument_token: instrumentToken,
-                                product: params.product || 'MIS',
-                                quantity: qtyChange,
-                                average_price: executionPrice,
-                                last_price: executionPrice,
-                                buy_quantity: params.transaction_type === 'BUY' ? Number(params.quantity) : 0,
-                                buy_price: params.transaction_type === 'BUY' ? executionPrice : 0,
-                                buy_value: params.transaction_type === 'BUY' ? executionPrice * Number(params.quantity) : 0,
-                                sell_quantity: params.transaction_type === 'SELL' ? Number(params.quantity) : 0,
-                                sell_price: params.transaction_type === 'SELL' ? executionPrice : 0,
-                                sell_value: params.transaction_type === 'SELL' ? executionPrice * Number(params.quantity) : 0,
-                                pnl: 0,
-                                realised: 0,
-                                unrealised: 0,
-                                close_price: executionPrice,
-                                value: 0,
-                                multiplier: 1,
-                                m2m: 0
-                            };
-                            positionsList.push(pos);
-                        }
-                        
-                        if (isFno) {
-                            MOCK_FNO_POSITIONS.day = [...MOCK_FNO_POSITIONS.net];
-                        } else {
-                            MOCK_POSITIONS.day = [...MOCK_POSITIONS.net];
-                        }
-                        
-                        console.log(`[Simulation] Placed mock order: ${orderId} for ${params.tradingsymbol}`);
-                        return { order_id: orderId };
-                    }
-                    
-                    if (method === 'cancelOrder') {
-                        const order_id = args[1];
-                        const order = MOCK_ORDERS.find(o => o.order_id === order_id) || MOCK_FNO_ORDERS.find(o => o.order_id === order_id);
-                        if (order) {
-                            order.status = 'CANCELLED';
-                            console.log(`[Simulation] Cancelled mock order: ${order_id}`);
-                        }
-                        return { success: true };
-                    }
-                    
-                    if (method === 'modifyOrder') {
-                        const order_id = args[1];
-                        const params = args[2];
-                        const order = MOCK_ORDERS.find(o => o.order_id === order_id) || MOCK_FNO_ORDERS.find(o => o.order_id === order_id);
-                        if (order) {
-                            if (params.quantity) order.quantity = Number(params.quantity);
-                            if (params.price) order.price = Number(params.price);
-                            console.log(`[Simulation] Modified mock order: ${order_id}`);
-                        }
-                        return { success: true };
-                    }
-                    
-                    if (method === 'placeGTT') {
-                        const params = args[0];
-                        const triggerId = Math.floor(Math.random() * 900000) + 100000;
-                        const newGtt = {
-                            id: triggerId,
-                            user_id: "simulation",
-                            type: params.type || "two-leg",
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString(),
-                            status: "active",
-                            condition: params.condition || {},
-                            orders: params.orders || []
-                        };
-                        MOCK_GTT_TRIGGERS.push(newGtt);
-                        console.log(`[Simulation] Placed mock GTT trigger: ${triggerId}`);
-                        return { trigger_id: triggerId };
-                    }
-                    
-                    if (method === 'deleteGTT') {
-                        const trigger_id = Number(args[0]);
-                        const idx = MOCK_GTT_TRIGGERS.findIndex(g => g.id === trigger_id);
-                        if (idx !== -1) {
-                            MOCK_GTT_TRIGGERS.splice(idx, 1);
-                            console.log(`[Simulation] Deleted mock GTT trigger: ${trigger_id}`);
-                        }
-                        return { success: true };
-                    }
-
-                    if (method === 'getPositions') {
-                        return {
-                            net: [...MOCK_POSITIONS.net, ...MOCK_FNO_POSITIONS.net],
-                            day: [...MOCK_POSITIONS.day, ...MOCK_FNO_POSITIONS.day]
-                        };
-                    }
-                    if (method === 'getOrders') {
-                        return MOCK_ORDERS;
-                    }
-                    if (method === 'getMargins') {
-                        return MOCK_MARGINS;
-                    }
-                    if (method === 'getGTTs') {
-                        return MOCK_GTT_TRIGGERS;
-                    }
-                    if (method === 'getHoldings') {
-                        return [];
-                    }
+                // Intercept calls in simulation mode (real mode only now: throw error if no real token)
+                if (method !== 'generateSession' && (!access_token || access_token.startsWith("mock_"))) {
+                    throw new Error("No active real Zerodha session. Please log in first.");
                 }
                 
                 return originalMethod.apply(this, args);
@@ -853,13 +678,9 @@ function initKite() {
             }
         }
         
-        // Fallback: set mock token if access_token is still null
+        // Fallback: do NOT set mock token if access_token is null (enforce real mode)
         if (!access_token) {
-            console.warn('[Kite Init] No access token found in cache. Initialising with a mock access token for local simulation.');
-            access_token = "mock_access_token_123456";
-            kite.setAccessToken(access_token);
-            if (scanner.setKiteInstance) scanner.setKiteInstance(kite);
-            startServerPolling();
+            console.warn('[Kite Init] No access token found in cache. Running in real mode (waiting for login/authentication).');
         }
     } catch (err) {
         console.error('Failed to init Kite Connect:', err.message);
@@ -883,7 +704,7 @@ function roundToTickSize(price, tickSize = 0.05) {
 const kiteHistoricalQueue = [];
 let isProcessingKiteQueue = false;
 
-async function getHistoricalDataRateLimited(instrumentToken, interval, fromDate, toDate) {
+async function getHistoricalDataRateLimited(instrumentToken, interval, fromDate, toDate, continuous = false, oi = false) {
     if (!kite) throw new Error("Zerodha Kite client not initialized. Please connect your Zerodha account.");
     return new Promise((resolve, reject) => {
         kiteHistoricalQueue.push({
@@ -891,6 +712,8 @@ async function getHistoricalDataRateLimited(instrumentToken, interval, fromDate,
             interval,
             fromDate,
             toDate,
+            continuous,
+            oi,
             resolve,
             reject
         });
@@ -907,8 +730,8 @@ async function triggerKiteQueueProcessing() {
         const startTime = Date.now();
         
         try {
-            console.log(`[Rate Limiter] Fetching from Kite (Queue size: ${kiteHistoricalQueue.length}): Token:${req.instrumentToken} Interval:${req.interval}`);
-            const data = await kite.getHistoricalData(req.instrumentToken, req.interval, req.fromDate, req.toDate);
+            console.log(`[Rate Limiter] Fetching from Kite (Queue size: ${kiteHistoricalQueue.length}): Token:${req.instrumentToken} Interval:${req.interval} Continuous:${req.continuous} OI:${req.oi}`);
+            const data = await kite.getHistoricalData(req.instrumentToken, req.interval, req.fromDate, req.toDate, req.continuous, req.oi);
             req.resolve(data);
         } catch (err) {
             console.error(`[Rate Limiter] Kite request failed for Token:${req.instrumentToken}:`, err.message);
@@ -989,12 +812,20 @@ app.get('/api/local-ip', (req, res) => res.json({ ip: getLanIp(), port: PORT }))
 // ─── Lightweight Charts History Endpoint ──────────────────────────────────────────
 app.get('/api/history', async (req, res) => {
     try {
-        const symbol = req.query.symbol || '';
+        let symbol = req.query.symbol || '';
         const interval = req.query.interval || '15minute'; // 'minute', '5minute', '15minute', 'day'
         
+        // Normalize shorthand symbols to official Zerodha index symbols
+        const upperSym = symbol.toUpperCase().trim();
+        if (upperSym === 'NIFTY' || upperSym === 'NSE:NIFTY') {
+            symbol = 'NSE:NIFTY 50';
+        } else if (upperSym === 'BANKNIFTY' || upperSym === 'NSE:BANKNIFTY' || upperSym === 'NIFTYBANK' || upperSym === 'NSE:NIFTYBANK' || upperSym === 'NIFTY BANK' || upperSym === 'NSE:NIFTY BANK') {
+            symbol = 'NSE:NIFTY BANK';
+        }
+
         const parts = symbol.split(':');
-        const symbolOnly = parts[1] || parts[0];
-        const exchange = parts[0] || 'NSE';
+        const symbolOnly = parts.length > 1 ? parts[1] : parts[0];
+        const exchange = parts.length > 1 ? parts[0] : 'NSE';
 
         console.log(`[API History] Fetching local history for Symbol:${symbolOnly} Exchange:${exchange} (${interval})`);
 
@@ -1318,35 +1149,24 @@ app.get('/api/candles', requireAuth, async (req, res) => {
 
 app.get('/api/backtest/collections', requireAuth, async (req, res) => {
     try {
-        const collections = await mongoose.connection.db.listCollections().toArray();
-        const stockMap = {};
-        
-        collections.forEach(c => {
-            if (c.name.startsWith('candles_')) {
-                const parts = c.name.replace('candles_', '').split('_');
-                if (parts.length >= 3) {
-                    const exchange = parts[0];
-                    const interval = parts[parts.length - 1];
-                    const symbolOnly = parts.slice(1, parts.length - 1).join('_');
-                    const fullSymbol = `${exchange}:${symbolOnly}`;
-                    
-                    if (!stockMap[fullSymbol]) {
-                        stockMap[fullSymbol] = {
-                            symbol: fullSymbol,
-                            exchange,
-                            tradingsymbol: symbolOnly,
-                            intervals: []
-                        };
-                    }
-                    if (!stockMap[fullSymbol].intervals.includes(interval)) {
-                        stockMap[fullSymbol].intervals.push(interval);
-                    }
+        const stats = await HistoricalCandle.aggregate([
+            {
+                $group: {
+                    _id: "$symbol",
+                    intervals: { $addToSet: "$interval" }
                 }
-            }
-        });
+            },
+            {
+                $project: {
+                    _id: 0,
+                    symbol: "$_id",
+                    intervals: 1
+                }
+            },
+            { $sort: { symbol: 1 } }
+        ]);
         
-        const stocks = Object.values(stockMap).sort((a, b) => a.symbol.localeCompare(b.symbol));
-        res.json({ stocks });
+        res.json({ stocks: stats });
     } catch (err) {
         console.error('[API Backtest Collections] Error:', err.message);
         res.status(500).json({ error: err.message });
@@ -2543,13 +2363,33 @@ app.get('/api/server-ip', async (req, res) => {
         const dataV4 = await resV4.json();
         ipv4 = dataV4.ip || 'Unavailable';
     } catch (err) {
-        ipv4 = '187.127.133.157';
+        console.warn('[Server IP] api4.ipify.org failed:', err.message);
+        try {
+            const resV4Fallback = await fetch('https://v4.ident.me/.json', { signal: AbortSignal.timeout(2000) });
+            const dataV4Fallback = await resV4Fallback.json();
+            ipv4 = dataV4Fallback.ip || dataV4Fallback.address || 'Unavailable';
+        } catch (err2) {
+            console.warn('[Server IP] v4.ident.me failed:', err2.message);
+            try {
+                const resV4Fallback2 = await fetch('https://ipinfo.io/ip', { signal: AbortSignal.timeout(2000) });
+                const text = await resV4Fallback2.text();
+                ipv4 = text.trim() || 'Unavailable';
+            } catch (err3) {
+                console.warn('[Server IP] ipinfo.io failed:', err3.message);
+            }
+        }
     }
     try {
         const resV6 = await fetch('https://api6.ipify.org?format=json', { signal: AbortSignal.timeout(2000) });
         const dataV6 = await resV6.json();
         ipv6 = dataV6.ip || 'Unavailable';
-    } catch (err) {}
+    } catch (err) {
+        try {
+            const resV6Fallback = await fetch('https://v6.ident.me/.json', { signal: AbortSignal.timeout(2000) });
+            const dataV6Fallback = await resV6Fallback.json();
+            ipv6 = dataV6Fallback.ip || dataV6Fallback.address || 'Unavailable';
+        } catch (err2) {}
+    }
     res.json({ ipv4, ipv6 });
 });
 
@@ -2567,6 +2407,106 @@ app.get('/api/system/network-ips', requireAuth, (req, res) => {
             }
         }
         res.json({ success: true, ips });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/system/db-space', requireAuth, async (req, res) => {
+    try {
+        const stats = await mongoose.connection.db.command({ dbStats: 1 });
+        let serverStatus = {};
+        try {
+            serverStatus = await mongoose.connection.db.command({ serverStatus: 1 });
+        } catch (err) {
+            console.warn('[DB Space API] Failed to query serverStatus:', err.message);
+        }
+        const network = serverStatus.network || {};
+
+        let hostDisk = { size: 'N/A', used: 'N/A', avail: 'N/A', usePct: 'N/A' };
+        try {
+            const { exec } = require('child_process');
+            const util = require('util');
+            const execPromise = util.promisify(exec);
+            const { stdout } = await execPromise('df -h /');
+            const lines = stdout.trim().split('\n');
+            if (lines.length > 1) {
+                const parts = lines[1].split(/\s+/);
+                hostDisk = {
+                    size: parts[1],
+                    used: parts[2],
+                    avail: parts[3],
+                    usePct: parts[4]
+                };
+            }
+        } catch (err) {
+            console.warn('[DB Space API] Failed to query host disk space:', err.message);
+        }
+        res.json({
+            success: true,
+            db: {
+                collections: stats.collections,
+                documents: stats.objects,
+                dataSizeMb: (stats.dataSize / (1024 * 1024)).toFixed(2),
+                storageSizeMb: (stats.storageSize / (1024 * 1024)).toFixed(2),
+                indexSizeMb: (stats.indexSize / (1024 * 1024)).toFixed(2)
+            },
+            network: {
+                bytesIn: Number(network.bytesIn || 0),
+                bytesOut: Number(network.bytesOut || 0),
+                numRequests: Number(network.numRequests || 0)
+            },
+            hostDisk
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/admin/historical-sync/status', requireAuth, (req, res) => {
+    res.json({ success: true, status: historicalSyncStatus });
+});
+
+app.post('/api/admin/historical-sync/start', requireAuth, (req, res) => {
+    if (historicalSyncStatus.status === 'running') {
+        return res.status(400).json({ error: 'Sync is already running' });
+    }
+    runHistoricalSync().catch(err => console.error('[Historical Sync] Run error:', err));
+    res.json({ success: true, message: 'Sync started' });
+});
+
+app.get('/api/admin/db-backups', requireAuth, async (req, res) => {
+    try {
+        const backupStats = await HistoricalCandle.aggregate([
+            {
+                $group: {
+                    _id: { symbol: "$symbol", interval: "$interval" },
+                    count: { $sum: 1 },
+                    minTime: { $min: "$timestamp" },
+                    maxTime: { $max: "$timestamp" }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    symbol: "$_id.symbol",
+                    interval: "$_id.interval",
+                    count: 1,
+                    minTime: 1,
+                    maxTime: 1
+                }
+            },
+            { $sort: { symbol: 1, interval: 1 } }
+        ]);
+        
+        const allSymbols = scanner.getNifty500Symbols ? scanner.getNifty500Symbols() : [];
+        
+        res.json({ 
+            success: true, 
+            backups: backupStats,
+            allSymbols: allSymbols,
+            syncStatus: historicalSyncStatus
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -2600,11 +2540,13 @@ async function runHistoricalSync() {
         historicalSyncStatus.totalCount = symbols.length;
         console.log(`[Historical Sync] Starting sync for ${symbols.length} Nifty 500 symbols.`);
         
-        // Date range: last 3 days to today (covers weekend gaps or server downtime)
+        // Date range: 3 years back for daily, 90 days back for 1-minute data
         const toDate = new Date();
-        const fromDate = new Date(toDate.getTime() - 3 * 24 * 60 * 60 * 1000);
+        const fromDateDay = new Date(toDate.getTime() - 3 * 365 * 24 * 60 * 60 * 1000);
+        const fromDateMinute = new Date(toDate.getTime() - 90 * 24 * 60 * 60 * 1000);
         
-        const fromStr = fromDate.toISOString().split('T')[0] + ' 09:15:00';
+        const fromStrDay = fromDateDay.toISOString().split('T')[0] + ' 09:15:00';
+        const fromStrMinute = fromDateMinute.toISOString().split('T')[0] + ' 09:15:00';
         const toStr = toDate.toISOString().split('T')[0] + ' 15:30:00';
         
         for (let i = 0; i < symbols.length; i++) {
@@ -2613,10 +2555,10 @@ async function runHistoricalSync() {
             historicalSyncStatus.progress = Math.round((i / symbols.length) * 100);
             
             try {
-                // Sync daily candles
-                await getCachedHistoricalData(symbol, 'day', fromStr, toStr);
-                // Sync 1-minute candles
-                await getCachedHistoricalData(symbol, 'minute', fromStr, toStr);
+                // Sync daily candles (3 years)
+                await getCachedHistoricalData(symbol, 'day', fromStrDay, toStr);
+                // Sync 1-minute candles (90 days)
+                await getCachedHistoricalData(symbol, 'minute', fromStrMinute, toStr);
                 
                 historicalSyncStatus.processedCount++;
                 if (i % 10 === 0 || i === symbols.length - 1) {
@@ -3625,7 +3567,8 @@ app.get('/api/ema-difference', requireAuth, async (req, res) => {
         fromDate.setDate(toDate.getDate() - 2000);
 
         console.log(`[EMA Difference] Fetching historical data for token ${instrumentToken} from ${fromDate.toISOString().split('T')[0]} to ${toDate.toISOString().split('T')[0]}`);
-        const candles = await getHistoricalDataRateLimited(instrumentToken, 'day', fromDate, toDate);
+        const isFno = symbol.startsWith('NFO:') || symbol.startsWith('MCX:');
+        const candles = await getHistoricalDataRateLimited(instrumentToken, 'day', fromDate, toDate, isFno, isFno);
 
         if (!candles || candles.length < 5) {
             return res.status(400).json({
@@ -3778,7 +3721,8 @@ app.get('/api/rsi', requireAuth, async (req, res) => {
         fromDate.setDate(toDate.getDate() - 250);
 
         console.log(`[RSI Scanner] Fetching historical data for token ${instrumentToken} from ${fromDate.toISOString().split('T')[0]} to ${toDate.toISOString().split('T')[0]}`);
-        const candles = await getHistoricalDataRateLimited(instrumentToken, 'day', fromDate, toDate);
+        const isFno = symbol.startsWith('NFO:') || symbol.startsWith('MCX:');
+        const candles = await getHistoricalDataRateLimited(instrumentToken, 'day', fromDate, toDate, isFno, isFno);
 
         if (!candles || candles.length < 15) {
             return res.status(400).json({
@@ -3970,7 +3914,8 @@ app.get('/api/screener-analysis', requireAuth, async (req, res) => {
         fromDate.setDate(toDate.getDate() - 365);
 
         console.log(`[Screener] Fetching historical data for token ${instrumentToken} from ${fromDate.toISOString().split('T')[0]} to ${toDate.toISOString().split('T')[0]}`);
-        const candles = await getHistoricalDataRateLimited(instrumentToken, 'day', fromDate, toDate);
+        const isFno = symbol.startsWith('NFO:') || symbol.startsWith('MCX:');
+        const candles = await getHistoricalDataRateLimited(instrumentToken, 'day', fromDate, toDate, isFno, isFno);
 
         if (!candles || candles.length < 200) {
             return res.status(400).json({
@@ -4749,7 +4694,7 @@ function generateAndSaveMockCandles(symbol, interval, symbolOnly) {
 
     let currentPrice = ltp;
     let now = Date.now();
-    const count = 200;
+    const count = 1000;
 
     for (let i = 0; i < count; i++) {
         const timestamp = new Date(now - i * intervalMs);
@@ -4788,7 +4733,7 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
     // Determine bounds of already-stored candles
     const existingCount = await HistoricalCandle.countDocuments({ symbol, interval });
     
-    if (existingCount >= 100) {
+    if (existingCount >= 1000) {
         console.log(`[Historical Cache] Serving ${existingCount} candles from MongoDB for ${symbol} (${interval})`);
         return await HistoricalCandle.find({
             symbol,
@@ -4853,7 +4798,8 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
                     
                     console.log(`[Historical Cache] Fetching from Kite: ${symbol} (${interval}) ${currStart.toISOString().split('T')[0]} to ${currEnd.toISOString().split('T')[0]}`);
                     try {
-                        const fetchedCandles = await getHistoricalDataRateLimited(instrumentToken, interval, currStart, currEnd);
+                        const isFno = symbol.startsWith('NFO:') || symbol.startsWith('MCX:');
+                        const fetchedCandles = await getHistoricalDataRateLimited(instrumentToken, interval, currStart, currEnd, isFno, isFno);
                         if (fetchedCandles && fetchedCandles.length > 0) {
                             const bulkOps = fetchedCandles.map(c => ({
                                 updateOne: {
@@ -4865,7 +4811,8 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
                                             high: c.high,
                                             low: c.low,
                                             close: c.close,
-                                            volume: c.volume
+                                            volume: c.volume,
+                                            oi: c.oi || 0
                                         }
                                     },
                                     upsert: true
@@ -4892,18 +4839,8 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
         }).sort({ timestamp: 1 }).lean();
 
     } catch (err) {
-        console.warn(`[Historical Cache] Failed or skipped fetching from Kite for ${symbol}, generating mock historical data instead:`, err.message);
-        
-        const mockCandles = generateAndSaveMockCandles(symbol, interval, symbolOnly);
-        
-        try {
-            await HistoricalCandle.insertMany(mockCandles);
-            console.log(`[Historical Cache] Saved ${mockCandles.length} mock candles to MongoDB.`);
-        } catch (dbErr) {
-            console.error(`[Historical Cache] Failed to save mock candles to DB:`, dbErr.message);
-        }
-        
-        return mockCandles;
+        console.error(`[Historical Cache] Fetching failed for ${symbol}:`, err.message);
+        throw err;
     }
 }
 
@@ -4937,7 +4874,39 @@ function runSimulation(candles, indicatorArrays, buyFn, sellFn, params) {
         const open = candle.open;
         const time = candle.timestamp;
         
-        // 1. Process SL / TP Exits
+        // Build the evaluation context for current candle
+        const context = {
+            close,
+            open,
+            high,
+            low,
+            volume: candle.volume,
+            atr: indicatorArrays['atr'] ? indicatorArrays['atr'][i] : 0
+        };
+        for (const [key, arr] of Object.entries(indicatorArrays)) {
+            context[key] = arr[i];
+        }
+        
+        // Skip signal evaluation during warmup if any indicator value is null
+        let hasNullIndicators = false;
+        for (const [key, val] of Object.entries(context)) {
+            if (val === null) {
+                hasNullIndicators = true;
+                break;
+            }
+        }
+        
+        let buySignal = false;
+        let sellSignal = false;
+        
+        if (!hasNullIndicators) {
+            try {
+                buySignal = buyFn(context);
+                sellSignal = sellFn(context);
+            } catch (err) {}
+        }
+        
+        // 1. Process SL / TP or Signal Exits
         if (position) {
             let exited = false;
             let exitPrice = 0;
@@ -4952,6 +4921,10 @@ function runSimulation(candles, indicatorArrays, buyFn, sellFn, params) {
                     exited = true;
                     exitPrice = open > position.tp ? open : position.tp;
                     exitReason = 'TAKE_PROFIT';
+                } else if (sellSignal) {
+                    exited = true;
+                    exitPrice = close;
+                    exitReason = 'SIGNAL_EXIT';
                 }
             } else if (position.direction === 'SHORT') {
                 if (high >= position.sl) {
@@ -4962,6 +4935,10 @@ function runSimulation(candles, indicatorArrays, buyFn, sellFn, params) {
                     exited = true;
                     exitPrice = open < position.tp ? open : position.tp;
                     exitReason = 'TAKE_PROFIT';
+                } else if (buySignal) {
+                    exited = true;
+                    exitPrice = close;
+                    exitReason = 'SIGNAL_EXIT';
                 }
             }
             
@@ -4998,28 +4975,8 @@ function runSimulation(candles, indicatorArrays, buyFn, sellFn, params) {
             }
         }
         
-        // 2. Evaluate Entry Signals
+        // 2. Evaluate Entry Signals (Only if not currently in a position)
         if (!position) {
-            const context = {
-                close,
-                open,
-                high,
-                low,
-                volume: candle.volume,
-                atr: indicatorArrays['atr'] ? indicatorArrays['atr'][i] : 0
-            };
-            for (const [key, arr] of Object.entries(indicatorArrays)) {
-                context[key] = arr[i];
-            }
-            
-            let buySignal = false;
-            let sellSignal = false;
-            
-            try {
-                buySignal = buyFn(context);
-                sellSignal = sellFn(context);
-            } catch (err) {}
-            
             if (buySignal) {
                 const entryPrice = close;
                 const allocatedMargin = cash * (marginPercentage / 100);
@@ -5160,20 +5117,18 @@ function runSimulation(candles, indicatorArrays, buyFn, sellFn, params) {
 
 // ─── 8d. POST /api/backtest ──────────────────────────────────────────────────
 app.post('/api/backtest', requireAuth, async (req, res) => {
-    const {
-        symbol,
-        interval,
-        fromDate,
-        toDate,
-        initialCapital,
-        strategy,
-        marginMultiplier,
-        marginPercentage,
-        allowShorting
-    } = req.body;
+    const symbol = req.body.symbol;
+    const interval = req.body.interval;
+    const fromDate = req.body.fromDate || req.body.fromDateStr;
+    const toDate = req.body.toDate || req.body.toDateStr;
+    const initialCapital = parseFloat(req.body.initialCapital || req.body.capital) || 100000;
+    const marginMultiplier = parseFloat(req.body.marginMultiplier || req.body.leverage) || 5;
+    const marginPercentage = parseFloat(req.body.marginPercentage) || 100;
+    const allowShorting = req.body.allowShorting !== undefined ? req.body.allowShorting : true;
+    const strategy = req.body.strategy || req.body.indicatorsConfig || req.body.indicators;
     
     if (!symbol || !interval || !fromDate || !toDate || !strategy) {
-        return res.status(400).json({ error: 'Missing required parameters: symbol, interval, fromDate, toDate, strategy' });
+        return res.status(400).json({ error: 'Missing required parameters: symbol, interval, fromDate/fromDateStr, toDate/toDateStr, strategy/indicatorsConfig' });
     }
     
     try {
