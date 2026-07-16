@@ -89,6 +89,19 @@ export default function App() {
   const getMonitoringUrl = (port, path = '') => {
     if (typeof window === 'undefined') return `http://localhost:${port}${path}`;
     const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    
+    // In production HTTPS, use the Express reverse proxies to avoid Mixed Content blocker
+    if (protocol === 'https:') {
+      let prefix = '';
+      if      (port === 3000) prefix = '/grafana';
+      else if (port === 9090) prefix = '/prometheus';
+      else if (port === 9093) prefix = '/alertmanager';
+      
+      return `${protocol}//${hostname}${prefix}${path}`;
+    }
+    
+    // In local HTTP dev, access ports directly
     return `http://${hostname}:${port}${path}`;
   };
   const [equityStopLossPercent, setEquityStopLossPercent] = useState(1);
@@ -2588,7 +2601,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
       </header>
 
       {/* CORE LAYOUT BODY */}
-      <main className="flex-1 w-full max-w-[1600px] mx-auto px-6 py-6 flex flex-col gap-6">
+      <main className="flex-1 w-full max-w-[1600px] mx-auto px-6 py-6 pb-24 md:pb-6 flex flex-col gap-6">
 
         {/* Lock Overlay Banner for Logged Out Layout */}
         {!appConfig.hasAccessToken && (
@@ -5812,6 +5825,41 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           </div>
         </div>
       )}
+
+      {/* Mobile Bottom Navigation Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-[#0f1524]/95 backdrop-blur-md border-t border-white/5 px-6 py-2.5 flex justify-around items-center shadow-2xl">
+        <button
+          onClick={() => setView('dashboard')}
+          className={`flex flex-col items-center gap-1 py-1 transition-all cursor-pointer ${
+            view === 'dashboard' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <LayoutDashboard className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Dash</span>
+        </button>
+
+        <button
+          onClick={handleExitAll}
+          className="flex flex-col items-center gap-1 py-1 text-rose-400 hover:text-rose-300 transition-all cursor-pointer"
+          title="Exit All Positions"
+        >
+          <div className="bg-rose-500/10 p-1.5 rounded-lg border border-rose-500/25 shadow-lg shadow-rose-500/5">
+            <Zap className="h-5 w-5 fill-rose-500/25 text-rose-400 animate-pulse" />
+          </div>
+          <span className="text-[10px] font-bold">Exit All</span>
+        </button>
+
+        <button
+          onClick={() => setView('admin')}
+          className={`flex flex-col items-center gap-1 py-1 transition-all cursor-pointer ${
+            view === 'admin' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <FileText className="h-5 w-5" />
+          <span className="text-[10px] font-semibold">Admin</span>
+        </button>
+      </div>
+
       </div> {/* Closes flex-1 flex flex-col wrapper */}
     </div>
   );

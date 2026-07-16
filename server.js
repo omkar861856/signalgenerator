@@ -4407,6 +4407,37 @@ function mcpProxy(req, res) {
 // Register before bodyParser so raw body is forwarded
 app.use('/mcp', (req, res) => mcpProxy(req, res));
 
+// Monitoring Reverse Proxies (routes Grafana, Prometheus, Alertmanager under the same HTTPS port/domain)
+const { createProxyMiddleware } = require('http-proxy-middleware');
+
+app.use('/grafana', createProxyMiddleware({
+    target: 'http://localhost:3000',
+    changeOrigin: true,
+    pathRewrite: {
+        '^/grafana': '', // Strip /grafana prefix before forwarding
+    },
+    ws: true, // Enable websocket proxying for live feeds
+    logLevel: 'warn',
+}));
+
+app.use('/prometheus', createProxyMiddleware({
+    target: 'http://localhost:9090',
+    changeOrigin: true,
+    pathRewrite: {
+        '^/prometheus': '',
+    },
+    logLevel: 'warn',
+}));
+
+app.use('/alertmanager', createProxyMiddleware({
+    target: 'http://localhost:9093',
+    changeOrigin: true,
+    pathRewrite: {
+        '^/alertmanager': '',
+    },
+    logLevel: 'warn',
+}));
+
 // ─── 11. Local loopback tool relay (Go MCP → Kite) ───────────────────────────
 function requireLocalhost(req, res, next) {
     const addr = req.socket.remoteAddress;
