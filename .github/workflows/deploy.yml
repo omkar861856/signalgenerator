@@ -24,11 +24,12 @@ jobs:
             cd /root/SignalGenerator
             git fetch --all
             git reset --hard origin/main
-            docker compose up -d --build || true
-            rm -rf /root/SignalGenerator/public
-            docker cp signal-generator-app:/usr/src/app/public /root/SignalGenerator/public || true
             mkdir -p /root/SignalGenerator/public
             echo "=== DIAGNOSTICS ===" > /root/SignalGenerator/public/diagnostics.txt
+            echo "--- docker compose build output ---" >> /root/SignalGenerator/public/diagnostics.txt
+            docker compose up -d --build >> /root/SignalGenerator/public/diagnostics.txt 2>&1 || true
+            rm -rf /root/SignalGenerator/public
+            docker cp signal-generator-app:/usr/src/app/public /root/SignalGenerator/public || true
             echo "--- docker ps ---" >> /root/SignalGenerator/public/diagnostics.txt
             docker ps >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             echo "--- node processes ---" >> /root/SignalGenerator/public/diagnostics.txt
