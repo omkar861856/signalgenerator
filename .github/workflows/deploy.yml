@@ -40,8 +40,12 @@ jobs:
             echo "--- pm2 status ---" >> /root/SignalGenerator/public/diagnostics.txt
             (pm2 status || pm2 list) >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             echo "--- nginx config ---" >> /root/SignalGenerator/public/diagnostics.txt
-            cat /etc/nginx/sites-enabled/* >> /root/SignalGenerator/public/diagnostics.txt 2>&1
-            cat /etc/nginx/nginx.conf >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            echo "--- docker ps -a ---" >> /root/SignalGenerator/public/diagnostics.txt
+            docker ps -a >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            echo "--- docker logs signal-generator-app ---" >> /root/SignalGenerator/public/diagnostics.txt
+            docker logs --tail 100 signal-generator-app >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            echo "--- docker logs signal-generator-vectorbt ---" >> /root/SignalGenerator/public/diagnostics.txt
+            docker logs --tail 100 signal-generator-vectorbt >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             if command -v pm2 &> /dev/null; then
               echo "--- PM2 detected, restarting all ---" >> /root/SignalGenerator/public/diagnostics.txt
               pm2 restart all >> /root/SignalGenerator/public/diagnostics.txt 2>&1
