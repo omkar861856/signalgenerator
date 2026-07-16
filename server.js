@@ -4413,6 +4413,46 @@ const grafanaHost = process.env.GRAFANA_HOST || 'localhost';
 const prometheusHost = process.env.PROMETHEUS_HOST || 'localhost';
 const alertmanagerHost = process.env.ALERTMANAGER_HOST || 'localhost';
 
+const rewriteRedirect = (proxyRes, req, res) => {
+    if (proxyRes.headers.location) {
+        const host = req.headers.host;
+        const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+        try {
+            const redirectUrl = new URL(proxyRes.headers.location);
+            redirectUrl.protocol = protocol;
+            redirectUrl.host = host;
+            
+            // Ensure the path retains the subpath prefix if the target didn't prepend it
+            const path = redirectUrl.pathname;
+            let prefix = '';
+            if (req.originalUrl.startsWith('/grafana') && !path.startsWith('/grafana')) {
+                prefix = '/grafana';
+            } else if (req.originalUrl.startsWith('/prometheus') && !path.startsWith('/prometheus')) {
+                prefix = '/prometheus';
+            } else if (req.originalUrl.startsWith('/alertmanager') && !path.startsWith('/alertmanager')) {
+                prefix = '/alertmanager';
+            }
+            
+            redirectUrl.pathname = prefix + path;
+            proxyRes.headers.location = redirectUrl.toString();
+        } catch (e) {
+            // Handle relative redirects
+            let location = proxyRes.headers.location;
+            if (location.startsWith('/')) {
+                let prefix = '';
+                if (req.originalUrl.startsWith('/grafana') && !location.startsWith('/grafana')) {
+                    prefix = '/grafana';
+                } else if (req.originalUrl.startsWith('/prometheus') && !location.startsWith('/prometheus')) {
+                    prefix = '/prometheus';
+                } else if (req.originalUrl.startsWith('/alertmanager') && !location.startsWith('/alertmanager')) {
+                    prefix = '/alertmanager';
+                }
+                proxyRes.headers.location = prefix + location;
+            }
+        }
+    }
+};
+
 app.use('/grafana', createProxyMiddleware({
     target: `http://${grafanaHost}:3000`,
     changeOrigin: true,
@@ -4421,6 +4461,7 @@ app.use('/grafana', createProxyMiddleware({
     },
     ws: true, // Enable websocket proxying for live feeds
     autoRewrite: true,
+    onProxyRes: rewriteRedirect,
     logLevel: 'warn',
 }));
 
@@ -4431,6 +4472,7 @@ app.use('/prometheus', createProxyMiddleware({
         '^/prometheus': '',
     },
     autoRewrite: true,
+    onProxyRes: rewriteRedirect,
     logLevel: 'warn',
 }));
 
@@ -4441,6 +4483,7 @@ app.use('/alertmanager', createProxyMiddleware({
         '^/alertmanager': '',
     },
     autoRewrite: true,
+    onProxyRes: rewriteRedirect,
     logLevel: 'warn',
 }));
 
