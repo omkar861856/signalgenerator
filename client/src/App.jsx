@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
-  FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown,
+  FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -72,7 +72,7 @@ export default function App() {
 
   // Strategy & Prompt State
   const [activeStrategy, setActiveStrategy] = useState('momentum_surfing_morning');
-  const [activeAssetMode, setActiveAssetMode] = useState('equity');
+  const [activeAssetMode, setActiveAssetMode] = useState('fno');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('');
   const [profitTargetExit, setProfitTargetExit] = useState(0);
   const [lossTargetExit, setLossTargetExit] = useState(0);
@@ -83,7 +83,14 @@ export default function App() {
   const [showMorningIpModal, setShowMorningIpModal] = useState(false);
 
   // Equity vs F&O Risk settings states
-  const [settingsTab, setSettingsTab] = useState('equity'); // 'equity' or 'fno'
+  const [settingsTab, setSettingsTab] = useState('fno'); // 'equity' or 'fno'
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  const getMonitoringUrl = (port, path = '') => {
+    if (typeof window === 'undefined') return `http://localhost:${port}${path}`;
+    const hostname = window.location.hostname;
+    return `http://${hostname}:${port}${path}`;
+  };
   const [equityStopLossPercent, setEquityStopLossPercent] = useState(1);
   const [equityTargetPercent, setEquityTargetPercent] = useState(2);
   const [fnoStopLossPercent, setFnoStopLossPercent] = useState(15);
@@ -2281,99 +2288,132 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
   }
 
   return (
-    <div className="flex flex-col min-h-screen relative font-sans text-slate-100 bg-[#0b0f19]">
+    <div className="flex min-h-screen relative font-sans text-slate-100 bg-[#0b0f19]">
       
       {/* Background gradients */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,58,237,0.1),transparent_50%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(99,102,241,0.08),transparent_50%)] pointer-events-none" />
 
-      {/* HEADER SECTION */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#0f1524]/60 backdrop-blur-md sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+      {/* Collapsible Sidebar */}
+      <aside className={`flex flex-col border-r border-white/5 bg-[#0f1524]/80 backdrop-blur-md transition-all duration-300 ${
+        isSidebarCollapsed ? 'w-20' : 'w-64'
+      } sticky top-0 h-screen z-40 flex-shrink-0`}>
+        {/* Logo Section */}
+        <div className="flex items-center gap-3 px-5 py-5 border-b border-white/5 h-[73px]">
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 flex-shrink-0">
             <span className="font-display font-bold text-white text-lg">▲</span>
           </div>
-          <h1 className="font-display text-xl font-bold tracking-tight text-white">
-            KITE<span className="font-light text-purple-400">✦CHATBOT</span>
-          </h1>
-          <div className="flex bg-black/45 border border-white/5 p-0.5 rounded-xl ml-4">
-            <button
-              onClick={() => handleGlobalAssetModeChange('equity')}
-              className={`px-3 py-1.5 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer ${
-                activeAssetMode === 'equity'
-                  ? 'bg-indigo-600 text-white shadow shadow-indigo-600/10'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Equity Mode
-            </button>
-            <button
-              onClick={() => handleGlobalAssetModeChange('fno')}
-              className={`px-3 py-1.5 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer ${
-                activeAssetMode === 'fno'
-                  ? 'bg-purple-600 text-white shadow shadow-purple-600/10'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              F&O Mode
-            </button>
-          </div>
+          {!isSidebarCollapsed && (
+            <h1 className="font-display text-base font-bold tracking-tight text-white animate-in fade-in duration-200">
+              KITE<span className="font-light text-purple-400">✦CHATBOT</span>
+            </h1>
+          )}
         </div>
 
-        {/* Tab switcher */}
-        <Tabs value={view} onValueChange={setView} className="w-auto">
-          <TabsList className="bg-white/5 border border-white/5 p-1 rounded-xl h-auto gap-1">
-            <TabsTrigger 
-              value="dashboard"
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-indigo-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
+        {/* Mode Switcher */}
+        <div className="p-4 border-b border-white/5">
+          {isSidebarCollapsed ? (
+            <div className="flex flex-col gap-2 items-center">
+              <button
+                onClick={() => handleGlobalAssetModeChange('equity')}
+                title="Equity Mode"
+                className={`w-10 h-10 flex items-center justify-center font-bold text-[10px] rounded-xl transition-all cursor-pointer ${
+                  activeAssetMode === 'equity'
+                    ? 'bg-indigo-600 text-white shadow shadow-indigo-600/10'
+                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                EQ
+              </button>
+              <button
+                onClick={() => handleGlobalAssetModeChange('fno')}
+                title="F&O Mode"
+                className={`w-10 h-10 flex items-center justify-center font-bold text-[10px] rounded-xl transition-all cursor-pointer ${
+                  activeAssetMode === 'fno'
+                    ? 'bg-purple-600 text-white shadow shadow-purple-600/10'
+                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                FO
+              </button>
+            </div>
+          ) : (
+            <div className="flex bg-black/45 border border-white/5 p-0.5 rounded-xl">
+              <button
+                onClick={() => handleGlobalAssetModeChange('equity')}
+                className={`flex-1 py-1.5 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer ${
+                  activeAssetMode === 'equity'
+                    ? 'bg-indigo-600 text-white shadow shadow-indigo-600/10'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Equity
+              </button>
+              <button
+                onClick={() => handleGlobalAssetModeChange('fno')}
+                className={`flex-1 py-1.5 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer ${
+                  activeAssetMode === 'fno'
+                    ? 'bg-purple-600 text-white shadow shadow-purple-600/10'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                F&O
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex-1 py-4 overflow-y-auto px-3">
+          <nav className="space-y-1.5">
+            {[
+              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, activeColor: 'bg-indigo-600/80' },
+              { id: 'scanners', label: 'Scanners', icon: Activity, activeColor: 'bg-indigo-600/80' },
+              { id: 'charts', label: 'Backtest Platform', icon: Sliders, activeColor: 'bg-indigo-600/80' },
+              { id: 'strategies', label: 'Strategies', icon: Settings, activeColor: 'bg-indigo-600/80' },
+              { id: 'fno', label: 'F&O Scanners', icon: Flame, activeColor: 'bg-purple-600/80' },
+              { id: 'monitoring', label: 'Monitoring', icon: Cpu, activeColor: 'bg-rose-600/80' },
+              { id: 'admin', label: 'Admin', icon: FileText, activeColor: 'bg-indigo-600/80' },
+            ].map(tab => {
+              const Icon = tab.icon;
+              const isActive = view === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setView(tab.id)}
+                  title={isSidebarCollapsed ? tab.label : ''}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
+                    isActive
+                      ? `${tab.activeColor} text-white shadow-lg shadow-indigo-500/5`
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'
+                  } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                >
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {!isSidebarCollapsed && <span className="truncate">{tab.label}</span>}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      </aside>
+
+      {/* Main Content Wrapper */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+        
+        {/* Top Header Status Bar */}
+        <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#0f1524]/60 backdrop-blur-md sticky top-0 z-40 h-[73px]">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSidebarCollapsed(prev => !prev)}
+              className="p-1.5 rounded-lg border border-white/5 bg-white/5 text-slate-400 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             >
-              <LayoutDashboard className="h-4 w-4" />
-              Dashboard
-            </TabsTrigger>
-            <TabsTrigger 
-              value="scanners"
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-indigo-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
-            >
-              <Activity className="h-4 w-4" />
-              Scanners
-            </TabsTrigger>
-            <TabsTrigger 
-              value="charts"
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-indigo-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
-            >
-              <Sliders className="h-4 w-4" />
-              Backtest Platform
-            </TabsTrigger>
-            <TabsTrigger 
-              value="strategies"
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-indigo-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
-            >
-              <Settings className="h-4 w-4" />
-              Strategies
-            </TabsTrigger>
-            <TabsTrigger 
-              value="fno"
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-purple-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
-            >
-              <Flame className="h-4 w-4" />
-              F&O Scanners
-            </TabsTrigger>
-            <TabsTrigger 
-              value="monitoring"
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-rose-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
-            >
-              <Cpu className="h-4 w-4" />
-              Monitoring
-            </TabsTrigger>
-            <TabsTrigger 
-              value="admin"
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-indigo-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
-            >
-              <FileText className="h-4 w-4" />
-              Admin
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+              {isSidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
+            <span className="text-xs text-slate-400 font-semibold tracking-wide uppercase font-display">
+              {isSidebarCollapsed ? "KITE✦CHATBOT" : ""}
+            </span>
+          </div>
 
         {/* Right Badges / Actions */}
         <div className="flex items-center gap-3">
@@ -3720,7 +3760,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 </div>
                 <div className="flex gap-2">
                   <a 
-                    href="http://localhost:3000/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark" 
+                    href={getMonitoringUrl(3000, "/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark")} 
                     target="_blank" 
                     rel="noreferrer"
                     className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -3729,7 +3769,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     Open Grafana
                   </a>
                   <a 
-                    href="http://localhost:9090" 
+                    href={getMonitoringUrl(9090)} 
                     target="_blank" 
                     rel="noreferrer"
                     className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -3787,7 +3827,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               {/* Embedding the live Grafana dashboard */}
               <div className="border border-white/5 rounded-xl overflow-hidden h-[450px] bg-[#070b13] flex flex-col items-center justify-center text-center p-6 text-slate-400 relative">
                 <iframe 
-                  src="http://localhost:3000/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark&kiosk" 
+                  src={getMonitoringUrl(3000, "/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark&kiosk")} 
                   width="100%" 
                   height="100%" 
                   frameBorder="0"
@@ -3872,7 +3912,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
                 {/* Grafana Button */}
                 <a 
-                  href="http://localhost:3000/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark" 
+                  href={getMonitoringUrl(3000, "/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark")} 
                   target="_blank" 
                   rel="noreferrer"
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 text-xs text-slate-300 transition-all hover:border-rose-500/30 group cursor-pointer"
@@ -3885,7 +3925,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
                 {/* Prometheus Button */}
                 <a 
-                  href="http://localhost:9090" 
+                  href={getMonitoringUrl(9090)} 
                   target="_blank" 
                   rel="noreferrer"
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 text-xs text-slate-300 transition-all hover:border-orange-500/30 group cursor-pointer"
@@ -3898,7 +3938,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
                 {/* Alertmanager Button */}
                 <a 
-                  href="http://localhost:9093" 
+                  href={getMonitoringUrl(9093)} 
                   target="_blank" 
                   rel="noreferrer"
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 text-xs text-slate-300 transition-all hover:border-amber-500/30 group cursor-pointer"
@@ -5736,7 +5776,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           </div>
         </div>
       )}
-
+      </div> {/* Closes flex-1 flex flex-col wrapper */}
     </div>
   );
 }

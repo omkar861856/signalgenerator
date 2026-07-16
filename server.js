@@ -5843,7 +5843,7 @@ async function runServerConsolidation() {
                 continue;
             }
 
-            const assetMode = (dbState && dbState.activeAssetMode) ? dbState.activeAssetMode : 'equity';
+            const assetMode = (dbState && dbState.activeAssetMode) ? dbState.activeAssetMode : 'fno';
             let posSlPercent = 0.01;
             let posTargetPercent = 0.02;
 

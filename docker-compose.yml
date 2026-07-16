@@ -53,7 +53,7 @@ services:
     container_name: signal-generator-prometheus
     restart: always
     ports:
-      - "127.0.0.1:9090:9090"
+      - "9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     extra_hosts:
@@ -64,7 +64,7 @@ services:
     container_name: signal-generator-grafana
     restart: always
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     volumes:
       - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
@@ -95,7 +95,7 @@ services:
     container_name: signal-generator-alertmanager
     restart: always
     ports:
-      - "127.0.0.1:9093:9093"
+      - "9093:9093"
     volumes:
       - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
 
