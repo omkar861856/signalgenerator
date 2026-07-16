@@ -2359,6 +2359,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               F&O Scanners
             </TabsTrigger>
             <TabsTrigger 
+              value="monitoring"
+              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-rose-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
+            >
+              <Cpu className="h-4 w-4" />
+              Monitoring
+            </TabsTrigger>
+            <TabsTrigger 
               value="admin"
               className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-indigo-600/80 data-[state=active]:text-white text-slate-400 hover:text-slate-200 cursor-pointer"
             >
@@ -3691,6 +3698,108 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 </Card>
               </div>
               
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* VIEW: MONITORING VIEW                                                    */}
+        {/* ========================================================================= */}
+        {view === 'monitoring' && (
+          <div className="flex flex-col gap-6">
+            <div className="glass-panel p-6 border-slate-800 bg-[#0f1524]/40 backdrop-blur-md rounded-xl">
+              <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-6 flex-wrap gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-rose-400" />
+                    System Telemetry & Live Monitoring
+                  </h3>
+                  <p className="text-slate-400 text-xs mt-1">
+                    Real-time metrics, logs aggregation, and monitoring infrastructure dashboard.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <a 
+                    href="http://localhost:3000/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark" 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                    Open Grafana
+                  </a>
+                  <a 
+                    href="http://localhost:9090" 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Server className="h-3.5 w-3.5" />
+                    Open Prometheus
+                  </a>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Scrapers Status</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>Express Backend (/metrics)</span>
+                      <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>VectorBT FastAPI (/metrics)</span>
+                      <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Logs & Loki</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>Loki Ingest Host</span>
+                      <span className="bg-indigo-500/20 text-indigo-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Running</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>Promtail Container Agent</span>
+                      <span className="bg-indigo-500/20 text-indigo-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Alerts Manager</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>Alertmanager (Port 9093)</span>
+                      <span className="bg-amber-500/20 text-amber-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Online</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>Alert Routing Rules</span>
+                      <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Loaded</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Embedding the live Grafana dashboard */}
+              <div className="border border-white/5 rounded-xl overflow-hidden h-[450px] bg-[#070b13] flex flex-col items-center justify-center text-center p-6 text-slate-400 relative">
+                <iframe 
+                  src="http://localhost:3000/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark&kiosk" 
+                  width="100%" 
+                  height="100%" 
+                  frameBorder="0"
+                  title="Grafana Dashboard Live Feed"
+                  className="absolute inset-0 z-10"
+                />
+                <div className="flex flex-col items-center gap-2">
+                  <Sliders className="h-8 w-8 text-slate-600 animate-pulse" />
+                  <span className="text-xs">Connecting to Grafana Live Feed...</span>
+                  <span className="text-[10px] text-slate-500 mt-1 max-w-sm">Ensure your Docker compose monitoring stack is started (`docker-compose up -d`) to load this panel.</span>
+                </div>
+              </div>
             </div>
           </div>
         )}

@@ -1,0 +1,12 @@
+[Redis] Connecting to redis://localhost:6379...
+Kite Connect initialised with key: 0rj6zxoqbcr0ki5z
+[Kite Init] No access token found in cache. Running in real mode (waiting for login/authentication).
+============================================================
+  AI Portfolio & Trading Chatbot
+  Local:      http://localhost:3005
+  LAN/Docker: http://10.205.164.2:3005
+  MCP (LAN):  http://10.205.164.2:3005/mcp
+============================================================
+[Redis] Connected successfully.
+[MongoDB] Connected successfully to database.
+[MongoDB] Updated global state to set pnlExitMode: current and pnlExitAutoEnabled: true.

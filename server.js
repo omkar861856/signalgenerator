@@ -3,6 +3,33 @@ const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument } = require('
 const mongoose = require('mongoose');
 connectDB();
 const express = require('express');
+
+const client = require('prom-client');
+client.collectDefaultMetrics();
+
+const httpRequestsCounter = new client.Counter({
+    name: 'http_requests_total',
+    help: 'Total number of HTTP requests',
+    labelNames: ['method', 'route', 'status']
+});
+
+const httpRequestsDuration = new client.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'HTTP request duration in seconds',
+    labelNames: ['method', 'route', 'status'],
+    buckets: [0.1, 0.3, 0.5, 1, 3, 5, 10]
+});
+
+const activeWebsocketConnections = new client.Gauge({
+    name: 'active_websocket_connections',
+    help: 'Current active WebSocket connections'
+});
+
+const kiteCallsCounter = new client.Counter({
+    name: 'kite_api_calls_total',
+    help: 'Total number of Kite Connect API calls',
+    labelNames: ['method', 'status']
+});
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
@@ -643,10 +670,18 @@ function wrapKiteMethods(kiteInstance) {
                 
                 // Intercept calls in simulation mode (real mode only now: throw error if no real token)
                 if (method !== 'generateSession' && (!access_token || access_token.startsWith("mock_"))) {
+                    kiteCallsCounter.inc({ method, status: 'error' });
                     throw new Error("No active real Zerodha session. Please log in first.");
                 }
                 
-                return originalMethod.apply(this, args);
+                try {
+                    const result = await originalMethod.apply(this, args);
+                    kiteCallsCounter.inc({ method, status: 'success' });
+                    return result;
+                } catch (err) {
+                    kiteCallsCounter.inc({ method, status: 'error' });
+                    throw err;
+                }
             };
         }
     }
@@ -687,6 +722,28 @@ function initKite() {
     }
 }
 initKite();
+
+// Prometheus HTTP Request Tracking Middleware
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = (Date.now() - start) / 1000;
+        const route = req.route ? req.route.path : req.path;
+        httpRequestsCounter.inc({ method: req.method, route, status: res.statusCode });
+        httpRequestsDuration.observe({ method: req.method, route, status: res.statusCode }, duration);
+    });
+    next();
+});
+
+app.get('/metrics', async (req, res) => {
+    try {
+        activeWebsocketConnections.set(scanner.getWsStatus() === 'connected' ? 1 : 0);
+        res.set('Content-Type', client.register.contentType);
+        res.end(await client.register.metrics());
+    } catch (err) {
+        res.status(500).end(err);
+    }
+});
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
