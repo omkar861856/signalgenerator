@@ -8,51 +8,60 @@ const express = require('express');
 const http = require('http');
 const originalWriteHead = http.ServerResponse.prototype.writeHead;
 http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, headers) {
-    let actualHeaders = headers;
-    if (typeof statusMessage === 'object') {
-        actualHeaders = statusMessage;
-    }
-    let location = this.getHeader('Location') || (actualHeaders && (actualHeaders.Location || actualHeaders.location));
-    if (location && typeof location === 'string') {
-        const req = this.req;
-        if (req) {
-            const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
-            const protocol = req.headers['x-forwarded-proto'] || (req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http');
-            try {
-                const redirectUrl = new URL(location);
-                redirectUrl.protocol = protocol;
-                if (protocol === 'https') {
-                    redirectUrl.host = host.split(':')[0];
-                } else {
-                    redirectUrl.host = host;
-                }
-                const path = redirectUrl.pathname;
-                let prefix = '';
-                if (req.originalUrl.startsWith('/grafana') && !path.startsWith('/grafana')) prefix = '/grafana';
-                else if (req.originalUrl.startsWith('/prometheus') && !path.startsWith('/prometheus')) prefix = '/prometheus';
-                else if (req.originalUrl.startsWith('/alertmanager') && !path.startsWith('/alertmanager')) prefix = '/alertmanager';
-                redirectUrl.pathname = prefix + path;
-                const newLocation = redirectUrl.toString();
-                this.setHeader('Location', newLocation);
-                if (actualHeaders) {
-                    if (actualHeaders.Location) actualHeaders.Location = newLocation;
-                    if (actualHeaders.location) actualHeaders.location = newLocation;
-                }
-            } catch (e) {
-                if (location.startsWith('/')) {
+    try {
+        let actualHeaders = headers;
+        if (typeof statusMessage === 'object') {
+            actualHeaders = statusMessage;
+        }
+        let location = this.getHeader('Location') || (actualHeaders && (actualHeaders.Location || actualHeaders.location));
+        if (location && typeof location === 'string') {
+            const req = this.req;
+            if (req) {
+                const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
+                const protoHeader = req.headers['x-forwarded-proto'];
+                const protocol = (protoHeader === 'https' || req.secure) ? 'https' : 'http';
+                const urlPath = req.originalUrl || req.url || '';
+                
+                try {
+                    const redirectUrl = new URL(location);
+                    redirectUrl.protocol = protocol;
+                    if (protocol === 'https') {
+                        redirectUrl.host = host.split(':')[0];
+                    } else {
+                        redirectUrl.host = host;
+                    }
+                    const path = redirectUrl.pathname;
                     let prefix = '';
-                    if (req.originalUrl.startsWith('/grafana') && !location.startsWith('/grafana')) prefix = '/grafana';
-                    else if (req.originalUrl.startsWith('/prometheus') && !location.startsWith('/prometheus')) prefix = '/prometheus';
-                    else if (req.originalUrl.startsWith('/alertmanager') && !location.startsWith('/alertmanager')) prefix = '/alertmanager';
-                    const newLocation = prefix + location;
+                    if (urlPath.startsWith('/grafana') && !path.startsWith('/grafana')) prefix = '/grafana';
+                    else if (urlPath.startsWith('/prometheus') && !path.startsWith('/prometheus')) prefix = '/prometheus';
+                    else if (urlPath.startsWith('/alertmanager') && !path.startsWith('/alertmanager')) prefix = '/alertmanager';
+                    
+                    redirectUrl.pathname = prefix + path;
+                    const newLocation = redirectUrl.toString();
                     this.setHeader('Location', newLocation);
                     if (actualHeaders) {
                         if (actualHeaders.Location) actualHeaders.Location = newLocation;
                         if (actualHeaders.location) actualHeaders.location = newLocation;
                     }
+                } catch (e) {
+                    if (location.startsWith('/')) {
+                        let prefix = '';
+                        if (urlPath.startsWith('/grafana') && !location.startsWith('/grafana')) prefix = '/grafana';
+                        else if (urlPath.startsWith('/prometheus') && !location.startsWith('/prometheus')) prefix = '/prometheus';
+                        else if (urlPath.startsWith('/alertmanager') && !location.startsWith('/alertmanager')) prefix = '/alertmanager';
+                        
+                        const newLocation = prefix + location;
+                        this.setHeader('Location', newLocation);
+                        if (actualHeaders) {
+                            if (actualHeaders.Location) actualHeaders.Location = newLocation;
+                            if (actualHeaders.location) actualHeaders.location = newLocation;
+                        }
+                    }
                 }
             }
         }
+    } catch (globalErr) {
+        console.error('[writeHead Interceptor Error]:', globalErr.message);
     }
     return originalWriteHead.apply(this, arguments);
 };
