@@ -82,9 +82,9 @@ export default function App() {
   const [lastReallocationTime, setLastReallocationTime] = useState(null);
   const [showMorningIpModal, setShowMorningIpModal] = useState(false);
 
-  // Equity vs F&O Risk settings states
   const [settingsTab, setSettingsTab] = useState('fno'); // 'equity' or 'fno'
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const getMonitoringUrl = (port, path = '') => {
     if (typeof window === 'undefined') return `http://localhost:${port}${path}`;
@@ -2294,10 +2294,20 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,58,237,0.1),transparent_50%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(99,102,241,0.08),transparent_50%)] pointer-events-none" />
 
+      {/* Mobile Drawer Overlay Backdrop */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200" 
+          onClick={() => setIsMobileMenuOpen(false)} 
+        />
+      )}
+
       {/* Collapsible Sidebar */}
-      <aside className={`flex flex-col border-r border-white/5 bg-[#0f1524]/80 backdrop-blur-md transition-all duration-300 ${
-        isSidebarCollapsed ? 'w-20' : 'w-64'
-      } sticky top-0 h-screen z-40 flex-shrink-0`}>
+      <aside className={`flex flex-col border-r border-white/5 bg-[#0f1524]/95 backdrop-blur-md transition-all duration-300 flex-shrink-0
+        fixed md:sticky top-0 left-0 h-screen z-50
+        ${isSidebarCollapsed ? 'w-20' : 'w-64'}
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
         {/* Logo Section */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-white/5 h-[73px]">
           <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 flex-shrink-0">
@@ -2308,6 +2318,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               KITE<span className="font-light text-purple-400">✦CHATBOT</span>
             </h1>
           )}
+          {/* Close button on mobile */}
+          <button 
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="ml-auto p-1.5 text-slate-400 hover:text-white md:hidden cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Mode Switcher */}
@@ -2380,7 +2397,10 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setView(tab.id)}
+                  onClick={() => {
+                    setView(tab.id);
+                    setIsMobileMenuOpen(false); // Auto close drawer on select on mobile
+                  }}
                   title={isSidebarCollapsed ? tab.label : ''}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
                     isActive
@@ -2403,15 +2423,28 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         {/* Top Header Status Bar */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#0f1524]/60 backdrop-blur-md sticky top-0 z-40 h-[73px]">
           <div className="flex items-center gap-3">
+            {/* Desktop Toggle Button */}
             <button
               onClick={() => setIsSidebarCollapsed(prev => !prev)}
-              className="p-1.5 rounded-lg border border-white/5 bg-white/5 text-slate-400 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+              className="hidden md:flex p-1.5 rounded-lg border border-white/5 bg-white/5 text-slate-400 hover:text-white transition-all cursor-pointer items-center justify-center"
               title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             >
               {isSidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
+            
+            {/* Mobile Menu Hamburger Toggle */}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden p-1.5 rounded-lg border border-white/5 bg-white/5 text-slate-400 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+              title="Open Navigation Menu"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+
             <span className="text-xs text-slate-400 font-semibold tracking-wide uppercase font-display">
-              {isSidebarCollapsed ? "KITE✦CHATBOT" : ""}
+              {isSidebarCollapsed ? "KITE✦CHATBOT" : (
+                <span className="md:hidden">KITE✦CHATBOT</span>
+              )}
             </span>
           </div>
 
@@ -2428,7 +2461,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               }`}
             >
               <Activity className="h-3.5 w-3.5" />
-              <span className="text-xs font-semibold">Alerts Log</span>
+              <span className="text-xs font-semibold hidden sm:inline">Alerts Log</span>
               {alertHistory.length > 0 && (
                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white animate-pulse">
                   {alertHistory.length}
@@ -2512,7 +2545,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
           {/* Market clock */}
           {marketTime && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-300">
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-300">
               ⏰ {marketTime}
             </div>
           )}
@@ -2521,11 +2554,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           <div className="flex items-center gap-2">
             {appConfig.hasAccessToken ? (
               <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                Kite Connected
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="hidden sm:inline">Kite Connected</span>
               </div>
             ) : (
               <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400">
-                Kite Disconnected
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse"></span>
+                <span className="hidden sm:inline">Kite Disconnected</span>
               </div>
             )}
 
@@ -2535,7 +2570,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 size="icon-sm"
                 onClick={handleLogout}
                 title="Disconnect Account"
-                className="rounded-lg border border-white/5 bg-white/5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer p-0"
+                className="rounded-lg border border-white/5 bg-white/5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer p-0 w-8 h-8"
               >
                 <LogOut className="h-4 w-4" />
               </Button>
@@ -2544,7 +2579,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 onClick={handleLogin}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-all cursor-pointer h-auto border-0"
               >
-                Connect Zerodha
+                <span className="hidden sm:inline">Connect Zerodha</span>
+                <span className="sm:hidden">Connect</span>
               </Button>
             )}
           </div>
