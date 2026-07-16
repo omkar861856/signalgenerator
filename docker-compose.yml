@@ -20,6 +20,9 @@ services:
       - KITE_API_KEY=${KITE_API_KEY}
       - KITE_API_SECRET=${KITE_API_SECRET}
       - OpenAiApiKey=${OpenAiApiKey}
+      - GRAFANA_HOST=grafana
+      - PROMETHEUS_HOST=prometheus
+      - ALERTMANAGER_HOST=alertmanager
 
   vectorbt-service:
     build:

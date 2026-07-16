@@ -4409,9 +4409,12 @@ app.use('/mcp', (req, res) => mcpProxy(req, res));
 
 // Monitoring Reverse Proxies (routes Grafana, Prometheus, Alertmanager under the same HTTPS port/domain)
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const grafanaHost = process.env.GRAFANA_HOST || 'localhost';
+const prometheusHost = process.env.PROMETHEUS_HOST || 'localhost';
+const alertmanagerHost = process.env.ALERTMANAGER_HOST || 'localhost';
 
 app.use('/grafana', createProxyMiddleware({
-    target: 'http://localhost:3000',
+    target: `http://${grafanaHost}:3000`,
     changeOrigin: true,
     pathRewrite: {
         '^/grafana': '', // Strip /grafana prefix before forwarding
@@ -4421,7 +4424,7 @@ app.use('/grafana', createProxyMiddleware({
 }));
 
 app.use('/prometheus', createProxyMiddleware({
-    target: 'http://localhost:9090',
+    target: `http://${prometheusHost}:9090`,
     changeOrigin: true,
     pathRewrite: {
         '^/prometheus': '',
@@ -4430,7 +4433,7 @@ app.use('/prometheus', createProxyMiddleware({
 }));
 
 app.use('/alertmanager', createProxyMiddleware({
-    target: 'http://localhost:9093',
+    target: `http://${alertmanagerHost}:9093`,
     changeOrigin: true,
     pathRewrite: {
         '^/alertmanager': '',
