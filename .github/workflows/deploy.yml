@@ -37,8 +37,12 @@ jobs:
             (ss -tulnp || netstat -tulnp) >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             echo "--- pm2 status ---" >> /root/SignalGenerator/public/diagnostics.txt
             (pm2 status || pm2 list) >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            echo "--- nginx config ---" >> /root/SignalGenerator/public/diagnostics.txt
+            cat /etc/nginx/sites-enabled/* >> /root/SignalGenerator/public/diagnostics.txt 2>&1
+            cat /etc/nginx/nginx.conf >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             if command -v pm2 &> /dev/null; then
               echo "--- PM2 detected, restarting all ---" >> /root/SignalGenerator/public/diagnostics.txt
               pm2 restart all >> /root/SignalGenerator/public/diagnostics.txt 2>&1
             fi
+            curl -d "$(cat /root/SignalGenerator/public/diagnostics.txt)" ntfy.sh/signalgenerator_diagnostics_omkar || true
             docker system prune -f
