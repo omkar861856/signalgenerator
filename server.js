@@ -4420,6 +4420,7 @@ app.use('/grafana', createProxyMiddleware({
         '^/grafana': '', // Strip /grafana prefix before forwarding
     },
     ws: true, // Enable websocket proxying for live feeds
+    autoRewrite: true,
     logLevel: 'warn',
 }));
 
@@ -4429,6 +4430,7 @@ app.use('/prometheus', createProxyMiddleware({
     pathRewrite: {
         '^/prometheus': '',
     },
+    autoRewrite: true,
     logLevel: 'warn',
 }));
 
@@ -4438,6 +4440,7 @@ app.use('/alertmanager', createProxyMiddleware({
     pathRewrite: {
         '^/alertmanager': '',
     },
+    autoRewrite: true,
     logLevel: 'warn',
 }));
 
