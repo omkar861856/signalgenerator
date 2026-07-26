@@ -4,14 +4,32 @@ const mongoose = require('mongoose');
 connectDB();
 const express = require('express');
 
-// Global http.ServerResponse redirect Location rewriters (intercepts and rewrites redirects globally from express and http-proxy)
+// Global http.ServerResponse redirect Location rewriters (intercepts and rewrites redirects globally for proxy subpaths like /grafana, /prometheus, /alertmanager)
 const http = require('http');
+
+function isExternalRedirectUrl(urlStr) {
+    if (!urlStr || typeof urlStr !== 'string') return false;
+    try {
+        if (urlStr.startsWith('http://') || urlStr.startsWith('https://')) {
+            const u = new URL(urlStr);
+            const host = u.hostname.toLowerCase();
+            if (host.includes('zerodha.com') || host.includes('kite.trade') || host.includes('openai.com')) {
+                return true;
+            }
+            const internalHosts = ['localhost', '127.0.0.1', 'grafana', 'prometheus', 'alertmanager', 'signal-generator-grafana', 'signal-generator-prometheus', 'signal-generator-alertmanager'];
+            if (!internalHosts.some(h => host === h || host.startsWith(h))) {
+                return true;
+            }
+        }
+    } catch (e) {}
+    return false;
+}
 
 const originalSetHeader = http.ServerResponse.prototype.setHeader;
 http.ServerResponse.prototype.setHeader = function (name, value) {
     let newValue = value;
     try {
-        if (name && name.toLowerCase() === 'location' && typeof value === 'string') {
+        if (name && name.toLowerCase() === 'location' && typeof value === 'string' && !isExternalRedirectUrl(value)) {
             const req = this.req;
             if (req) {
                 const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
@@ -61,7 +79,7 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
             actualHeaders = statusMessage;
         }
         let location = this.getHeader('Location') || (actualHeaders && (actualHeaders.Location || actualHeaders.location));
-        if (location && typeof location === 'string') {
+        if (location && typeof location === 'string' && !isExternalRedirectUrl(location)) {
             const req = this.req;
             if (req) {
                 const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
@@ -108,7 +126,7 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
                 }
             }
         }
-    } catch (globalErr) {
+    } catch (err) {
         // Ignored
     }
     if (typeof statusMessage === 'object') {
