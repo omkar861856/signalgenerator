@@ -13,6 +13,11 @@ app = FastAPI(title="VectorBT Backtesting Service")
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
 
+@app.get("/health")
+@app.get("/")
+async def health_check():
+    return {"status": "ok"}
+
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total",
     "Total HTTP requests",

@@ -10,9 +10,18 @@ services:
     ports:
       - "127.0.0.1:3005:3005"
     depends_on:
-      - mongodb
-      - redis
-      - vectorbt-service
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vectorbt-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     environment:
       - PORT=3005
       - MONGO_URI=mongodb://mongodb:27017/signalgenerator
@@ -32,6 +41,12 @@ services:
     restart: always
     ports:
       - "127.0.0.1:8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   mongodb:
     image: mongo:6.0
@@ -39,6 +54,12 @@ services:
     restart: always
     ports:
       - "127.0.0.1:27018:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes:
       - mongodb_data:/data/db
 
@@ -48,6 +69,12 @@ services:
     restart: always
     ports:
       - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     volumes:
       - redis_data:/data
 
@@ -104,7 +131,7 @@ services:
       - "9093:9093"
     volumes:
       - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
-    command: --config.file=/etc/alertmanager/alertmanager.yml --web.external-url=/alertmanager/ --web.route-prefix=/
+    command: --config.file=/etc/alertmanager/alertmanager.yml --web.external-url=http://localhost:9093/alertmanager/ --web.route-prefix=/
 
 volumes:
   mongodb_data:

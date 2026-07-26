@@ -48,29 +48,51 @@ HistoricalCandleSchema.index({ instrumentToken: 1 });
 
 const HistoricalCandle = mongoose.model('HistoricalCandle', HistoricalCandleSchema);
 
-async function connectDB() {
+// Register connection lifecycle handlers
+mongoose.connection.on('disconnected', () => {
+    console.warn('[MongoDB] Connection lost. Mongoose will attempt auto-reconnecting...');
+});
+mongoose.connection.on('error', (err) => {
+    console.error('[MongoDB] Connection error:', err.message);
+});
+mongoose.connection.on('reconnected', () => {
+    console.log('[MongoDB] Connection re-established successfully.');
+});
+
+async function connectDB(retries = 15, delayMs = 3000) {
     if (!MONGO_URI) {
-        console.error('[FATAL] MONGO_URI is not defined in the environment variables. Please check your .env file.');
-        process.exit(1);
+        console.error('[MongoDB] MONGO_URI is not defined in environment variables.');
+        return;
     }
-    try {
-        await mongoose.connect(MONGO_URI);
-        console.log('[MongoDB] Connected successfully to database.');
-        
-        // Ensure default global state document exists
-        let state = await AppState.findOne({ key: 'global_state' });
-        if (!state) {
-            state = new AppState({ key: 'global_state', pnlExitMode: 'current', pnlExitAutoEnabled: true });
-            await state.save();
-            console.log('[MongoDB] Created default global state document.');
-        } else {
-            state.pnlExitMode = 'current';
-            state.pnlExitAutoEnabled = true;
-            await state.save();
-            console.log('[MongoDB] Updated global state to set pnlExitMode: current and pnlExitAutoEnabled: true.');
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            await mongoose.connect(MONGO_URI, {
+                serverSelectionTimeoutMS: 5000
+            });
+            console.log('[MongoDB] Connected successfully to database.');
+            
+            // Ensure default global state document exists
+            let state = await AppState.findOne({ key: 'global_state' });
+            if (!state) {
+                state = new AppState({ key: 'global_state', pnlExitMode: 'current', pnlExitAutoEnabled: true });
+                await state.save();
+                console.log('[MongoDB] Created default global state document.');
+            } else {
+                state.pnlExitMode = 'current';
+                state.pnlExitAutoEnabled = true;
+                await state.save();
+                console.log('[MongoDB] Updated global state to set pnlExitMode: current and pnlExitAutoEnabled: true.');
+            }
+            return;
+        } catch (err) {
+            console.error(`[MongoDB] Connection attempt ${attempt}/${retries} failed: ${err.message}`);
+            if (attempt < retries) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            } else {
+                console.error('[MongoDB] Initial connection retries exhausted. Retrying connection in background...');
+                setTimeout(() => connectDB(5, 5000), 10000);
+            }
         }
-    } catch (err) {
-        console.error('[MongoDB] Connection failed:', err.message);
     }
 }
 

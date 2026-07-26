@@ -806,7 +806,13 @@ function connectKiteStream(apiKey, accessToken) {
     });
 
     tickerInstance.on('noreconnect', () => {
-        logStream("CRITICAL: Reconnection limits exceeded. No more reconnection attempts will be made.");
+        logStream("CRITICAL: Reconnection limits exceeded. Scheduling fresh reconnection attempt in 15 seconds...");
+        setTimeout(() => {
+            if (apiKey && accessToken) {
+                logStream("Auto-reconnecting Kite WebSocket stream after noreconnect timeout...");
+                connectKiteStream(apiKey, accessToken);
+            }
+        }, 15000);
     });
 }
 

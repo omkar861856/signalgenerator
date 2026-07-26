@@ -159,14 +159,24 @@ async function initRedis() {
     if (process.env.REDIS_URL) {
         try {
             console.log(`[Redis] Connecting to ${process.env.REDIS_URL}...`);
-            redisClient = createClient({ url: process.env.REDIS_URL });
+            redisClient = createClient({
+                url: process.env.REDIS_URL,
+                socket: {
+                    reconnectStrategy: (retries) => {
+                        console.warn(`[Redis] Reconnecting attempt ${retries}...`);
+                        return Math.min(retries * 100, 3000);
+                    }
+                }
+            });
             redisClient.on('error', (err) => console.error('[Redis] Client Error:', err.message));
+            redisClient.on('connect', () => console.log('[Redis] Connected successfully.'));
+            redisClient.on('reconnecting', () => console.warn('[Redis] Reconnecting to server...'));
             await redisClient.connect();
-            console.log('[Redis] Connected successfully.');
             restoreKiteSessionFromRedis();
         } catch (err) {
-            console.error('[Redis] Connection failed:', err.message);
+            console.error('[Redis] Initial connection failed:', err.message);
             redisClient = null;
+            setTimeout(initRedis, 5000);
         }
     } else {
         console.log('[Redis] REDIS_URL not configured. Using local in-memory/file fallback cache.');
@@ -964,6 +974,17 @@ function handleKiteError(err, res, prefix = '[Kite API]') {
         error_type: errorType || 'GeneralException'
     });
 }
+
+// ─── Healthcheck Endpoints ────────────────────────────────────────────────────
+app.get(['/health', '/api/health'], (req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        redisConnected: redisClient ? redisClient.isOpen : false,
+        mongoConnected: mongoose.connection.readyState === 1
+    });
+});
 
 // ─── 1. Status / config ───────────────────────────────────────────────────────
 app.get('/api/config', (req, res) => {
