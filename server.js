@@ -1445,6 +1445,29 @@ app.get('/api/callback', async (req, res) => {
     }
 });
 
+// ─── Manual Access Token Endpoint ──────────────────────────────────────────────
+app.post('/api/set-token', (req, res) => {
+    const { token } = req.body || {};
+    if (!token || typeof token !== 'string' || !token.trim()) {
+        return res.status(400).json({ error: 'Access token is required' });
+    }
+    const cleanToken = token.trim();
+    access_token = cleanToken;
+    if (kite) kite.setAccessToken(access_token);
+    if (scanner.setKiteInstance) scanner.setKiteInstance(kite);
+    try { fs.writeFileSync(tokenCachePath, JSON.stringify({ access_token: cleanToken }), 'utf8'); } catch {}
+    if (redisClient) {
+        setCache('kite:session', { access_token: cleanToken }).catch(err => console.error('[Redis] Failed to write session:', err.message));
+    }
+    console.log('[Auth] Access token set manually.');
+    startServerPolling();
+    scanner.initializeMappings().then(() => {
+        scanner.connectKiteStream(API_KEY, cleanToken);
+    }).catch(err => console.error('[Scanner] Initialization failed:', err.message));
+
+    res.json({ success: true, message: 'Access token updated successfully.' });
+});
+
 // ─── 7. Logout ────────────────────────────────────────────────────────────────
 app.post('/api/logout', (req, res) => {
     access_token = null;
