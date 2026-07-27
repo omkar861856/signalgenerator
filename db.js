@@ -123,10 +123,105 @@ InstrumentSchema.index({ exchange: 1, tradingsymbol: 1 });
 
 const Instrument = mongoose.model('Instrument', InstrumentSchema);
 
+async function cleanupRedundantDBData() {
+    try {
+        console.log('[DB Maintenance] Starting redundant data cleanup...');
+        
+        // 1. Wipe invalid/corrupted candles (missing or NaN OHLC)
+        const invalidCandlesRes = await HistoricalCandle.deleteMany({
+            $or: [
+                { open: { $exists: false } },
+                { high: { $exists: false } },
+                { low: { $exists: false } },
+                { close: { $exists: false } },
+                { open: null },
+                { close: null }
+            ]
+        });
+        console.log(`[DB Maintenance] Removed ${invalidCandlesRes.deletedCount || 0} invalid/corrupted candle records.`);
+
+        // 2. Remove duplicate candles by (symbol, interval, timestamp)
+        const candleDuplicates = await HistoricalCandle.aggregate([
+            {
+                $group: {
+                    _id: { symbol: "$symbol", interval: "$interval", timestamp: "$timestamp" },
+                    dups: { $push: "$_id" },
+                    count: { $sum: 1 }
+                }
+            },
+            { $match: { count: { $gt: 1 } } }
+        ]);
+
+        let removedCandleDups = 0;
+        for (const doc of candleDuplicates) {
+            const idsToDelete = doc.dups.slice(1);
+            const delRes = await HistoricalCandle.deleteMany({ _id: { $in: idsToDelete } });
+            removedCandleDups += delRes.deletedCount || 0;
+        }
+        console.log(`[DB Maintenance] Removed ${removedCandleDups} duplicate candle records.`);
+
+        // 3. Remove duplicate instruments by instrument_token
+        const instrumentDuplicates = await Instrument.aggregate([
+            {
+                $group: {
+                    _id: "$instrument_token",
+                    dups: { $push: "$_id" },
+                    count: { $sum: 1 }
+                }
+            },
+            { $match: { count: { $gt: 1 } } }
+        ]);
+
+        let removedInstDups = 0;
+        for (const doc of instrumentDuplicates) {
+            const idsToDelete = doc.dups.slice(1);
+            const delRes = await Instrument.deleteMany({ _id: { $in: idsToDelete } });
+            removedInstDups += delRes.deletedCount || 0;
+        }
+        console.log(`[DB Maintenance] Removed ${removedInstDups} duplicate instrument records.`);
+
+        // 4. Clean AppState lists
+        const state = await AppState.findOne({ key: 'global_state' });
+        if (state) {
+            let modified = false;
+            if (Array.isArray(state.watchlistedStocks)) {
+                const uniqueWatchlist = [...new Set(state.watchlistedStocks.filter(Boolean))];
+                if (uniqueWatchlist.length !== state.watchlistedStocks.length) {
+                    state.watchlistedStocks = uniqueWatchlist;
+                    modified = true;
+                }
+            }
+            if (Array.isArray(state.subscribedTokens)) {
+                const uniqueTokens = [...new Set(state.subscribedTokens.filter(Boolean))];
+                if (uniqueTokens.length !== state.subscribedTokens.length) {
+                    state.subscribedTokens = uniqueTokens;
+                    modified = true;
+                }
+            }
+            if (modified) {
+                await state.save();
+                console.log('[DB Maintenance] Cleaned AppState watchlist and token duplicates.');
+            }
+        }
+
+        console.log('[DB Maintenance] Database cleanup completed successfully!');
+        return {
+            success: true,
+            invalidCandlesRemoved: invalidCandlesRes.deletedCount || 0,
+            duplicateCandlesRemoved: removedCandleDups,
+            duplicateInstrumentsRemoved: removedInstDups
+        };
+    } catch (err) {
+        console.error('[DB Maintenance] Error during DB cleanup:', err.message);
+        return { success: false, error: err.message };
+    }
+}
+
 module.exports = {
     connectDB,
     AppState,
     HistoricalCandle,
     KiteDoc,
-    Instrument
+    Instrument,
+    cleanupRedundantDBData
 };

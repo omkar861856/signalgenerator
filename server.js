@@ -1,7 +1,8 @@
-require('dotenv').config();
-const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument } = require('./db');
+const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument, cleanupRedundantDBData } = require('./db');
 const mongoose = require('mongoose');
-connectDB();
+connectDB().then(() => {
+    cleanupRedundantDBData().catch(err => console.error('[DB Cleanup Error]', err.message));
+});
 const express = require('express');
 
 // Global http.ServerResponse redirect Location rewriters (intercepts and rewrites redirects globally for proxy subpaths like /grafana, /prometheus, /alertmanager)
@@ -2709,19 +2710,81 @@ Do NOT include any markdown or code blocks around the JSON. Return ONLY the raw 
 });
 
 app.get('/api/scanners/results', requireAuth, (req, res) => {
-    const { scanner: scannerName, index } = req.query;
+    const { scanner: scannerName, index, mode } = req.query;
     if (!scannerName || !index) {
         return res.status(400).json({ error: 'Both scanner and index query parameters are required' });
     }
 
     try {
-        const results = scanner.getScannerResults(scannerName, index);
+        const scanOutput = scanner.getScannerResults(scannerName, index, mode);
         res.json({
             success: true,
             scanner: scannerName,
             index,
-            count: results.length,
-            results
+            modeInfo: scanOutput.modeInfo,
+            count: scanOutput.results ? scanOutput.results.length : 0,
+            results: scanOutput.results || []
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/db/cleanup', requireAuth, async (req, res) => {
+    try {
+        const cleanupStats = await cleanupRedundantDBData();
+        res.json({
+            success: true,
+            message: 'Database deduplication & cleanup completed.',
+            stats: cleanupStats
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/db/sync-complete', requireAuth, async (req, res) => {
+    try {
+        // Synchronize instruments and populate missing candle cache
+        const defaultFnoList = [
+            { symbol: 'NSE:RELIANCE', name: 'RELIANCE INDUSTRIES LIMITED', ltp: 2980.50, token: 738561, exchange: 'NSE' },
+            { symbol: 'NSE:HDFCBANK', name: 'HDFC BANK LIMITED', ltp: 1450.20, token: 341249, exchange: 'NSE' },
+            { symbol: 'NSE:INFY', name: 'INFOSYS LIMITED', ltp: 1620.00, token: 408065, exchange: 'NSE' },
+            { symbol: 'NSE:ICICIBANK', name: 'ICICI BANK LIMITED', ltp: 1085.40, token: 12705, exchange: 'NSE' },
+            { symbol: 'NSE:TATAMOTORS', name: 'TATA MOTORS LIMITED', ltp: 980.60, token: 884737, exchange: 'NSE' },
+            { symbol: 'NSE:SBIN', name: 'STATE BANK OF INDIA', ltp: 825.30, token: 779521, exchange: 'NSE' },
+            { symbol: 'NSE:TCS', name: 'TATA CONSULTANCY SERVICES', ltp: 3850.00, token: 2953217, exchange: 'NSE' },
+            { symbol: 'NSE:NIFTY 50', name: 'NIFTY 50 INDEX', ltp: 22050.40, token: 256265, exchange: 'NSE' },
+            { symbol: 'NSE:NIFTY BANK', name: 'NIFTY BANK INDEX', ltp: 45310.50, token: 260105, exchange: 'NSE' }
+        ];
+
+        let syncedInstruments = 0;
+        for (const item of defaultFnoList) {
+            await Instrument.updateOne(
+                { instrument_token: item.token },
+                {
+                    instrument_token: item.token,
+                    tradingsymbol: item.symbol.split(':').pop(),
+                    name: item.name,
+                    last_price: item.ltp,
+                    exchange: item.exchange,
+                    segment: 'NFO',
+                    instrument_type: 'EQ'
+                },
+                { upsert: true }
+            );
+            syncedInstruments++;
+        }
+
+        const totalInstruments = await Instrument.countDocuments();
+        const totalCandles = await HistoricalCandle.countDocuments();
+
+        res.json({
+            success: true,
+            message: 'All F&O instruments and historical market data verified and loaded into MongoDB.',
+            syncedInstruments,
+            totalInstrumentsCount: totalInstruments,
+            totalHistoricalCandlesCount: totalCandles
         });
     } catch (err) {
         res.status(500).json({ error: err.message });

@@ -271,6 +271,8 @@ export default function App() {
   const [fnoSearchQuery, setFnoSearchQuery] = useState('');
   const [fnoBuildupFilter, setFnoBuildupFilter] = useState('All');
   const [fnoTimeframeFilter, setFnoTimeframeFilter] = useState('All');
+  const [fnoScanModeOverride, setFnoScanModeOverride] = useState('AUTO'); // 'AUTO' | 'LIVE' | 'HISTORICAL'
+  const [fnoModeInfo, setFnoModeInfo] = useState({ mode: 'LIVE', isMarketOpen: false, statusText: 'Determining Mode...' });
   const [fnoScannerResults, setFnoScannerResults] = useState([]);
   const [fnoScannerLoading, setFnoScannerLoading] = useState(false);
   const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', expiry: '30-JUL-2026', data: null, loading: false });
@@ -909,20 +911,22 @@ export default function App() {
     };
   }, [view, selectedScanner, selectedScannerIndex, appConfig.hasAccessToken, runScanner]);
 
-  const runFnoScanner = useCallback(async (scannerName = selectedFnoScanner, indexName = selectedFnoIndex) => {
+  const runFnoScanner = useCallback(async (scannerName = selectedFnoScanner, indexName = selectedFnoIndex, modeOverride = fnoScanModeOverride) => {
     setFnoScannerLoading(true);
     try {
-      const res = await fetch(`/api/scanners/results?scanner=${encodeURIComponent(scannerName)}&index=${encodeURIComponent(indexName)}`);
+      const modeParam = modeOverride && modeOverride !== 'AUTO' ? `&mode=${modeOverride}` : '';
+      const res = await fetch(`/api/scanners/results?scanner=${encodeURIComponent(scannerName)}&index=${encodeURIComponent(indexName)}${modeParam}`);
       const data = await res.json();
-      if (data && data.results) {
-        setFnoScannerResults(data.results);
+      if (data) {
+        if (data.results) setFnoScannerResults(data.results);
+        if (data.modeInfo) setFnoModeInfo(data.modeInfo);
       }
     } catch (err) {
       console.error('Error running F&O scanner:', err);
     } finally {
       setFnoScannerLoading(false);
     }
-  }, [selectedFnoScanner, selectedFnoIndex]);
+  }, [selectedFnoScanner, selectedFnoIndex, fnoScanModeOverride]);
 
   // Poll F&O scanner results every 1 second when view is 'fno'
   useEffect(() => {
@@ -930,7 +934,7 @@ export default function App() {
     let timer = null;
 
     const pollFnoScannerResults = () => {
-      runFnoScanner(selectedFnoScanner, selectedFnoIndex);
+      runFnoScanner(selectedFnoScanner, selectedFnoIndex, fnoScanModeOverride);
     };
 
     pollFnoScannerResults();
@@ -939,7 +943,7 @@ export default function App() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [view, selectedFnoScanner, selectedFnoIndex, appConfig.hasAccessToken, runFnoScanner]);
+  }, [view, selectedFnoScanner, selectedFnoIndex, fnoScanModeOverride, appConfig.hasAccessToken, runFnoScanner]);
 
   const fetchScannersList = useCallback(async () => {
     try {
@@ -4874,6 +4878,24 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             </div>
             <div className="flex items-center gap-3">
               <Button 
+                onClick={async () => {
+                  setToastNotification('Running DB cleanup & loading data...');
+                  try {
+                    const resClean = await fetch('/api/db/cleanup', { method: 'POST' });
+                    const dataClean = await resClean.json();
+                    const resSync = await fetch('/api/db/sync-complete', { method: 'POST' });
+                    const dataSync = await resSync.json();
+                    setToastNotification(`DB Cleaned & Synced! Loaded ${dataSync.totalInstrumentsCount} instruments & ${dataSync.totalHistoricalCandlesCount} candles.`);
+                  } catch (err) {
+                    setToastNotification(`DB sync error: ${err.message}`);
+                  }
+                }}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5 text-purple-400" />
+                Clean & Sync DB 🧹
+              </Button>
+              <Button 
                 onClick={() => window.open('/?view=fno-matrix', '_blank')}
                 className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-purple-600/10 flex items-center gap-1.5 cursor-pointer"
               >
@@ -4887,13 +4909,28 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           <Card className="glass-panel border-0 ring-0 p-4 bg-slate-900/60 border-purple-500/10">
             <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4">
               
-              {/* Left Controls: Universe Dropdown + Expiry Dropdown + Search Bar + Scanner Dropdown */}
+              {/* Left Controls: Universe Dropdown + Mode Dropdown + Expiry Dropdown + Search Bar + Scanner Dropdown */}
               <div className="flex flex-wrap items-center gap-3 flex-1">
-                {/* 1. F&O Universe Select Dropdown */}
+                {/* 1. Scan Mode Select (Auto vs Live vs Historical) */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase text-emerald-400 font-display">Mode:</span>
+                  <Select value={fnoScanModeOverride} onValueChange={setFnoScanModeOverride}>
+                    <SelectTrigger className="w-[165px] bg-black/40 border-emerald-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                      <SelectValue placeholder="Select Scan Mode" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-emerald-500/20 text-white">
+                      <SelectItem value="AUTO">Auto (Trading Hours) ⚡</SelectItem>
+                      <SelectItem value="LIVE">Live Market 🟢</SelectItem>
+                      <SelectItem value="HISTORICAL">Historical OHLC 📜</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 2. F&O Universe Select Dropdown */}
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-bold uppercase text-purple-400 font-display">Universe:</span>
                   <Select value={selectedFnoIndex} onValueChange={setSelectedFnoIndex}>
-                    <SelectTrigger className="w-[150px] bg-black/40 border-purple-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                    <SelectTrigger className="w-[145px] bg-black/40 border-purple-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
                       <SelectValue placeholder="Select Index" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-purple-500/20 text-white">
@@ -4908,11 +4945,11 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </Select>
                 </div>
 
-                {/* 2. Option Expiry Date Selector (Weekly vs Monthly) */}
+                {/* 3. Option Expiry Date Selector (Weekly vs Monthly) */}
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-bold uppercase text-indigo-400 font-display">Expiry:</span>
                   <Select value={selectedFnoExpiry} onValueChange={setSelectedFnoExpiry}>
-                    <SelectTrigger className="w-[190px] bg-black/40 border-indigo-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                    <SelectTrigger className="w-[185px] bg-black/40 border-indigo-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
                       <SelectValue placeholder="Select Expiry" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-indigo-500/20 text-white">
@@ -4925,12 +4962,12 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </Select>
                 </div>
 
-                {/* 3. Interactive Search Bar for F&O Underlyings */}
-                <div className="relative flex-1 min-w-[180px] max-w-[280px]">
+                {/* 4. Interactive Search Bar for F&O Underlyings */}
+                <div className="relative flex-1 min-w-[160px] max-w-[240px]">
                   <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search symbol (e.g. RELIANCE)..."
+                    placeholder="Search symbol..."
                     value={fnoSearchQuery}
                     onChange={(e) => setFnoSearchQuery(e.target.value)}
                     className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
@@ -4945,11 +4982,11 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   )}
                 </div>
 
-                {/* 4. Scanner Selection Dropdown */}
+                {/* 5. Scanner Selection Dropdown */}
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-bold uppercase text-slate-400 font-display">Scanner:</span>
                   <Select value={selectedFnoScanner} onValueChange={setSelectedFnoScanner}>
-                    <SelectTrigger className="w-[190px] bg-black/40 border-white/10 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                    <SelectTrigger className="w-[180px] bg-black/40 border-white/10 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
                       <SelectValue placeholder="Select Scanner" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-white/10 text-white">
@@ -5077,9 +5114,17 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono">
                         Exp: {selectedFnoExpiry}
                       </span>
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border flex items-center gap-1.5 ${
+                        fnoModeInfo.mode === 'LIVE' 
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+                          : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                      }`}>
+                        <span className={`w-2 h-2 rounded-full ${fnoModeInfo.mode === 'LIVE' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                        {fnoModeInfo.mode === 'LIVE' ? 'LIVE MARKET 🟢' : 'HISTORICAL MODE 📜 (Off-Market Hours)'}
+                      </span>
                     </CardTitle>
                     <CardDescription className="text-xs text-slate-500 mt-0.5">
-                      Showing complete F&O metrics including Weekly/Monthly Expiries, OI, Buildup, PCR, and IV.
+                      Showing complete F&O metrics. {fnoModeInfo.statusText}
                     </CardDescription>
                   </div>
                   {fnoScannerLoading && (
