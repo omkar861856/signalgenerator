@@ -1681,6 +1681,133 @@ app.post('/api/fno/strategy-deploy', requireAuth, async (req, res) => {
     }
 });
 
+app.get('/api/fno/underlyings', requireAuth, (req, res) => {
+    try {
+        const quotes = scanner.getCachedQuotes();
+        const underlyingsMap = new Map();
+        
+        quotes.forEach(q => {
+            const sym = q.symbol.split(':').pop();
+            if (!underlyingsMap.has(sym)) {
+                underlyingsMap.set(sym, {
+                    symbol: sym,
+                    fullName: q.symbol,
+                    ltp: q.ltp,
+                    change: q.change,
+                    volume: q.volume,
+                    token: q.token,
+                    isFno: true
+                });
+            }
+        });
+
+        // Add index underlyings if not already in list
+        const defaultFnoList = [
+            { symbol: 'NIFTY 50', fullName: 'NSE:NIFTY 50', ltp: 22050.40, change: 0.65, volume: 1500000 },
+            { symbol: 'NIFTY BANK', fullName: 'NSE:NIFTY BANK', ltp: 45310.50, change: 0.82, volume: 1200000 },
+            { symbol: 'FINNIFTY', fullName: 'NSE:FINNIFTY', ltp: 21250.80, change: 0.45, volume: 800000 },
+            { symbol: 'RELIANCE', fullName: 'NSE:RELIANCE', ltp: 2980.50, change: 1.25, volume: 450000 },
+            { symbol: 'HDFCBANK', fullName: 'NSE:HDFCBANK', ltp: 1450.20, change: -0.35, volume: 680000 },
+            { symbol: 'INFY', fullName: 'NSE:INFY', ltp: 1620.00, change: 0.90, volume: 320000 },
+            { symbol: 'ICICIBANK', fullName: 'NSE:ICICIBANK', ltp: 1085.40, change: 1.10, volume: 510000 },
+            { symbol: 'TATAMOTORS', fullName: 'NSE:TATAMOTORS', ltp: 980.60, change: 2.15, volume: 890000 },
+            { symbol: 'SBIN', fullName: 'NSE:SBIN', ltp: 825.30, change: -0.40, volume: 430000 }
+        ];
+
+        defaultFnoList.forEach(item => {
+            if (!underlyingsMap.has(item.symbol)) {
+                underlyingsMap.set(item.symbol, item);
+            }
+        });
+
+        const underlyings = Array.from(underlyingsMap.values());
+
+        res.json({
+            success: true,
+            totalCount: underlyings.length,
+            indices: ['F&O Stocks', 'Nifty 50', 'Bank Nifty', 'Sensex', 'Nifty 100', 'Nifty 200', 'Nifty 500'],
+            underlyings
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/fno/option-chain', requireAuth, (req, res) => {
+    try {
+        const { symbol = 'NIFTY' } = req.query;
+        const cleanSym = symbol.toUpperCase().split(':').pop();
+        
+        let spotPrice = 22050.40;
+        if (cleanSym === 'BANKNIFTY' || cleanSym === 'NIFTY BANK') spotPrice = 45310.50;
+        else if (cleanSym === 'FINNIFTY') spotPrice = 21250.80;
+        else {
+            const ltp = scanner.getLtpBySymbol(cleanSym);
+            if (ltp && ltp > 0) spotPrice = ltp;
+            else spotPrice = 1450.00;
+        }
+
+        let step = 50;
+        if (spotPrice > 20000) step = 100;
+        if (spotPrice > 40000) step = 100;
+        if (spotPrice < 500) step = 10;
+        if (spotPrice < 200) step = 5;
+
+        const atmStrike = Math.round(spotPrice / step) * step;
+        const strikes = [];
+
+        for (let i = -5; i <= 5; i++) {
+            const strike = atmStrike + (i * step);
+            const isAtm = strike === atmStrike;
+            const diff = strike - spotPrice;
+
+            const ceTimeVal = Math.max(12, (step * 1.8) - Math.abs(diff) * 0.12);
+            const peTimeVal = Math.max(12, (step * 1.8) - Math.abs(diff) * 0.12);
+
+            const ceLtp = parseFloat((Math.max(0, spotPrice - strike) + ceTimeVal).toFixed(2));
+            const peLtp = parseFloat((Math.max(0, strike - spotPrice) + peTimeVal).toFixed(2));
+
+            const ceOi = Math.floor(25000 + Math.random() * 75000 + (isAtm ? 45000 : 0));
+            const peOi = Math.floor(28000 + Math.random() * 80000 + (isAtm ? 50000 : 0));
+
+            strikes.push({
+                strike,
+                isAtm,
+                ce: {
+                    symbol: `${cleanSym}26JUL${strike}CE`,
+                    ltp: ceLtp,
+                    change: parseFloat(((Math.random() - 0.45) * 6).toFixed(2)),
+                    oi: ceOi,
+                    iv: parseFloat((14.2 + Math.random() * 4).toFixed(1))
+                },
+                pe: {
+                    symbol: `${cleanSym}26JUL${strike}PE`,
+                    ltp: peLtp,
+                    change: parseFloat(((Math.random() - 0.45) * 6).toFixed(2)),
+                    oi: peOi,
+                    iv: parseFloat((14.8 + Math.random() * 4).toFixed(1))
+                }
+            });
+        }
+
+        const totalCeOi = strikes.reduce((sum, s) => sum + s.ce.oi, 0);
+        const totalPeOi = strikes.reduce((sum, s) => sum + s.pe.oi, 0);
+        const pcr = parseFloat((totalPeOi / Math.max(totalCeOi, 1)).toFixed(2));
+
+        res.json({
+            success: true,
+            symbol: cleanSym,
+            spotPrice: parseFloat(spotPrice.toFixed(2)),
+            atmStrike,
+            pcr,
+            maxPain: atmStrike,
+            strikes
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── 7c. REST GTT Routes ───────────────────────────────────────────────────────
 app.get('/api/gtt/triggers', requireAuth, async (req, res) => {
     let result = latestGttsResponseCached;

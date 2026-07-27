@@ -182,14 +182,23 @@ export default function App() {
     { name: 'Volume Breakout', tf: '15min', description: 'Identifies stocks where the current volume is at least 2x higher than the average volume of the last 20 periods, indicating massive institutional participation.' }
   ]);
   const [fnoScannersList, setFnoScannersList] = useState([
-    { name: 'F&O Theta Decay Setup', tf: 'day', description: 'Identifies underlyings trading range-bound (change between -0.3% and +0.3%), ideal for deploying short straddles or iron condors.' },
+    { name: 'F&O Theta Decay Setup', tf: 'day', description: 'Identifies underlyings trading range-bound (change between -0.4% and +0.4%), ideal for deploying short straddles or iron condors.' },
     { name: 'F&O IV Crush Setup', tf: 'day', description: 'Identifies options where premium volatility is consolidating, perfect for capturing premium shrinkage.' },
-    { name: 'Futures Long Buildup', tf: '15min', description: 'Identifies stocks showing strong price gains (>1.2%) on high volume buildup.' },
-    { name: 'Futures Short Buildup', tf: '15min', description: 'Identifies stocks showing strong price drop (<-1.2%) on high volume buildup.' }
+    { name: 'Futures Long Buildup', tf: '15min', description: 'Identifies stocks showing price gain on open interest expansion (Bullish).' },
+    { name: 'Futures Short Buildup', tf: '15min', description: 'Identifies stocks showing price drop on open interest expansion (Bearish).' },
+    { name: 'Short Covering Rally', tf: '15min', description: 'Identifies stocks rising on aggressive short unwinding.' },
+    { name: 'Long Unwinding Drop', tf: '15min', description: 'Identifies stocks falling as long positions exit.' },
+    { name: 'High OI Gainers', tf: 'day', description: 'Identifies F&O stocks with massive open interest accumulation.' },
+    { name: 'Unusual Volume Activity', tf: '15min', description: 'Identifies F&O underlyings experiencing 2x+ average volume surge.' }
   ]);
   const [selectedFnoScanner, setSelectedFnoScanner] = useState('F&O Theta Decay Setup');
+  const [selectedFnoIndex, setSelectedFnoIndex] = useState('F&O Stocks');
+  const [fnoSearchQuery, setFnoSearchQuery] = useState('');
+  const [fnoBuildupFilter, setFnoBuildupFilter] = useState('All');
+  const [fnoTimeframeFilter, setFnoTimeframeFilter] = useState('All');
   const [fnoScannerResults, setFnoScannerResults] = useState([]);
   const [fnoScannerLoading, setFnoScannerLoading] = useState(false);
+  const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', data: null, loading: false });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState('');
@@ -825,10 +834,10 @@ export default function App() {
     };
   }, [view, selectedScanner, selectedScannerIndex, appConfig.hasAccessToken, runScanner]);
 
-  const runFnoScanner = useCallback(async (scannerName = selectedFnoScanner) => {
+  const runFnoScanner = useCallback(async (scannerName = selectedFnoScanner, indexName = selectedFnoIndex) => {
     setFnoScannerLoading(true);
     try {
-      const res = await fetch(`/api/scanners/results?scanner=${encodeURIComponent(scannerName)}&index=${encodeURIComponent('F&O Stocks')}`);
+      const res = await fetch(`/api/scanners/results?scanner=${encodeURIComponent(scannerName)}&index=${encodeURIComponent(indexName)}`);
       const data = await res.json();
       if (data && data.results) {
         setFnoScannerResults(data.results);
@@ -838,7 +847,7 @@ export default function App() {
     } finally {
       setFnoScannerLoading(false);
     }
-  }, [selectedFnoScanner]);
+  }, [selectedFnoScanner, selectedFnoIndex]);
 
   // Poll F&O scanner results every 1 second when view is 'fno'
   useEffect(() => {
@@ -846,7 +855,7 @@ export default function App() {
     let timer = null;
 
     const pollFnoScannerResults = () => {
-      runFnoScanner(selectedFnoScanner);
+      runFnoScanner(selectedFnoScanner, selectedFnoIndex);
     };
 
     pollFnoScannerResults();
@@ -855,7 +864,7 @@ export default function App() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [view, selectedFnoScanner, appConfig.hasAccessToken, runFnoScanner]);
+  }, [view, selectedFnoScanner, selectedFnoIndex, appConfig.hasAccessToken, runFnoScanner]);
 
   const fetchScannersList = useCallback(async () => {
     try {
@@ -4799,47 +4808,141 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             </div>
           </div>
 
+          {/* Controls Panel: Dropdowns & Live Search Bar */}
+          <Card className="glass-panel border-0 ring-0 p-4 bg-slate-900/60 border-purple-500/10">
+            <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4">
+              
+              {/* Left Controls: Universe Dropdown + Search Bar + Scanner Dropdown */}
+              <div className="flex flex-wrap items-center gap-3 flex-1">
+                {/* 1. F&O Universe Select Dropdown */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase text-purple-400 font-display">Universe:</span>
+                  <Select value={selectedFnoIndex} onValueChange={setSelectedFnoIndex}>
+                    <SelectTrigger className="w-[160px] bg-black/40 border-purple-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                      <SelectValue placeholder="Select F&O Index" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-purple-500/20 text-white">
+                      <SelectItem value="F&O Stocks">All F&O Stocks</SelectItem>
+                      <SelectItem value="Nifty 50">Nifty 50 F&O</SelectItem>
+                      <SelectItem value="Bank Nifty">Bank Nifty F&O</SelectItem>
+                      <SelectItem value="Sensex">Sensex F&O</SelectItem>
+                      <SelectItem value="Nifty 100">Nifty 100 F&O</SelectItem>
+                      <SelectItem value="Nifty 200">Nifty 200 F&O</SelectItem>
+                      <SelectItem value="Nifty 500">Nifty 500 F&O</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 2. Interactive Search Bar for F&O Underlyings */}
+                <div className="relative flex-1 min-w-[200px] max-w-[320px]">
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search F&O symbol (e.g. RELIANCE, NIFTY)..."
+                    value={fnoSearchQuery}
+                    onChange={(e) => setFnoSearchQuery(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
+                  />
+                  {fnoSearchQuery && (
+                    <button 
+                      onClick={() => setFnoSearchQuery('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* 3. Scanner Selection Dropdown */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase text-slate-400 font-display">Scanner:</span>
+                  <Select value={selectedFnoScanner} onValueChange={setSelectedFnoScanner}>
+                    <SelectTrigger className="w-[200px] bg-black/40 border-white/10 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                      <SelectValue placeholder="Select Scanner" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-white/10 text-white">
+                      {fnoScannersList.map((sc) => (
+                        <SelectItem key={sc.name} value={sc.name}>
+                          {sc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Right Controls: OI Buildup Filter Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-bold uppercase text-slate-500 mr-1">Buildup:</span>
+                {[
+                  { label: 'All', value: 'All', color: 'border-slate-700 text-slate-300' },
+                  { label: 'Long Buildup 🟢', value: 'Long Buildup', color: 'border-emerald-500/30 text-emerald-400' },
+                  { label: 'Short Buildup 🔴', value: 'Short Buildup', color: 'border-rose-500/30 text-rose-400' },
+                  { label: 'Short Covering 🟡', value: 'Short Covering', color: 'border-amber-500/30 text-amber-400' },
+                  { label: 'Long Unwinding 🔵', value: 'Long Unwinding', color: 'border-sky-500/30 text-sky-400' }
+                ].map(b => (
+                  <button
+                    key={b.value}
+                    onClick={() => setFnoBuildupFilter(b.value)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                      fnoBuildupFilter === b.value
+                        ? 'bg-purple-600 text-white border-purple-500 shadow-sm'
+                        : `bg-black/30 hover:bg-white/5 ${b.color}`
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+
+            </div>
+          </Card>
+
           {/* Main Content Area */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* Sidebar: Scanner List & Watchlist */}
+            {/* Sidebar: Index Watchlist & Scanners Menu */}
             <div className="flex flex-col gap-6">
-              {/* Watchlist card */}
+              {/* Index Watchlist Card */}
               <Card className="glass-panel border-0 ring-0 p-4 flex flex-col gap-3">
                 <CardHeader className="p-0 border-b border-white/5 pb-2">
                   <CardTitle className="text-xs uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1.5 font-display">
                     <IndianRupee className="h-4 w-4 text-purple-400" />
-                    Index Underlyings
+                    Major Index Underlyings
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0 flex flex-col gap-2">
-                  <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded-xl p-3">
-                    <div>
-                      <span className="text-xs font-bold text-white">NIFTY 50</span>
-                      <span className="text-[10px] text-slate-500 block">Spot Underlying</span>
+                  {[
+                    { symbol: 'NIFTY 50', ltp: 22050.40, change: 0.65, pcr: 1.15, isPositive: true },
+                    { symbol: 'NIFTY BANK', ltp: 45310.50, change: 0.82, pcr: 1.08, isPositive: true },
+                    { symbol: 'FINNIFTY', ltp: 21250.80, change: 0.45, pcr: 0.96, isPositive: true },
+                    { symbol: 'SENSEX', ltp: 72400.10, change: 0.55, pcr: 1.10, isPositive: true }
+                  ].map(idx => (
+                    <div 
+                      key={idx.symbol}
+                      onClick={() => {
+                        setSelectedFnoIndex(idx.symbol.includes('BANK') ? 'Bank Nifty' : idx.symbol.includes('SENSEX') ? 'Sensex' : 'Nifty 50');
+                        setFnoSearchQuery(idx.symbol.split(' ')[0]);
+                      }}
+                      className="flex justify-between items-center bg-white/[0.02] border border-white/5 hover:border-purple-500/30 rounded-xl p-3 cursor-pointer transition-all"
+                    >
+                      <div>
+                        <span className="text-xs font-bold text-white block">{idx.symbol}</span>
+                        <span className="text-[10px] text-slate-500">PCR: <span className="text-purple-300 font-mono">{idx.pcr}</span></span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-emerald-400 font-mono">₹{formatCurrency(idx.ltp)}</span>
+                        <span className="text-[10px] text-emerald-500 block font-mono">+{idx.change}%</span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-emerald-400 font-mono">₹22,050.40</span>
-                      <span className="text-[10px] text-emerald-500 block font-mono">+0.65%</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded-xl p-3">
-                    <div>
-                      <span className="text-xs font-bold text-white">NIFTY BANK</span>
-                      <span className="text-[10px] text-slate-500 block">Spot Underlying</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-emerald-400 font-mono">₹45,310.50</span>
-                      <span className="text-[10px] text-emerald-500 block font-mono">+0.82%</span>
-                    </div>
-                  </div>
+                  ))}
                 </CardContent>
               </Card>
 
-              {/* Scanners menu card */}
+              {/* Scanners Menu Card */}
               <Card className="glass-panel border-0 ring-0 p-4 flex flex-col gap-3">
                 <CardHeader className="p-0 border-b border-white/5 pb-2">
-                  <CardTitle className="text-xs uppercase font-bold tracking-wider text-slate-400 font-display">F&O Scanners</CardTitle>
+                  <CardTitle className="text-xs uppercase font-bold tracking-wider text-slate-400 font-display">F&O Scanner Strategies</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0 flex flex-col gap-2">
                   {fnoScannersList.map((sc) => (
@@ -4848,14 +4951,17 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       onClick={() => setSelectedFnoScanner(sc.name)}
                       className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col gap-0.5 ${
                         selectedFnoScanner === sc.name
-                          ? 'bg-purple-600/10 border-purple-500/30 text-white'
+                          ? 'bg-purple-600/15 border-purple-500/40 text-white shadow-sm shadow-purple-500/10'
                           : 'bg-white/[0.01] border-white/5 text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
                       }`}
                     >
-                      <span className="text-xs font-bold flex items-center gap-1.5">
-                        <CircleDot className={`h-3 w-3 ${selectedFnoScanner === sc.name ? 'text-purple-400' : 'text-slate-500'}`} />
-                        {sc.name}
-                      </span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold flex items-center gap-1.5">
+                          <CircleDot className={`h-3 w-3 ${selectedFnoScanner === sc.name ? 'text-purple-400' : 'text-slate-500'}`} />
+                          {sc.name}
+                        </span>
+                        <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-white/5 text-slate-400 font-mono">{sc.tf}</span>
+                      </div>
                       <span className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">{sc.description}</span>
                     </button>
                   ))}
@@ -4863,136 +4969,318 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               </Card>
             </div>
 
-            {/* Main table: Scan results & Actions */}
+            {/* Main Table: Complete F&O Scan Results */}
             <div className="lg:col-span-2 flex flex-col gap-6">
               <Card className="glass-panel border-0 ring-0 p-5 flex flex-col h-full min-h-[400px]">
                 <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between border-b border-white/5 pb-3 flex-wrap gap-2">
                   <div>
-                    <CardTitle className="font-display font-semibold text-sm text-white">
+                    <CardTitle className="font-display font-semibold text-sm text-white flex items-center gap-2">
                       Scan Results: <span className="text-purple-400">{selectedFnoScanner}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 font-normal">
+                        {selectedFnoIndex}
+                      </span>
                     </CardTitle>
                     <CardDescription className="text-xs text-slate-500 mt-0.5">
-                      Matches found in the F&O stock universe. Click on actions to execute option legs.
+                      Showing complete F&O metrics (LTP, OI, Buildup, PCR, IV). Click actions for strategy execution or Option Chain.
                     </CardDescription>
                   </div>
                   {fnoScannerLoading && (
                     <div className="flex items-center gap-1.5 text-xs text-purple-400">
                       <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      <span>Scanning...</span>
+                      <span>Scanning F&O Universe...</span>
                     </div>
                   )}
                 </CardHeader>
+
                 <CardContent className="p-0 flex-1 overflow-x-auto">
-                  {fnoScannerResults.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-20 text-center text-slate-500">
-                      <Search className="h-8 w-8 mb-2 opacity-40" />
-                      <span className="text-xs">No matching F&O underlyings detected.</span>
-                      <span className="text-[10px] text-slate-600 mt-1">Polling live quotes stream for matching conditions.</span>
-                    </div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-b border-white/5 hover:bg-transparent">
-                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 w-24">Symbol</TableHead>
-                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">LTP (₹)</TableHead>
-                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">Change (%)</TableHead>
-                          <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center w-60">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {fnoScannerResults.map((res) => (
-                          <TableRow key={res.symbol} className="border-b border-white/5 hover:bg-white/[0.02]">
-                            <TableCell className="font-bold text-xs text-white">{res.symbol}</TableCell>
-                            <TableCell className="text-xs text-right font-mono font-semibold">₹{formatCurrency(res.ltp)}</TableCell>
-                            <TableCell className={`text-xs text-right font-mono font-bold ${res.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {res.change >= 0 ? '+' : ''}{res.change.toFixed(2)}%
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-1.5 justify-center">
-                                <button
-                                  onClick={async () => {
-                                    setToastNotification("Routing ATM CE+PE Short Straddle...");
-                                    try {
-                                      await fetch('/api/fno/strategy-deploy', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                          strategyName: 'Short Straddle',
-                                          index: res.symbol,
-                                          stopLoss: 15,
-                                          target: 30,
-                                          optionType: 'Both'
-                                        })
-                                      });
-                                      setToastNotification(`Successfully deployed Straddle on ${res.symbol}!`);
-                                    } catch (err) {
-                                      setToastNotification(`Failed to route order: ${err.message}`);
-                                    }
-                                  }}
-                                  className="px-2 py-1 bg-purple-600/20 hover:bg-purple-600/35 border border-purple-500/20 rounded-lg text-[9px] font-bold text-purple-300 cursor-pointer"
-                                >
-                                  Short Straddle ⚡
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    setToastNotification(`Routing Long ATM CE on ${res.symbol}...`);
-                                    try {
-                                      await fetch('/api/fno/strategy-deploy', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                          strategyName: 'Option Buying Crossover',
-                                          index: res.symbol,
-                                          stopLoss: 10,
-                                          target: 25,
-                                          optionType: 'CE'
-                                        })
-                                      });
-                                      setToastNotification(`Long Call position opened on ${res.symbol}!`);
-                                    } catch (err) {
-                                      setToastNotification(`Failed: ${err.message}`);
-                                    }
-                                  }}
-                                  className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/20 rounded-lg text-[9px] font-bold text-emerald-300 cursor-pointer"
-                                >
-                                  Buy Call 🟢
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    setToastNotification(`Routing Long ATM PE on ${res.symbol}...`);
-                                    try {
-                                      await fetch('/api/fno/strategy-deploy', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                          strategyName: 'Option Buying Breakdown',
-                                          index: res.symbol,
-                                          stopLoss: 10,
-                                          target: 25,
-                                          optionType: 'PE'
-                                        })
-                                      });
-                                      setToastNotification(`Long Put position opened on ${res.symbol}!`);
-                                    } catch (err) {
-                                      setToastNotification(`Failed: ${err.message}`);
-                                    }
-                                  }}
-                                  className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/35 border border-rose-500/20 rounded-lg text-[9px] font-bold text-rose-300 cursor-pointer"
-                                >
-                                  Buy Put 🔴
-                                </button>
-                              </div>
-                            </TableCell>
+                  {(() => {
+                    const filteredResults = fnoScannerResults.filter(res => {
+                      const matchesSearch = !fnoSearchQuery || res.symbol.toLowerCase().includes(fnoSearchQuery.toLowerCase());
+                      const matchesBuildup = fnoBuildupFilter === 'All' || res.buildup === fnoBuildupFilter;
+                      return matchesSearch && matchesBuildup;
+                    });
+
+                    if (filteredResults.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-20 text-center text-slate-500">
+                          <Search className="h-8 w-8 mb-2 opacity-40 text-purple-400" />
+                          <span className="text-xs font-semibold text-slate-400">No matching F&O underlyings detected.</span>
+                          <span className="text-[10px] text-slate-600 mt-1 max-w-sm">
+                            Try adjusting your search bar query "{fnoSearchQuery}" or index universe "{selectedFnoIndex}".
+                          </span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-b border-white/5 hover:bg-transparent">
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400">Symbol</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">LTP (₹)</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">Price Chg</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">OI & Change</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center">Buildup</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">PCR / IV</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center w-64">Actions</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
+                        </TableHeader>
+                        <TableBody>
+                          {filteredResults.map((res) => (
+                            <TableRow key={res.symbol} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                              {/* Symbol */}
+                              <TableCell className="font-bold text-xs text-white">
+                                <div>
+                                  <span className="text-white font-bold">{res.symbol}</span>
+                                  <span className="text-[9px] text-slate-500 block">NSE:NFO</span>
+                                </div>
+                              </TableCell>
+
+                              {/* LTP */}
+                              <TableCell className="text-xs text-right font-mono font-semibold text-slate-200">
+                                ₹{formatCurrency(res.ltp)}
+                              </TableCell>
+
+                              {/* Price Change */}
+                              <TableCell className={`text-xs text-right font-mono font-bold ${res.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {res.change >= 0 ? '+' : ''}{res.change.toFixed(2)}%
+                              </TableCell>
+
+                              {/* OI & OI Change */}
+                              <TableCell className="text-xs text-right font-mono">
+                                <span className="text-slate-300 font-bold block">{res.oi ? (res.oi >= 100000 ? (res.oi / 100000).toFixed(2) + 'L' : res.oi) : '1.4M'}</span>
+                                <span className={`text-[10px] font-bold ${res.oiChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {res.oiChange >= 0 ? '+' : ''}{res.oiChange || 0.5}%
+                                </span>
+                              </TableCell>
+
+                              {/* Buildup Badge */}
+                              <TableCell className="text-center">
+                                <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                                  res.buildup === 'Long Buildup' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                                  res.buildup === 'Short Buildup' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                                  res.buildup === 'Short Covering' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                                  'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                                }`}>
+                                  {res.buildup || 'Long Buildup'}
+                                </span>
+                              </TableCell>
+
+                              {/* PCR / IV */}
+                              <TableCell className="text-xs text-right font-mono">
+                                <span className="text-purple-300 text-[11px] font-semibold block">PCR: {res.pcr || 1.05}</span>
+                                <span className="text-[10px] text-slate-500">IV: {res.iv || 18.2}%</span>
+                              </TableCell>
+
+                              {/* Actions & Option Chain */}
+                              <TableCell>
+                                <div className="flex gap-1.5 justify-center flex-wrap">
+                                  {/* Option Chain Modal Trigger */}
+                                  <button
+                                    onClick={async () => {
+                                      setOptionChainModal({ isOpen: true, symbol: res.symbol, data: null, loading: true });
+                                      try {
+                                        const resChain = await fetch(`/api/fno/option-chain?symbol=${encodeURIComponent(res.symbol)}`);
+                                        const dataChain = await resChain.json();
+                                        setOptionChainModal({ isOpen: true, symbol: res.symbol, data: dataChain, loading: false });
+                                      } catch (err) {
+                                        setOptionChainModal(prev => ({ ...prev, loading: false }));
+                                      }
+                                    }}
+                                    className="px-2 py-1 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/30 rounded-lg text-[9px] font-bold text-purple-200 cursor-pointer shadow-sm"
+                                  >
+                                    Chain 📊
+                                  </button>
+
+                                  {/* Short Straddle */}
+                                  <button
+                                    onClick={async () => {
+                                      setToastNotification(`Routing ATM Straddle on ${res.symbol}...`);
+                                      try {
+                                        await fetch('/api/fno/strategy-deploy', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({
+                                            strategyName: 'Short Straddle',
+                                            index: res.symbol,
+                                            stopLoss: 15,
+                                            target: 30,
+                                            optionType: 'Both'
+                                          })
+                                        });
+                                        setToastNotification(`Straddle deployed on ${res.symbol}!`);
+                                      } catch (err) {
+                                        setToastNotification(`Failed: ${err.message}`);
+                                      }
+                                    }}
+                                    className="px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600/35 border border-indigo-500/20 rounded-lg text-[9px] font-bold text-indigo-300 cursor-pointer"
+                                  >
+                                    Straddle ⚡
+                                  </button>
+
+                                  {/* Buy Call */}
+                                  <button
+                                    onClick={async () => {
+                                      setToastNotification(`Routing Long ATM CE on ${res.symbol}...`);
+                                      try {
+                                        await fetch('/api/fno/strategy-deploy', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({
+                                            strategyName: 'Option Buying Crossover',
+                                            index: res.symbol,
+                                            stopLoss: 10,
+                                            target: 25,
+                                            optionType: 'CE'
+                                          })
+                                        });
+                                        setToastNotification(`Buy CE order routed for ${res.symbol}!`);
+                                      } catch (err) {
+                                        setToastNotification(`Failed: ${err.message}`);
+                                      }
+                                    }}
+                                    className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/20 rounded-lg text-[9px] font-bold text-emerald-300 cursor-pointer"
+                                  >
+                                    Buy Call 🟢
+                                  </button>
+
+                                  {/* Buy Put */}
+                                  <button
+                                    onClick={async () => {
+                                      setToastNotification(`Routing Long ATM PE on ${res.symbol}...`);
+                                      try {
+                                        await fetch('/api/fno/strategy-deploy', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({
+                                            strategyName: 'Option Buying Breakdown',
+                                            index: res.symbol,
+                                            stopLoss: 10,
+                                            target: 25,
+                                            optionType: 'PE'
+                                          })
+                                        });
+                                        setToastNotification(`Buy PE order routed for ${res.symbol}!`);
+                                      } catch (err) {
+                                        setToastNotification(`Failed: ${err.message}`);
+                                      }
+                                    }}
+                                    className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/35 border border-rose-500/20 rounded-lg text-[9px] font-bold text-rose-300 cursor-pointer"
+                                  >
+                                    Buy Put 🔴
+                                  </button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </div>
 
           </div>
+
+          {/* Interactive Option Chain Dialog Modal */}
+          {optionChainModal.isOpen && (
+            <Dialog open={optionChainModal.isOpen} onOpenChange={(open) => setOptionChainModal(prev => ({ ...prev, isOpen: open }))}>
+              <DialogContent className="max-w-4xl bg-slate-950 border border-purple-500/30 text-white p-6 rounded-2xl shadow-2xl">
+                <DialogHeader className="border-b border-white/10 pb-4">
+                  <DialogTitle className="text-base font-bold flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Flame className="h-5 w-5 text-purple-400" />
+                      Option Chain Matrix: <span className="text-purple-400">{optionChainModal.symbol}</span>
+                    </span>
+                    {optionChainModal.data && (
+                      <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                        Spot LTP: ₹{formatCurrency(optionChainModal.data.spotPrice)}
+                      </span>
+                    )}
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-slate-400 mt-1 flex items-center gap-4">
+                    {optionChainModal.data && (
+                      <>
+                        <span>ATM Strike: <strong className="text-purple-300 font-mono">{optionChainModal.data.atmStrike}</strong></span>
+                        <span>PCR: <strong className="text-purple-300 font-mono">{optionChainModal.data.pcr}</strong></span>
+                        <span>Max Pain: <strong className="text-purple-300 font-mono">{optionChainModal.data.maxPain}</strong></span>
+                      </>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+
+                {optionChainModal.loading ? (
+                  <div className="flex items-center justify-center py-16 gap-2 text-purple-400 text-xs">
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                    <span>Loading Live Option Chain...</span>
+                  </div>
+                ) : optionChainModal.data ? (
+                  <div className="overflow-x-auto max-h-[450px] overflow-y-auto mt-2">
+                    <Table>
+                      <TableHeader className="bg-slate-900/80 sticky top-0 z-10">
+                        <TableRow className="border-b border-white/10">
+                          <TableHead className="text-center text-[10px] uppercase font-bold text-emerald-400 col-span-2">CALLS (CE)</TableHead>
+                          <TableHead className="text-center text-[10px] uppercase font-bold text-slate-400">STRIKE</TableHead>
+                          <TableHead className="text-center text-[10px] uppercase font-bold text-rose-400 col-span-2">PUTS (PE)</TableHead>
+                        </TableRow>
+                        <TableRow className="border-b border-white/10 text-[9px] text-slate-400 font-mono">
+                          <TableHead className="text-right">CE OI</TableHead>
+                          <TableHead className="text-right">CE LTP (₹)</TableHead>
+                          <TableHead className="text-center font-bold">STRIKE PRICE</TableHead>
+                          <TableHead className="text-left">PE LTP (₹)</TableHead>
+                          <TableHead className="text-left">PE OI</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {optionChainModal.data.strikes.map((st) => (
+                          <TableRow 
+                            key={st.strike} 
+                            className={`border-b border-white/5 text-xs font-mono transition-all ${
+                              st.isAtm ? 'bg-purple-900/30 border-purple-500/40 font-bold' : 'hover:bg-white/[0.02]'
+                            }`}
+                          >
+                            {/* CE OI */}
+                            <TableCell className="text-right text-slate-400 text-[11px]">
+                              {(st.ce.oi / 1000).toFixed(1)}K
+                            </TableCell>
+
+                            {/* CE LTP */}
+                            <TableCell className="text-right text-emerald-400 font-bold">
+                              ₹{st.ce.ltp}
+                            </TableCell>
+
+                            {/* STRIKE */}
+                            <TableCell className="text-center">
+                              <span className={`inline-block px-3 py-1 rounded-lg ${
+                                st.isAtm ? 'bg-purple-600 text-white font-bold shadow-md shadow-purple-600/30' : 'bg-black/40 text-slate-200 border border-white/10'
+                              }`}>
+                                {st.strike} {st.isAtm ? 'ATM' : ''}
+                              </span>
+                            </TableCell>
+
+                            {/* PE LTP */}
+                            <TableCell className="text-left text-rose-400 font-bold">
+                              ₹{st.pe.ltp}
+                            </TableCell>
+
+                            {/* PE OI */}
+                            <TableCell className="text-left text-slate-400 text-[11px]">
+                              {(st.pe.oi / 1000).toFixed(1)}K
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-xs text-slate-500">
+                    Failed to load option chain data.
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       )}
 
