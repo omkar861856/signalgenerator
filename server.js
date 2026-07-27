@@ -1686,6 +1686,14 @@ app.get('/api/fno/underlyings', requireAuth, (req, res) => {
         const quotes = scanner.getCachedQuotes();
         const underlyingsMap = new Map();
         
+        const defaultExpiries = [
+            { date: '30-JUL-2026', label: '30-JUL-2026 (Current Weekly)', type: 'Weekly', dte: 3 },
+            { date: '06-AUG-2026', label: '06-AUG-2026 (Next Weekly)', type: 'Weekly', dte: 10 },
+            { date: '13-AUG-2026', label: '13-AUG-2026 (Far Weekly)', type: 'Weekly', dte: 17 },
+            { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)', type: 'Monthly', dte: 31 },
+            { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)', type: 'Monthly', dte: 59 }
+        ];
+
         quotes.forEach(q => {
             const sym = q.symbol.split(':').pop();
             if (!underlyingsMap.has(sym)) {
@@ -1696,22 +1704,23 @@ app.get('/api/fno/underlyings', requireAuth, (req, res) => {
                     change: q.change,
                     volume: q.volume,
                     token: q.token,
+                    expiry: '30-JUL-2026',
+                    expiryType: 'Weekly',
                     isFno: true
                 });
             }
         });
 
-        // Add index underlyings if not already in list
         const defaultFnoList = [
-            { symbol: 'NIFTY 50', fullName: 'NSE:NIFTY 50', ltp: 22050.40, change: 0.65, volume: 1500000 },
-            { symbol: 'NIFTY BANK', fullName: 'NSE:NIFTY BANK', ltp: 45310.50, change: 0.82, volume: 1200000 },
-            { symbol: 'FINNIFTY', fullName: 'NSE:FINNIFTY', ltp: 21250.80, change: 0.45, volume: 800000 },
-            { symbol: 'RELIANCE', fullName: 'NSE:RELIANCE', ltp: 2980.50, change: 1.25, volume: 450000 },
-            { symbol: 'HDFCBANK', fullName: 'NSE:HDFCBANK', ltp: 1450.20, change: -0.35, volume: 680000 },
-            { symbol: 'INFY', fullName: 'NSE:INFY', ltp: 1620.00, change: 0.90, volume: 320000 },
-            { symbol: 'ICICIBANK', fullName: 'NSE:ICICIBANK', ltp: 1085.40, change: 1.10, volume: 510000 },
-            { symbol: 'TATAMOTORS', fullName: 'NSE:TATAMOTORS', ltp: 980.60, change: 2.15, volume: 890000 },
-            { symbol: 'SBIN', fullName: 'NSE:SBIN', ltp: 825.30, change: -0.40, volume: 430000 }
+            { symbol: 'NIFTY 50', fullName: 'NSE:NIFTY 50', ltp: 22050.40, change: 0.65, volume: 1500000, expiry: '30-JUL-2026', expiryType: 'Weekly' },
+            { symbol: 'NIFTY BANK', fullName: 'NSE:NIFTY BANK', ltp: 45310.50, change: 0.82, volume: 1200000, expiry: '30-JUL-2026', expiryType: 'Weekly' },
+            { symbol: 'FINNIFTY', fullName: 'NSE:FINNIFTY', ltp: 21250.80, change: 0.45, volume: 800000, expiry: '30-JUL-2026', expiryType: 'Weekly' },
+            { symbol: 'RELIANCE', fullName: 'NSE:RELIANCE', ltp: 2980.50, change: 1.25, volume: 450000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
+            { symbol: 'HDFCBANK', fullName: 'NSE:HDFCBANK', ltp: 1450.20, change: -0.35, volume: 680000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
+            { symbol: 'INFY', fullName: 'NSE:INFY', ltp: 1620.00, change: 0.90, volume: 320000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
+            { symbol: 'ICICIBANK', fullName: 'NSE:ICICIBANK', ltp: 1085.40, change: 1.10, volume: 510000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
+            { symbol: 'TATAMOTORS', fullName: 'NSE:TATAMOTORS', ltp: 980.60, change: 2.15, volume: 890000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
+            { symbol: 'SBIN', fullName: 'NSE:SBIN', ltp: 825.30, change: -0.40, volume: 430000, expiry: '27-AUG-2026', expiryType: 'Monthly' }
         ];
 
         defaultFnoList.forEach(item => {
@@ -1725,6 +1734,7 @@ app.get('/api/fno/underlyings', requireAuth, (req, res) => {
         res.json({
             success: true,
             totalCount: underlyings.length,
+            expiries: defaultExpiries,
             indices: ['F&O Stocks', 'Nifty 50', 'Bank Nifty', 'Sensex', 'Nifty 100', 'Nifty 200', 'Nifty 500'],
             underlyings
         });
@@ -1735,8 +1745,18 @@ app.get('/api/fno/underlyings', requireAuth, (req, res) => {
 
 app.get('/api/fno/option-chain', requireAuth, (req, res) => {
     try {
-        const { symbol = 'NIFTY' } = req.query;
+        const { symbol = 'NIFTY', expiry = '30-JUL-2026' } = req.query;
         const cleanSym = symbol.toUpperCase().split(':').pop();
+        
+        const availableExpiries = [
+            { date: '30-JUL-2026', label: '30-JUL-2026 (Current Weekly)', type: 'Weekly', dte: 3 },
+            { date: '06-AUG-2026', label: '06-AUG-2026 (Next Weekly)', type: 'Weekly', dte: 10 },
+            { date: '13-AUG-2026', label: '13-AUG-2026 (Far Weekly)', type: 'Weekly', dte: 17 },
+            { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)', type: 'Monthly', dte: 31 },
+            { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)', type: 'Monthly', dte: 59 }
+        ];
+
+        const matchedExpiry = availableExpiries.find(e => e.date === expiry || e.label.includes(expiry)) || availableExpiries[0];
         
         let spotPrice = 22050.40;
         if (cleanSym === 'BANKNIFTY' || cleanSym === 'NIFTY BANK') spotPrice = 45310.50;
@@ -1756,13 +1776,17 @@ app.get('/api/fno/option-chain', requireAuth, (req, res) => {
         const atmStrike = Math.round(spotPrice / step) * step;
         const strikes = [];
 
+        // Expiry code formatted for symbol e.g. 30JUL26
+        const expTag = matchedExpiry.date.replace('-', '').replace('-20', '');
+
         for (let i = -5; i <= 5; i++) {
             const strike = atmStrike + (i * step);
             const isAtm = strike === atmStrike;
             const diff = strike - spotPrice;
 
-            const ceTimeVal = Math.max(12, (step * 1.8) - Math.abs(diff) * 0.12);
-            const peTimeVal = Math.max(12, (step * 1.8) - Math.abs(diff) * 0.12);
+            const timeMultiplier = Math.sqrt(matchedExpiry.dte / 3);
+            const ceTimeVal = Math.max(12, ((step * 1.8) - Math.abs(diff) * 0.12) * timeMultiplier);
+            const peTimeVal = Math.max(12, ((step * 1.8) - Math.abs(diff) * 0.12) * timeMultiplier);
 
             const ceLtp = parseFloat((Math.max(0, spotPrice - strike) + ceTimeVal).toFixed(2));
             const peLtp = parseFloat((Math.max(0, strike - spotPrice) + peTimeVal).toFixed(2));
@@ -1774,14 +1798,14 @@ app.get('/api/fno/option-chain', requireAuth, (req, res) => {
                 strike,
                 isAtm,
                 ce: {
-                    symbol: `${cleanSym}26JUL${strike}CE`,
+                    symbol: `${cleanSym} ${expTag} ${strike} CE`,
                     ltp: ceLtp,
                     change: parseFloat(((Math.random() - 0.45) * 6).toFixed(2)),
                     oi: ceOi,
                     iv: parseFloat((14.2 + Math.random() * 4).toFixed(1))
                 },
                 pe: {
-                    symbol: `${cleanSym}26JUL${strike}PE`,
+                    symbol: `${cleanSym} ${expTag} ${strike} PE`,
                     ltp: peLtp,
                     change: parseFloat(((Math.random() - 0.45) * 6).toFixed(2)),
                     oi: peOi,
@@ -1801,6 +1825,10 @@ app.get('/api/fno/option-chain', requireAuth, (req, res) => {
             atmStrike,
             pcr,
             maxPain: atmStrike,
+            expiry: matchedExpiry.date,
+            expiryType: matchedExpiry.type,
+            dte: matchedExpiry.dte,
+            expiries: availableExpiries,
             strikes
         });
     } catch (err) {

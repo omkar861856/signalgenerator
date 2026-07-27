@@ -193,12 +193,20 @@ export default function App() {
   ]);
   const [selectedFnoScanner, setSelectedFnoScanner] = useState('F&O Theta Decay Setup');
   const [selectedFnoIndex, setSelectedFnoIndex] = useState('F&O Stocks');
+  const [selectedFnoExpiry, setSelectedFnoExpiry] = useState('30-JUL-2026');
+  const [availableFnoExpiries, setAvailableFnoExpiries] = useState([
+    { date: '30-JUL-2026', label: '30-JUL-2026 (Current Weekly)', type: 'Weekly', dte: 3 },
+    { date: '06-AUG-2026', label: '06-AUG-2026 (Next Weekly)', type: 'Weekly', dte: 10 },
+    { date: '13-AUG-2026', label: '13-AUG-2026 (Far Weekly)', type: 'Weekly', dte: 17 },
+    { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)', type: 'Monthly', dte: 31 },
+    { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)', type: 'Monthly', dte: 59 }
+  ]);
   const [fnoSearchQuery, setFnoSearchQuery] = useState('');
   const [fnoBuildupFilter, setFnoBuildupFilter] = useState('All');
   const [fnoTimeframeFilter, setFnoTimeframeFilter] = useState('All');
   const [fnoScannerResults, setFnoScannerResults] = useState([]);
   const [fnoScannerLoading, setFnoScannerLoading] = useState(false);
-  const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', data: null, loading: false });
+  const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', expiry: '30-JUL-2026', data: null, loading: false });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState('');
@@ -4812,14 +4820,14 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           <Card className="glass-panel border-0 ring-0 p-4 bg-slate-900/60 border-purple-500/10">
             <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4">
               
-              {/* Left Controls: Universe Dropdown + Search Bar + Scanner Dropdown */}
+              {/* Left Controls: Universe Dropdown + Expiry Dropdown + Search Bar + Scanner Dropdown */}
               <div className="flex flex-wrap items-center gap-3 flex-1">
                 {/* 1. F&O Universe Select Dropdown */}
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-bold uppercase text-purple-400 font-display">Universe:</span>
                   <Select value={selectedFnoIndex} onValueChange={setSelectedFnoIndex}>
-                    <SelectTrigger className="w-[160px] bg-black/40 border-purple-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
-                      <SelectValue placeholder="Select F&O Index" />
+                    <SelectTrigger className="w-[150px] bg-black/40 border-purple-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                      <SelectValue placeholder="Select Index" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-purple-500/20 text-white">
                       <SelectItem value="F&O Stocks">All F&O Stocks</SelectItem>
@@ -4833,12 +4841,29 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </Select>
                 </div>
 
-                {/* 2. Interactive Search Bar for F&O Underlyings */}
-                <div className="relative flex-1 min-w-[200px] max-w-[320px]">
+                {/* 2. Option Expiry Date Selector (Weekly vs Monthly) */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase text-indigo-400 font-display">Expiry:</span>
+                  <Select value={selectedFnoExpiry} onValueChange={setSelectedFnoExpiry}>
+                    <SelectTrigger className="w-[190px] bg-black/40 border-indigo-500/20 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                      <SelectValue placeholder="Select Expiry" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-indigo-500/20 text-white">
+                      {availableFnoExpiries.map((exp) => (
+                        <SelectItem key={exp.date} value={exp.date}>
+                          {exp.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 3. Interactive Search Bar for F&O Underlyings */}
+                <div className="relative flex-1 min-w-[180px] max-w-[280px]">
                   <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search F&O symbol (e.g. RELIANCE, NIFTY)..."
+                    placeholder="Search symbol (e.g. RELIANCE)..."
                     value={fnoSearchQuery}
                     onChange={(e) => setFnoSearchQuery(e.target.value)}
                     className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
@@ -4853,11 +4878,11 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   )}
                 </div>
 
-                {/* 3. Scanner Selection Dropdown */}
+                {/* 4. Scanner Selection Dropdown */}
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-bold uppercase text-slate-400 font-display">Scanner:</span>
                   <Select value={selectedFnoScanner} onValueChange={setSelectedFnoScanner}>
-                    <SelectTrigger className="w-[200px] bg-black/40 border-white/10 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
+                    <SelectTrigger className="w-[190px] bg-black/40 border-white/10 rounded-xl px-3 py-2 text-xs text-white justify-between cursor-pointer">
                       <SelectValue placeholder="Select Scanner" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-white/10 text-white">
@@ -4913,10 +4938,10 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 </CardHeader>
                 <CardContent className="p-0 flex flex-col gap-2">
                   {[
-                    { symbol: 'NIFTY 50', ltp: 22050.40, change: 0.65, pcr: 1.15, isPositive: true },
-                    { symbol: 'NIFTY BANK', ltp: 45310.50, change: 0.82, pcr: 1.08, isPositive: true },
-                    { symbol: 'FINNIFTY', ltp: 21250.80, change: 0.45, pcr: 0.96, isPositive: true },
-                    { symbol: 'SENSEX', ltp: 72400.10, change: 0.55, pcr: 1.10, isPositive: true }
+                    { symbol: 'NIFTY 50', ltp: 22050.40, change: 0.65, pcr: 1.15, exp: '30-JUL-2026 (Weekly)' },
+                    { symbol: 'NIFTY BANK', ltp: 45310.50, change: 0.82, pcr: 1.08, exp: '30-JUL-2026 (Weekly)' },
+                    { symbol: 'FINNIFTY', ltp: 21250.80, change: 0.45, pcr: 0.96, exp: '30-JUL-2026 (Weekly)' },
+                    { symbol: 'SENSEX', ltp: 72400.10, change: 0.55, pcr: 1.10, exp: '30-JUL-2026 (Weekly)' }
                   ].map(idx => (
                     <div 
                       key={idx.symbol}
@@ -4928,7 +4953,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     >
                       <div>
                         <span className="text-xs font-bold text-white block">{idx.symbol}</span>
-                        <span className="text-[10px] text-slate-500">PCR: <span className="text-purple-300 font-mono">{idx.pcr}</span></span>
+                        <span className="text-[10px] text-slate-500">Exp: <span className="text-purple-300 font-mono">{idx.exp}</span></span>
                       </div>
                       <div className="text-right">
                         <span className="text-xs font-bold text-emerald-400 font-mono">₹{formatCurrency(idx.ltp)}</span>
@@ -4974,14 +4999,17 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               <Card className="glass-panel border-0 ring-0 p-5 flex flex-col h-full min-h-[400px]">
                 <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between border-b border-white/5 pb-3 flex-wrap gap-2">
                   <div>
-                    <CardTitle className="font-display font-semibold text-sm text-white flex items-center gap-2">
+                    <CardTitle className="font-display font-semibold text-sm text-white flex items-center gap-2 flex-wrap">
                       Scan Results: <span className="text-purple-400">{selectedFnoScanner}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 font-normal">
                         {selectedFnoIndex}
                       </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono">
+                        Exp: {selectedFnoExpiry}
+                      </span>
                     </CardTitle>
                     <CardDescription className="text-xs text-slate-500 mt-0.5">
-                      Showing complete F&O metrics (LTP, OI, Buildup, PCR, IV). Click actions for strategy execution or Option Chain.
+                      Showing complete F&O metrics including Weekly/Monthly Expiries, OI, Buildup, PCR, and IV.
                     </CardDescription>
                   </div>
                   {fnoScannerLoading && (
@@ -5017,6 +5045,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         <TableHeader>
                           <TableRow className="border-b border-white/5 hover:bg-transparent">
                             <TableHead className="text-[10px] uppercase font-bold text-slate-400">Symbol</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center">Expiry</TableHead>
                             <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">LTP (₹)</TableHead>
                             <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">Price Chg</TableHead>
                             <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-right">OI & Change</TableHead>
@@ -5034,6 +5063,16 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                   <span className="text-white font-bold">{res.symbol}</span>
                                   <span className="text-[9px] text-slate-500 block">NSE:NFO</span>
                                 </div>
+                              </TableCell>
+
+                              {/* Expiry Date */}
+                              <TableCell className="text-center font-mono">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20 inline-block">
+                                  {res.expiry || selectedFnoExpiry}
+                                </span>
+                                <span className="text-[9px] text-slate-500 block mt-0.5">
+                                  {(res.expiry || selectedFnoExpiry).includes('AUG') || (res.expiry || selectedFnoExpiry).includes('SEP') ? 'Monthly 🗓️' : 'Weekly ⚡'}
+                                </span>
                               </TableCell>
 
                               {/* LTP */}
@@ -5078,11 +5117,11 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                   {/* Option Chain Modal Trigger */}
                                   <button
                                     onClick={async () => {
-                                      setOptionChainModal({ isOpen: true, symbol: res.symbol, data: null, loading: true });
+                                      setOptionChainModal({ isOpen: true, symbol: res.symbol, expiry: selectedFnoExpiry, data: null, loading: true });
                                       try {
-                                        const resChain = await fetch(`/api/fno/option-chain?symbol=${encodeURIComponent(res.symbol)}`);
+                                        const resChain = await fetch(`/api/fno/option-chain?symbol=${encodeURIComponent(res.symbol)}&expiry=${encodeURIComponent(selectedFnoExpiry)}`);
                                         const dataChain = await resChain.json();
-                                        setOptionChainModal({ isOpen: true, symbol: res.symbol, data: dataChain, loading: false });
+                                        setOptionChainModal({ isOpen: true, symbol: res.symbol, expiry: selectedFnoExpiry, data: dataChain, loading: false });
                                       } catch (err) {
                                         setOptionChainModal(prev => ({ ...prev, loading: false }));
                                       }
@@ -5095,7 +5134,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                   {/* Short Straddle */}
                                   <button
                                     onClick={async () => {
-                                      setToastNotification(`Routing ATM Straddle on ${res.symbol}...`);
+                                      setToastNotification(`Routing ATM Straddle (${selectedFnoExpiry}) on ${res.symbol}...`);
                                       try {
                                         await fetch('/api/fno/strategy-deploy', {
                                           method: 'POST',
@@ -5103,12 +5142,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                           body: JSON.stringify({
                                             strategyName: 'Short Straddle',
                                             index: res.symbol,
+                                            expiry: selectedFnoExpiry,
                                             stopLoss: 15,
                                             target: 30,
                                             optionType: 'Both'
                                           })
                                         });
-                                        setToastNotification(`Straddle deployed on ${res.symbol}!`);
+                                        setToastNotification(`Straddle deployed on ${res.symbol} (${selectedFnoExpiry})!`);
                                       } catch (err) {
                                         setToastNotification(`Failed: ${err.message}`);
                                       }
@@ -5121,7 +5161,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                   {/* Buy Call */}
                                   <button
                                     onClick={async () => {
-                                      setToastNotification(`Routing Long ATM CE on ${res.symbol}...`);
+                                      setToastNotification(`Routing Long ATM CE (${selectedFnoExpiry}) on ${res.symbol}...`);
                                       try {
                                         await fetch('/api/fno/strategy-deploy', {
                                           method: 'POST',
@@ -5129,12 +5169,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                           body: JSON.stringify({
                                             strategyName: 'Option Buying Crossover',
                                             index: res.symbol,
+                                            expiry: selectedFnoExpiry,
                                             stopLoss: 10,
                                             target: 25,
                                             optionType: 'CE'
                                           })
                                         });
-                                        setToastNotification(`Buy CE order routed for ${res.symbol}!`);
+                                        setToastNotification(`Buy CE order routed for ${res.symbol} (${selectedFnoExpiry})!`);
                                       } catch (err) {
                                         setToastNotification(`Failed: ${err.message}`);
                                       }
@@ -5147,7 +5188,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                   {/* Buy Put */}
                                   <button
                                     onClick={async () => {
-                                      setToastNotification(`Routing Long ATM PE on ${res.symbol}...`);
+                                      setToastNotification(`Routing Long ATM PE (${selectedFnoExpiry}) on ${res.symbol}...`);
                                       try {
                                         await fetch('/api/fno/strategy-deploy', {
                                           method: 'POST',
@@ -5155,12 +5196,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                           body: JSON.stringify({
                                             strategyName: 'Option Buying Breakdown',
                                             index: res.symbol,
+                                            expiry: selectedFnoExpiry,
                                             stopLoss: 10,
                                             target: 25,
                                             optionType: 'PE'
                                           })
                                         });
-                                        setToastNotification(`Buy PE order routed for ${res.symbol}!`);
+                                        setToastNotification(`Buy PE order routed for ${res.symbol} (${selectedFnoExpiry})!`);
                                       } catch (err) {
                                         setToastNotification(`Failed: ${err.message}`);
                                       }
@@ -5186,23 +5228,59 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           {/* Interactive Option Chain Dialog Modal */}
           {optionChainModal.isOpen && (
             <Dialog open={optionChainModal.isOpen} onOpenChange={(open) => setOptionChainModal(prev => ({ ...prev, isOpen: open }))}>
-              <DialogContent className="max-w-4xl bg-slate-950 border border-purple-500/30 text-white p-6 rounded-2xl shadow-2xl">
+              <DialogContent className="max-w-5xl bg-slate-950 border border-purple-500/30 text-white p-6 rounded-2xl shadow-2xl">
                 <DialogHeader className="border-b border-white/10 pb-4">
-                  <DialogTitle className="text-base font-bold flex items-center justify-between">
+                  <DialogTitle className="text-base font-bold flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <span className="flex items-center gap-2">
                       <Flame className="h-5 w-5 text-purple-400" />
                       Option Chain Matrix: <span className="text-purple-400">{optionChainModal.symbol}</span>
                     </span>
-                    {optionChainModal.data && (
-                      <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                        Spot LTP: ₹{formatCurrency(optionChainModal.data.spotPrice)}
-                      </span>
-                    )}
+
+                    {/* Expiry Selector directly inside Option Chain Header */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold uppercase text-purple-400 font-display">Expiry:</span>
+                        <Select 
+                          value={optionChainModal.expiry || selectedFnoExpiry} 
+                          onValueChange={async (newExp) => {
+                            setOptionChainModal(prev => ({ ...prev, expiry: newExp, loading: true }));
+                            try {
+                              const resChain = await fetch(`/api/fno/option-chain?symbol=${encodeURIComponent(optionChainModal.symbol)}&expiry=${encodeURIComponent(newExp)}`);
+                              const dataChain = await resChain.json();
+                              setOptionChainModal(prev => ({ ...prev, expiry: newExp, data: dataChain, loading: false }));
+                            } catch (err) {
+                              setOptionChainModal(prev => ({ ...prev, loading: false }));
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-[190px] bg-purple-950/40 border-purple-500/30 rounded-xl px-3 py-1.5 text-xs text-white justify-between cursor-pointer">
+                            <SelectValue placeholder="Select Expiry" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-900 border-purple-500/30 text-white">
+                            {availableFnoExpiries.map((exp) => (
+                              <SelectItem key={exp.date} value={exp.date}>
+                                {exp.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {optionChainModal.data && (
+                        <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                          Spot LTP: ₹{formatCurrency(optionChainModal.data.spotPrice)}
+                        </span>
+                      )}
+                    </div>
                   </DialogTitle>
-                  <DialogDescription className="text-xs text-slate-400 mt-1 flex items-center gap-4">
+
+                  <DialogDescription className="text-xs text-slate-400 mt-2 flex flex-wrap items-center gap-4">
                     {optionChainModal.data && (
                       <>
                         <span>ATM Strike: <strong className="text-purple-300 font-mono">{optionChainModal.data.atmStrike}</strong></span>
+                        <span>Expiry Date: <strong className="text-purple-300 font-mono">{optionChainModal.data.expiry}</strong></span>
+                        <span>Type: <strong className="text-indigo-300 font-mono">{optionChainModal.data.expiryType}</strong></span>
+                        <span>DTE: <strong className="text-emerald-300 font-mono">{optionChainModal.data.dte} Days</strong></span>
                         <span>PCR: <strong className="text-purple-300 font-mono">{optionChainModal.data.pcr}</strong></span>
                         <span>Max Pain: <strong className="text-purple-300 font-mono">{optionChainModal.data.maxPain}</strong></span>
                       </>
@@ -5213,23 +5291,25 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 {optionChainModal.loading ? (
                   <div className="flex items-center justify-center py-16 gap-2 text-purple-400 text-xs">
                     <RefreshCw className="h-5 w-5 animate-spin" />
-                    <span>Loading Live Option Chain...</span>
+                    <span>Loading Live Option Chain for {optionChainModal.expiry}...</span>
                   </div>
                 ) : optionChainModal.data ? (
                   <div className="overflow-x-auto max-h-[450px] overflow-y-auto mt-2">
                     <Table>
                       <TableHeader className="bg-slate-900/80 sticky top-0 z-10">
                         <TableRow className="border-b border-white/10">
-                          <TableHead className="text-center text-[10px] uppercase font-bold text-emerald-400 col-span-2">CALLS (CE)</TableHead>
+                          <TableHead className="text-center text-[10px] uppercase font-bold text-emerald-400 col-span-3">CALLS (CE)</TableHead>
                           <TableHead className="text-center text-[10px] uppercase font-bold text-slate-400">STRIKE</TableHead>
-                          <TableHead className="text-center text-[10px] uppercase font-bold text-rose-400 col-span-2">PUTS (PE)</TableHead>
+                          <TableHead className="text-center text-[10px] uppercase font-bold text-rose-400 col-span-3">PUTS (PE)</TableHead>
                         </TableRow>
                         <TableRow className="border-b border-white/10 text-[9px] text-slate-400 font-mono">
+                          <TableHead className="text-left">Contract Symbol</TableHead>
                           <TableHead className="text-right">CE OI</TableHead>
                           <TableHead className="text-right">CE LTP (₹)</TableHead>
                           <TableHead className="text-center font-bold">STRIKE PRICE</TableHead>
                           <TableHead className="text-left">PE LTP (₹)</TableHead>
                           <TableHead className="text-left">PE OI</TableHead>
+                          <TableHead className="text-right">Contract Symbol</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -5240,6 +5320,11 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                               st.isAtm ? 'bg-purple-900/30 border-purple-500/40 font-bold' : 'hover:bg-white/[0.02]'
                             }`}
                           >
+                            {/* CE Contract Symbol */}
+                            <TableCell className="text-left text-[10px] text-slate-400 font-sans">
+                              {st.ce.symbol}
+                            </TableCell>
+
                             {/* CE OI */}
                             <TableCell className="text-right text-slate-400 text-[11px]">
                               {(st.ce.oi / 1000).toFixed(1)}K
@@ -5267,6 +5352,11 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                             {/* PE OI */}
                             <TableCell className="text-left text-slate-400 text-[11px]">
                               {(st.pe.oi / 1000).toFixed(1)}K
+                            </TableCell>
+
+                            {/* PE Contract Symbol */}
+                            <TableCell className="text-right text-[10px] text-slate-400 font-sans">
+                              {st.pe.symbol}
                             </TableCell>
                           </TableRow>
                         ))}

@@ -874,7 +874,9 @@ function getScannerResults(scannerName, indexName) {
                         oiChange,
                         buildup,
                         pcr: parseFloat((0.85 + (Math.abs(Math.sin(token)) * 0.45)).toFixed(2)),
-                        iv: parseFloat((14.5 + (Math.abs(Math.cos(token)) * 11.5)).toFixed(1))
+                        iv: parseFloat((14.5 + (Math.abs(Math.cos(token)) * 11.5)).toFixed(1)),
+                        expiry: indexName.includes('Nifty') || indexName.includes('Sensex') ? '30-JUL-2026' : '27-AUG-2026',
+                        expiryType: indexName.includes('Nifty') || indexName.includes('Sensex') ? 'Weekly' : 'Monthly'
                     });
                 }
             } catch (err) {
