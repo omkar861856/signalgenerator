@@ -29,6 +29,73 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
+const getStockLogoUrl = (symbol) => {
+  if (!symbol) return null;
+  const clean = symbol.toUpperCase().replace('NSE:', '').replace('BSE:', '').split(':')[0].trim();
+  const knownLogos = {
+    'RELIANCE': 'https://s3-symbol-logo.tradingview.com/reliance-industries.svg',
+    'HDFCBANK': 'https://s3-symbol-logo.tradingview.com/hdfc-bank.svg',
+    'INFY': 'https://s3-symbol-logo.tradingview.com/infosys.svg',
+    'ICICIBANK': 'https://s3-symbol-logo.tradingview.com/icici-bank.svg',
+    'TATAMOTORS': 'https://s3-symbol-logo.tradingview.com/tata-motors.svg',
+    'SBIN': 'https://s3-symbol-logo.tradingview.com/state-bank-of-india.svg',
+    'TCS': 'https://s3-symbol-logo.tradingview.com/tata-consultancy-services.svg',
+    'BHARTIARTL': 'https://s3-symbol-logo.tradingview.com/bharti-airtel.svg',
+    'KOTAKBANK': 'https://s3-symbol-logo.tradingview.com/kotak-mahindra-bank.svg',
+    'LT': 'https://s3-symbol-logo.tradingview.com/larsen-and-toubro.svg',
+    'AXISBANK': 'https://s3-symbol-logo.tradingview.com/axis-bank.svg',
+    'ITC': 'https://s3-symbol-logo.tradingview.com/itc.svg',
+    'NIFTY 50': 'https://s3-symbol-logo.tradingview.com/indices/nifty-50.svg',
+    'NIFTY BANK': 'https://s3-symbol-logo.tradingview.com/indices/nifty-bank.svg',
+    'NIFTY': 'https://s3-symbol-logo.tradingview.com/indices/nifty-50.svg',
+    'BANKNIFTY': 'https://s3-symbol-logo.tradingview.com/indices/nifty-bank.svg',
+    'FINNIFTY': 'https://s3-symbol-logo.tradingview.com/indices/nifty-50.svg',
+    'SENSEX': 'https://s3-symbol-logo.tradingview.com/indices/bse-sensex.svg'
+  };
+  return knownLogos[clean] || null;
+};
+
+const getStockColor = (symbol) => {
+  const colors = [
+    'from-purple-500 to-indigo-600',
+    'from-blue-500 to-cyan-600',
+    'from-emerald-500 to-teal-600',
+    'from-amber-500 to-orange-600',
+    'from-rose-500 to-pink-600',
+    'from-violet-500 to-purple-600',
+    'from-sky-500 to-blue-600'
+  ];
+  let hash = 0;
+  const str = symbol || 'STK';
+  for (let i = 0; i < str.length; i++) hash += str.charCodeAt(i);
+  return colors[hash % colors.length];
+};
+
+function StockAvatar({ symbol = 'STK', size = 'sm' }) {
+  const [imgError, setImgError] = useState(false);
+  const clean = (symbol || 'STK').toUpperCase().replace('NSE:', '').replace('BSE:', '').trim();
+  const logoUrl = getStockLogoUrl(clean);
+  const initials = clean.slice(0, 2);
+  const sizeClasses = size === 'xs' ? 'w-4 h-4 text-[8px]' : size === 'md' ? 'w-7 h-7 text-[11px]' : 'w-5.5 h-5.5 text-[9px]';
+
+  if (logoUrl && !imgError) {
+    return (
+      <img
+        src={logoUrl}
+        alt={clean}
+        onError={() => setImgError(true)}
+        className={`${sizeClasses} rounded-full object-cover border border-white/10 shrink-0 bg-slate-800 shadow-sm`}
+      />
+    );
+  }
+
+  return (
+    <div className={`${sizeClasses} rounded-full bg-gradient-to-br ${getStockColor(clean)} text-white font-bold flex items-center justify-center border border-white/20 shrink-0 shadow-sm font-mono uppercase`}>
+      {initials}
+    </div>
+  );
+}
+
 export default function App() {
   // Navigation & Views
   const [view, setView] = useState('dashboard'); // 'dashboard' | 'scanners' | 'admin' | 'strategies'
@@ -4951,9 +5018,12 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       }}
                       className="flex justify-between items-center bg-white/[0.02] border border-white/5 hover:border-purple-500/30 rounded-xl p-3 cursor-pointer transition-all"
                     >
-                      <div>
-                        <span className="text-xs font-bold text-white block">{idx.symbol}</span>
-                        <span className="text-[10px] text-slate-500">Exp: <span className="text-purple-300 font-mono">{idx.exp}</span></span>
+                      <div className="flex items-center gap-2.5">
+                        <StockAvatar symbol={idx.symbol} size="sm" />
+                        <div>
+                          <span className="text-xs font-bold text-white block">{idx.symbol}</span>
+                          <span className="text-[10px] text-slate-500">Exp: <span className="text-purple-300 font-mono">{idx.exp}</span></span>
+                        </div>
                       </div>
                       <div className="text-right">
                         <span className="text-xs font-bold text-emerald-400 font-mono">₹{formatCurrency(idx.ltp)}</span>
@@ -5059,9 +5129,12 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                             <TableRow key={res.symbol} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                               {/* Symbol */}
                               <TableCell className="font-bold text-xs text-white">
-                                <div>
-                                  <span className="text-white font-bold">{res.symbol}</span>
-                                  <span className="text-[9px] text-slate-500 block">NSE:NFO</span>
+                                <div className="flex items-center gap-2.5">
+                                  <StockAvatar symbol={res.symbol} size="sm" />
+                                  <div>
+                                    <span className="text-white font-bold block">{res.symbol}</span>
+                                    <span className="text-[9px] text-slate-500 block">NSE:NFO</span>
+                                  </div>
                                 </div>
                               </TableCell>
 
@@ -5231,8 +5304,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               <DialogContent className="max-w-5xl bg-slate-950 border border-purple-500/30 text-white p-6 rounded-2xl shadow-2xl">
                 <DialogHeader className="border-b border-white/10 pb-4">
                   <DialogTitle className="text-base font-bold flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <span className="flex items-center gap-2">
-                      <Flame className="h-5 w-5 text-purple-400" />
+                    <span className="flex items-center gap-2.5">
+                      <StockAvatar symbol={optionChainModal.symbol} size="md" />
+                      <Flame className="h-4 w-4 text-purple-400" />
                       Option Chain Matrix: <span className="text-purple-400">{optionChainModal.symbol}</span>
                     </span>
 
