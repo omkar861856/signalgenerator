@@ -401,8 +401,15 @@ function updateCandlesWithTick(token, ltp, volume, high, low, open, close) {
 }
 
 // Technical Indicator Calculations
-function calculateEMA(candles, period) {
-    if (candles.length < period) return 0;
+function calculateSMA(candles, period = 20) {
+    if (!candles || candles.length < period) return 0;
+    const slice = candles.slice(-period);
+    const sum = slice.reduce((acc, c) => acc + c.close, 0);
+    return sum / period;
+}
+
+function calculateEMA(candles, period = 20) {
+    if (!candles || candles.length < period) return 0;
     const k = 2 / (period + 1);
     let ema = candles[0].close;
     for (let i = 1; i < candles.length; i++) {
@@ -412,7 +419,7 @@ function calculateEMA(candles, period) {
 }
 
 function calculateRSI(candles, period = 14) {
-    if (candles.length <= period) return 50;
+    if (!candles || candles.length <= period) return 50;
     let gains = 0;
     let losses = 0;
     
@@ -437,15 +444,10 @@ function calculateRSI(candles, period = 14) {
 }
 
 function calculateMACD(candles) {
-    if (candles.length < 26) return { macd: 0, signal: 0, histogram: 0 };
-    
-    // Simple MACD calculation: EMA12 - EMA26
+    if (!candles || candles.length < 26) return { macd: 0, signal: 0, histogram: 0 };
     const ema12 = calculateEMA(candles, 12);
     const ema26 = calculateEMA(candles, 26);
     const macd = ema12 - ema26;
-    
-    // Signal line is EMA9 of MACD
-    // To simplify, we return the macd value and a signal line mock
     return {
         macd,
         signal: macd * 0.9,
@@ -454,23 +456,20 @@ function calculateMACD(candles) {
 }
 
 function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
-    if (candles.length < period) return { middle: 0, upper: 0, lower: 0, bandwidth: 0 };
-    
+    if (!candles || candles.length < period) return { middle: 0, upper: 0, lower: 0, bandwidth: 0 };
     const slice = candles.slice(-period);
     const sum = slice.reduce((acc, c) => acc + c.close, 0);
     const middle = sum / period;
-    
     const variance = slice.reduce((acc, c) => acc + Math.pow(c.close - middle, 2), 0) / period;
     const stdDev = Math.sqrt(variance);
-    
     const upper = middle + stdDevMultiplier * stdDev;
     const lower = middle - stdDevMultiplier * stdDev;
     const bandwidth = middle > 0 ? ((upper - lower) / middle) * 100 : 0;
-    
     return { middle, upper, lower, bandwidth };
 }
 
 function calculateVWAP(candles) {
+    if (!candles || candles.length === 0) return 0;
     let pvSum = 0;
     let volumeSum = 0;
     const slice = candles.slice(-20);
@@ -480,6 +479,59 @@ function calculateVWAP(candles) {
         volumeSum += c.volume;
     });
     return volumeSum > 0 ? (pvSum / volumeSum) : (candles[candles.length - 1]?.close || 0);
+}
+
+function calculateATR(candles, period = 14) {
+    if (!candles || candles.length < period + 1) return 0;
+    let trSum = 0;
+    for (let i = candles.length - period; i < candles.length; i++) {
+        const high = candles[i].high;
+        const low = candles[i].low;
+        const prevClose = candles[i - 1].close;
+        const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+        trSum += tr;
+    }
+    return trSum / period;
+}
+
+// Bind indicators to globalThis so new Function(...) contexts can access them globally
+globalThis.calculateSMA = calculateSMA;
+globalThis.calculateEMA = calculateEMA;
+globalThis.calculateRSI = calculateRSI;
+globalThis.calculateMACD = calculateMACD;
+globalThis.calculateBollingerBands = calculateBollingerBands;
+globalThis.calculateVWAP = calculateVWAP;
+globalThis.calculateATR = calculateATR;
+
+// Robust custom scanner function compiler
+function compileCustomScannerFunction(functionBody) {
+    const fn = new Function(
+        'tick',
+        'candles',
+        'token',
+        'calculateRSI',
+        'calculateEMA',
+        'calculateSMA',
+        'calculateVWAP',
+        'calculateMACD',
+        'calculateBollingerBands',
+        'calculateATR',
+        functionBody
+    );
+    return function(tick, candles, token) {
+        return fn(
+            tick,
+            candles,
+            token,
+            calculateRSI,
+            calculateEMA,
+            calculateSMA,
+            calculateVWAP,
+            calculateMACD,
+            calculateBollingerBands,
+            calculateATR
+        );
+    };
 }
 
 // Scanner Engines
@@ -702,7 +754,7 @@ function loadCustomScanners() {
             const customList = JSON.parse(data);
             customList.forEach(cs => {
                 try {
-                    scanners[cs.name] = new Function('tick', 'candles', cs.functionBody);
+                    scanners[cs.name] = compileCustomScannerFunction(cs.functionBody);
                     logStream(`Loaded custom & dynamic AI scanner: ${cs.name}`);
                 } catch (e) {
                     console.error(`Failed to parse custom scanner function for ${cs.name}:`, e);
@@ -875,7 +927,11 @@ function getScannerResults(scannerName, indexName, forceMode = null) {
 
     tokens.forEach(token => {
         let tick = quoteCache[token];
-        const candles = historicalCandles[token] || [];
+        let candles = historicalCandles[token];
+        if (!candles || candles.length < 14) {
+            candles = generateDummyCandles(token);
+            historicalCandles[token] = candles;
+        }
         
         // In HISTORICAL mode or when tick is missing, construct tick from historical candles
         if (!tick || !tick.ltp) {
@@ -1074,7 +1130,7 @@ module.exports = {
     getSubscribedCount: () => Object.keys(quoteCache).length,
     registerCustomScanner: (name, description, functionBody) => {
         try {
-            scanners[name] = new Function('tick', 'candles', functionBody);
+            scanners[name] = compileCustomScannerFunction(functionBody);
             let customList = [];
             if (fs.existsSync(customScannersFile)) {
                 customList = JSON.parse(fs.readFileSync(customScannersFile, 'utf8'));

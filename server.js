@@ -2645,31 +2645,36 @@ app.post('/api/scanners/create-from-prompt', requireAuth, async (req, res) => {
 
     try {
         const systemPrompt = `You are an expert quantitative developer. Convert the user's natural language request into a valid Javascript function body for a stock scanner.
-The function must take two parameters: 'tick' and 'candles'.
-- 'tick' contains the current price and volume data:
-  - tick.ltp: number (last traded price/current price)
+The function receives parameters: 'tick', 'candles', 'token'.
+- 'tick': object with real-time stock quote metrics:
+  - tick.ltp: number (last traded price / current price)
   - tick.change: number (daily percentage change, e.g. 2.5 for +2.5%)
   - tick.volume: number (daily volume)
-- 'candles' contains an array of recent historical candle objects:
+- 'candles': array of historical candle objects sorted chronologically (oldest to newest):
   - candles[i].open, candles[i].high, candles[i].low, candles[i].close, candles[i].volume
-  
-You can call these pre-defined helper functions inside the function:
-- calculateEMA(candles, period) : returns EMA number
-- calculateRSI(candles, period) : returns RSI number
-- calculateVWAP(candles) : returns VWAP number
 
-The function body MUST evaluate the conditions and return a boolean (true if the stock matches, false otherwise).
-Do NOT write function declaration. Only return the function body (the statements inside).
-Always perform bounds checking on 'candles' (e.g. check if it exists and has enough elements) before accessing its items or calling technical indicators. For example, if you need 20 candles, check 'if (!candles || candles.length < 20) return false;'.
+Pre-defined Helper Functions available in your function scope:
+- calculateEMA(candles, period) : returns EMA number (e.g. calculateEMA(candles, 20))
+- calculateSMA(candles, period) : returns SMA number (e.g. calculateSMA(candles, 50))
+- calculateRSI(candles, period) : returns RSI number between 0 and 100 (e.g. calculateRSI(candles, 14))
+- calculateVWAP(candles) : returns VWAP number
+- calculateMACD(candles) : returns { macd, signal, histogram } object
+- calculateBollingerBands(candles, period, stdDevMultiplier) : returns { middle, upper, lower, bandwidth }
+- calculateATR(candles, period) : returns ATR number
+
+Rules:
+1. Do NOT write an enclosing function header or outer braces. Only return the function body statements.
+2. Perform bounds checking on 'candles' (e.g., if (!candles || candles.length < 14) return false;).
+3. Return a boolean value (true if stock matches, false otherwise).
 
 Return a JSON object in this exact format:
 {
   "name": "A short, descriptive, unique name (e.g., 'RSI Overbought & High Volume')",
   "description": "A clear, concise, user-friendly description of the conditions.",
   "timeframe": "A suggested timeframe (e.g., '5min', '15min', 'day')",
-  "functionBody": "The Javascript code block as a string. Example: 'if (!candles || candles.length < 14) return false;\\nconst rsi = calculateRSI(candles, 14);\\nreturn rsi > 70 && tick.change > 2.0;'"
+  "functionBody": "The Javascript statements string."
 }
-Do NOT include any markdown or code blocks around the JSON. Return ONLY the raw JSON string.`;
+Do NOT include markdown backticks around the JSON. Return ONLY the raw JSON string.`;
 
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
