@@ -893,8 +893,8 @@ export default function App() {
     }
   }, [view, appConfig.hasAccessToken, fetchDbSpace, fetchDbBackups]);
 
-  const runScanner = useCallback(async (scannerName = selectedScanner, indexName = selectedScannerIndex) => {
-    setScannerLoading(true);
+  const runScanner = useCallback(async (scannerName = selectedScanner, indexName = selectedScannerIndex, isBackgroundPoll = false) => {
+    if (!isBackgroundPoll) setScannerLoading(true);
     try {
       const res = await fetch(`/api/scanners/results?scanner=${encodeURIComponent(scannerName)}&index=${encodeURIComponent(indexName)}`);
       const data = await res.json();
@@ -904,7 +904,7 @@ export default function App() {
     } catch (err) {
       console.error('Error running scanner:', err);
     } finally {
-      setScannerLoading(false);
+      if (!isBackgroundPoll) setScannerLoading(false);
     }
   }, [selectedScanner, selectedScannerIndex]);
 
@@ -914,7 +914,7 @@ export default function App() {
     let timer = null;
 
     const pollScannerResults = () => {
-      runScanner(selectedScanner, selectedScannerIndex);
+      runScanner(selectedScanner, selectedScannerIndex, true);
     };
 
     pollScannerResults();
@@ -925,8 +925,8 @@ export default function App() {
     };
   }, [view, selectedScanner, selectedScannerIndex, appConfig.hasAccessToken, runScanner]);
 
-  const runFnoScanner = useCallback(async (scannerName = selectedFnoScanner, indexName = selectedFnoIndex, modeOverride = fnoScanModeOverride) => {
-    setFnoScannerLoading(true);
+  const runFnoScanner = useCallback(async (scannerName = selectedFnoScanner, indexName = selectedFnoIndex, modeOverride = fnoScanModeOverride, isBackgroundPoll = false) => {
+    if (!isBackgroundPoll) setFnoScannerLoading(true);
     try {
       const modeParam = modeOverride && modeOverride !== 'AUTO' ? `&mode=${modeOverride}` : '';
       const res = await fetch(`/api/scanners/results?scanner=${encodeURIComponent(scannerName)}&index=${encodeURIComponent(indexName)}${modeParam}`);
@@ -938,7 +938,7 @@ export default function App() {
     } catch (err) {
       console.error('Error running F&O scanner:', err);
     } finally {
-      setFnoScannerLoading(false);
+      if (!isBackgroundPoll) setFnoScannerLoading(false);
     }
   }, [selectedFnoScanner, selectedFnoIndex, fnoScanModeOverride]);
 
@@ -948,7 +948,7 @@ export default function App() {
     let timer = null;
 
     const pollFnoScannerResults = () => {
-      runFnoScanner(selectedFnoScanner, selectedFnoIndex, fnoScanModeOverride);
+      runFnoScanner(selectedFnoScanner, selectedFnoIndex, fnoScanModeOverride, true);
     };
 
     pollFnoScannerResults();
@@ -5299,12 +5299,14 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       Showing complete F&O metrics. {fnoModeInfo.statusText}
                     </CardDescription>
                   </div>
-                  {fnoScannerLoading && (
-                    <div className="flex items-center gap-1.5 text-xs text-purple-400">
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      <span>Scanning F&O Universe...</span>
-                    </div>
-                  )}
+                  <div className="flex items-center min-h-[24px]">
+                    {fnoScannerLoading && (
+                      <div className="flex items-center gap-1.5 text-xs text-purple-400">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <span>Scanning F&O Universe...</span>
+                      </div>
+                    )}
+                  </div>
                 </CardHeader>
 
                 <CardContent className="p-0 flex-1 overflow-x-auto">
