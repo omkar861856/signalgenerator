@@ -1,5 +1,12 @@
+require('dotenv').config();
 const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument, cleanupRedundantDBData } = require('./db');
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
+const net = require('net');
+const tls = require('tls');
+const { execSync } = require('child_process');
+
 connectDB().then(() => {
     cleanupRedundantDBData().catch(err => console.error('[DB Cleanup Error]', err.message));
 });
@@ -33,19 +40,20 @@ http.ServerResponse.prototype.setHeader = function (name, value) {
         if (name && name.toLowerCase() === 'location' && typeof value === 'string' && !isExternalRedirectUrl(value)) {
             const req = this.req;
             if (req) {
-                const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
+                const rawHost = req.headers['x-forwarded-host'] || req.headers.host || ('localhost:' + (process.env.PORT || 3005));
+                const isLocal = rawHost.includes('localhost') || rawHost.includes('127.0.0.1');
                 const protoHeader = req.headers['x-forwarded-proto'];
-                const protocol = (protoHeader === 'https' || req.secure) ? 'https' : 'http';
+                const protocol = isLocal ? 'http' : ((protoHeader === 'https' || req.secure) ? 'https' : 'http');
                 const urlPath = req.originalUrl || req.url || '';
                 
                 try {
-                    const redirectUrl = new URL(value);
+                    const redirectUrl = new URL(value, `${protocol}://${rawHost}`);
                     redirectUrl.protocol = protocol;
-                    redirectUrl.port = '';
-                    if (protocol === 'https') {
-                        redirectUrl.host = host.split(':')[0];
+                    if (protocol === 'https' && !rawHost.includes(':')) {
+                        redirectUrl.host = rawHost.split(':')[0];
+                        redirectUrl.port = '';
                     } else {
-                        redirectUrl.host = host;
+                        redirectUrl.host = rawHost;
                     }
                     const path = redirectUrl.pathname;
                     let prefix = '';
@@ -83,19 +91,20 @@ http.ServerResponse.prototype.writeHead = function (statusCode, statusMessage, h
         if (location && typeof location === 'string' && !isExternalRedirectUrl(location)) {
             const req = this.req;
             if (req) {
-                const host = req.headers['x-forwarded-host'] || req.headers.host || 'sg.quotewear.store';
+                const rawHost = req.headers['x-forwarded-host'] || req.headers.host || ('localhost:' + (process.env.PORT || 3005));
+                const isLocal = rawHost.includes('localhost') || rawHost.includes('127.0.0.1');
                 const protoHeader = req.headers['x-forwarded-proto'];
-                const protocol = (protoHeader === 'https' || req.secure) ? 'https' : 'http';
+                const protocol = isLocal ? 'http' : ((protoHeader === 'https' || req.secure) ? 'https' : 'http');
                 const urlPath = req.originalUrl || req.url || '';
                 
                 try {
-                    const redirectUrl = new URL(location);
+                    const redirectUrl = new URL(location, `${protocol}://${rawHost}`);
                     redirectUrl.protocol = protocol;
-                    redirectUrl.port = '';
-                    if (protocol === 'https') {
-                        redirectUrl.host = host.split(':')[0];
+                    if (protocol === 'https' && !rawHost.includes(':')) {
+                        redirectUrl.host = rawHost.split(':')[0];
+                        redirectUrl.port = '';
                     } else {
-                        redirectUrl.host = host;
+                        redirectUrl.host = rawHost;
                     }
                     const path = redirectUrl.pathname;
                     let prefix = '';
@@ -165,8 +174,6 @@ const kiteCallsCounter = new client.Counter({
 });
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
 const os = require('os');
 const { spawn, execFile } = require('child_process');
 const scanner = require('./scanner');
@@ -4817,17 +4824,18 @@ const alertmanagerHost = process.env.ALERTMANAGER_HOST || 'localhost';
 
 const rewriteRedirect = (proxyRes, req, res) => {
     if (proxyRes.headers.location) {
-        const host = req.headers['x-forwarded-host'] || req.headers.host;
-        const protocol = req.headers['x-forwarded-proto'] || (req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http');
+        const rawHost = req.headers['x-forwarded-host'] || req.headers.host || ('localhost:' + (process.env.PORT || 3005));
+        const isLocal = rawHost.includes('localhost') || rawHost.includes('127.0.0.1');
+        const protoHeader = req.headers['x-forwarded-proto'];
+        const protocol = isLocal ? 'http' : ((protoHeader === 'https' || req.secure) ? 'https' : 'http');
         try {
-            const redirectUrl = new URL(proxyRes.headers.location);
+            const redirectUrl = new URL(proxyRes.headers.location, `${protocol}://${rawHost}`);
             redirectUrl.protocol = protocol;
             
-            // If secure production HTTPS, strip any port number from host
-            if (protocol === 'https') {
-                redirectUrl.host = host.split(':')[0];
+            if (protocol === 'https' && !rawHost.includes(':')) {
+                redirectUrl.host = rawHost.split(':')[0];
             } else {
-                redirectUrl.host = host;
+                redirectUrl.host = rawHost;
             }
             
             // Ensure the path retains the subpath prefix if the target didn't prepend it
@@ -6767,15 +6775,67 @@ const shutdown = () => {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT',  shutdown);
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
+// ─── Start Dual HTTP/HTTPS Server ─────────────────────────────────────────────
+const certKeyPath = path.join(__dirname, '.dev_cert.key');
+const certCrtPath = path.join(__dirname, '.dev_cert.crt');
+
+function getDevCertificate() {
+    if (!fs.existsSync(certKeyPath) || !fs.existsSync(certCrtPath)) {
+        try {
+            execSync(`openssl req -x509 -newkey rsa:2048 -keyout "${certKeyPath}" -out "${certCrtPath}" -days 365 -nodes -subj "/CN=localhost"`, { stdio: 'ignore' });
+        } catch (e) {
+            console.warn('[SSL] OpenSSL self-signed cert creation failed:', e.message);
+            return null;
+        }
+    }
+    try {
+        return {
+            key: fs.readFileSync(certKeyPath),
+            cert: fs.readFileSync(certCrtPath)
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+const devTlsCreds = getDevCertificate();
+const httpServer = http.createServer(app);
+
+let tlsServer = null;
+if (devTlsCreds) {
+    tlsServer = tls.createServer(devTlsCreds);
+    tlsServer.on('error', () => {});
+}
+
+const hybridServer = net.createServer((socket) => {
+    socket.once('data', (buffer) => {
+        socket.pause();
+        if (buffer[0] === 0x16 && tlsServer) {
+            socket.unshift(buffer);
+            const tlsSocket = new tls.TLSSocket(socket, {
+                isServer: true,
+                server: tlsServer
+            });
+            tlsSocket.on('error', () => {});
+            httpServer.emit('connection', tlsSocket);
+            socket.resume();
+        } else {
+            socket.unshift(buffer);
+            httpServer.emit('connection', socket);
+            socket.resume();
+        }
+    });
+});
+
+hybridServer.listen(PORT, '0.0.0.0', () => {
     const lanIp = getLanIp();
     console.log('='.repeat(60));
     console.log(`  AI Portfolio & Trading Chatbot`);
-    console.log(`  Local:      http://localhost:${PORT}`);
+    console.log(`  Local (HTTP):   http://localhost:${PORT}`);
+    console.log(`  Local (HTTPS):  https://localhost:${PORT}`);
     if (lanIp) {
-        console.log(`  LAN/Docker: http://${lanIp}:${PORT}`);
-        console.log(`  MCP (LAN):  http://${lanIp}:${PORT}/mcp`);
+        console.log(`  LAN/Docker:     http://${lanIp}:${PORT}`);
+        console.log(`  MCP (LAN):      http://${lanIp}:${PORT}/mcp`);
     }
     console.log('='.repeat(60));
 });

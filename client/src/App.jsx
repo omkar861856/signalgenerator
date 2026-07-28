@@ -3,7 +3,7 @@ import {
   TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders
+  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -527,6 +527,8 @@ export default function App() {
   const [ipv6, setIpv6] = useState('Fetching...');
   const [copiedIpv4, setCopiedIpv4] = useState(false);
   const [copiedIpv6, setCopiedIpv6] = useState(false);
+  const [copiedDevRedirect, setCopiedDevRedirect] = useState(false);
+  const [copiedProdRedirect, setCopiedProdRedirect] = useState(false);
 
   const fetchIps = async () => {
     setIpv4('Fetching...');
@@ -551,6 +553,18 @@ export default function App() {
       } else {
         setCopiedIpv6(true);
         setTimeout(() => setCopiedIpv6(false), 2000);
+      }
+    });
+  };
+
+  const handleCopyRedirect = (url, mode) => {
+    navigator.clipboard.writeText(url).then(() => {
+      if (mode === 'dev') {
+        setCopiedDevRedirect(true);
+        setTimeout(() => setCopiedDevRedirect(false), 2000);
+      } else {
+        setCopiedProdRedirect(true);
+        setTimeout(() => setCopiedProdRedirect(false), 2000);
       }
     });
   };
@@ -4225,6 +4239,86 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   <div>
                     <h3 className="font-display font-bold text-base text-white">SignalGenerator Blueprint & Documentation Console</h3>
                     <p className="text-xs text-slate-400 mt-0.5">Interactive architectural directory, data structures, and configuration telemetry</p>
+                  </div>
+                </div>
+
+                {/* Zerodha Kite OAuth Redirect URLs Card */}
+                <div className="bg-gradient-to-r from-indigo-950/40 via-[#0f1524]/60 to-purple-950/40 border border-indigo-500/20 p-4.5 rounded-xl flex flex-col gap-3.5 shadow-lg backdrop-blur-md">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                    <h4 className="font-semibold text-indigo-200 flex items-center gap-2 text-sm">
+                      <Link2 className="h-4.5 w-4.5 text-indigo-400" /> Zerodha Kite OAuth Redirect URLs
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-mono bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full w-fit">
+                      Register in Zerodha Developer Console (https://kite.trade/apps)
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Copy and register the appropriate <strong>Redirect URL</strong> in your Zerodha Kite Connect App settings for your environment:
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Dev Mode Redirect URL */}
+                    <div className="bg-slate-900/80 border border-amber-500/20 p-3 rounded-lg flex flex-col gap-2 relative group hover:border-amber-500/40 transition-all">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 flex items-center gap-1.5 font-mono">
+                          <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span> Dev Mode Redirect URL
+                        </span>
+                        <button
+                          onClick={() => handleCopyRedirect('http://localhost:3005/api/callback', 'dev')}
+                          className="flex items-center gap-1 text-[10px] bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 px-2.5 py-1 rounded transition-all cursor-pointer font-medium"
+                        >
+                          {copiedDevRedirect ? (
+                            <>
+                              <CopyCheck className="h-3 w-3 text-emerald-400" />
+                              <span className="text-emerald-400">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" />
+                              <span>Copy URL</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <div className="bg-black/50 border border-white/5 p-2 rounded text-[11px] font-mono text-slate-200 select-all break-all font-semibold">
+                        http://localhost:3005/api/callback
+                      </div>
+                      <span className="text-[10px] text-slate-400 italic">
+                        Use for local machine development (HTTP port 3005).
+                      </span>
+                    </div>
+
+                    {/* Prod Mode Redirect URL */}
+                    <div className="bg-slate-900/80 border border-emerald-500/20 p-3 rounded-lg flex flex-col gap-2 relative group hover:border-emerald-500/40 transition-all">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5 font-mono">
+                          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span> Production Mode Redirect URL
+                        </span>
+                        <button
+                          onClick={() => handleCopyRedirect(`https://${typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.hostname : 'sg.quotewear.store'}/api/callback`, 'prod')}
+                          className="flex items-center gap-1 text-[10px] bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 px-2.5 py-1 rounded transition-all cursor-pointer font-medium"
+                        >
+                          {copiedProdRedirect ? (
+                            <>
+                              <CopyCheck className="h-3 w-3 text-emerald-400" />
+                              <span className="text-emerald-400">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" />
+                              <span>Copy URL</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <div className="bg-black/50 border border-white/5 p-2 rounded text-[11px] font-mono text-slate-200 select-all break-all font-semibold">
+                        https://{typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.hostname : 'sg.quotewear.store'}/api/callback
+                      </div>
+                      <span className="text-[10px] text-slate-400 italic">
+                        Use for deployed custom production domain (HTTPS).
+                      </span>
+                    </div>
                   </div>
                 </div>
 
