@@ -1128,7 +1128,7 @@ module.exports = {
         return tickerInstance.connected() ? 'connected' : 'connecting';
     },
     getSubscribedCount: () => Object.keys(quoteCache).length,
-    registerCustomScanner: (name, description, functionBody) => {
+    registerCustomScanner: (name, description, functionBody, tf = 'custom') => {
         try {
             scanners[name] = compileCustomScannerFunction(functionBody);
             let customList = [];
@@ -1136,11 +1136,47 @@ module.exports = {
                 customList = JSON.parse(fs.readFileSync(customScannersFile, 'utf8'));
             }
             customList = customList.filter(cs => cs.name !== name);
-            customList.push({ name, description, functionBody });
+            customList.push({ name, description, functionBody, tf });
             fs.writeFileSync(customScannersFile, JSON.stringify(customList, null, 2), 'utf8');
             return true;
         } catch (e) {
             console.error(`Failed to register custom scanner ${name}:`, e);
+            throw e;
+        }
+    },
+    deleteCustomScanner: (name) => {
+        try {
+            delete scanners[name];
+            let customList = [];
+            if (fs.existsSync(customScannersFile)) {
+                customList = JSON.parse(fs.readFileSync(customScannersFile, 'utf8'));
+            }
+            customList = customList.filter(cs => cs.name !== name);
+            fs.writeFileSync(customScannersFile, JSON.stringify(customList, null, 2), 'utf8');
+            logStream(`Deleted custom AI scanner: ${name}`);
+            return true;
+        } catch (e) {
+            console.error(`Failed to delete custom scanner ${name}:`, e);
+            throw e;
+        }
+    },
+    updateCustomScanner: (oldName, newName, description, functionBody, tf = 'custom') => {
+        try {
+            if (oldName !== newName) {
+                delete scanners[oldName];
+            }
+            scanners[newName] = compileCustomScannerFunction(functionBody);
+            let customList = [];
+            if (fs.existsSync(customScannersFile)) {
+                customList = JSON.parse(fs.readFileSync(customScannersFile, 'utf8'));
+            }
+            customList = customList.filter(cs => cs.name !== oldName && cs.name !== newName);
+            customList.push({ name: newName, description, functionBody, tf: tf || 'custom' });
+            fs.writeFileSync(customScannersFile, JSON.stringify(customList, null, 2), 'utf8');
+            logStream(`Updated custom AI scanner: ${oldName} -> ${newName}`);
+            return true;
+        } catch (e) {
+            console.error(`Failed to update custom scanner ${oldName}:`, e);
             throw e;
         }
     },

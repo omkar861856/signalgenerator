@@ -3,7 +3,7 @@ import {
   TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2
+  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -998,6 +998,84 @@ export default function App() {
       setAiError(err.message || 'An error occurred');
     } finally {
       setAiGenerating(false);
+    }
+  };
+
+  // Scanner Editing & Deleting Handlers
+  const [editingScanner, setEditingScanner] = useState(null);
+  const [editScannerName, setEditScannerName] = useState('');
+  const [editScannerDesc, setEditScannerDesc] = useState('');
+  const [editScannerTf, setEditScannerTf] = useState('custom');
+  const [editScannerCode, setEditScannerCode] = useState('');
+  const [editScannerSaving, setEditScannerSaving] = useState(false);
+  const [editScannerError, setEditScannerError] = useState('');
+  const [deletingScannerName, setDeletingScannerName] = useState(null);
+
+  const handleOpenEditScanner = (scannerObj) => {
+    setEditingScanner(scannerObj);
+    setEditScannerName(scannerObj.name);
+    setEditScannerDesc(scannerObj.description || '');
+    setEditScannerTf(scannerObj.tf || 'custom');
+    setEditScannerCode(scannerObj.functionBody || '');
+    setEditScannerError('');
+  };
+
+  const handleSaveEditScanner = async (e) => {
+    e.preventDefault();
+    if (!editingScanner) return;
+    setEditScannerSaving(true);
+    setEditScannerError('');
+    try {
+      const res = await fetch('/api/scanners/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          oldName: editingScanner.name,
+          newName: editScannerName,
+          description: editScannerDesc,
+          functionBody: editScannerCode,
+          tf: editScannerTf
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setEditingScanner(null);
+        fetchScannersList();
+        if (selectedScanner === editingScanner.name) {
+          setSelectedScanner(editScannerName);
+        }
+      } else {
+        setEditScannerError(data.error || 'Failed to update scanner.');
+      }
+    } catch (err) {
+      setEditScannerError(err.message || 'An error occurred');
+    } finally {
+      setEditScannerSaving(false);
+    }
+  };
+
+  const handleDeleteScanner = async (scannerName) => {
+    if (!window.confirm(`Are you sure you want to delete custom scanner "${scannerName}"?`)) return;
+    setDeletingScannerName(scannerName);
+    try {
+      const res = await fetch('/api/scanners/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: scannerName })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        fetchScannersList();
+        if (selectedScanner === scannerName) {
+          setSelectedScanner('Top Gainers');
+        }
+      } else {
+        alert(data.error || 'Failed to delete scanner.');
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to delete scanner.');
+    } finally {
+      setDeletingScannerName(null);
     }
   };
 
@@ -5744,24 +5822,58 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                               : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04] text-slate-300'
                           }`}
                         >
-                          <div className="flex flex-col gap-1">
-                            <span className="font-semibold text-xs">{item.name}</span>
+                          <div className="flex flex-col gap-1 min-w-0 pr-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-semibold text-xs truncate">{item.name}</span>
+                              {item.isCustom && (
+                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
+                                  AI
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[8px] font-bold self-start px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono">
                               {item.tf}
                             </span>
                           </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedScanner(item.name);
-                              runScanner(item.name, selectedScannerIndex);
-                            }}
-                            title="Scan Now"
-                            className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer ml-2"
-                          >
-                            <RefreshCw className={`w-3 h-3 ${scannerLoading && selectedScanner === item.name ? 'animate-spin' : ''}`} />
-                            <span>Scan</span>
-                          </button>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {item.isCustom && (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenEditScanner(item);
+                                  }}
+                                  title="Edit Scanner Code & Parameters"
+                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 active:bg-white/20 text-slate-300 hover:text-white text-[10px] transition-all cursor-pointer border border-white/10"
+                                >
+                                  <Pencil className="w-3 h-3 text-indigo-400" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteScanner(item.name);
+                                  }}
+                                  disabled={deletingScannerName === item.name}
+                                  title="Delete Scanner"
+                                  className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/30 text-rose-400 hover:text-rose-300 text-[10px] transition-all cursor-pointer border border-rose-500/20"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedScanner(item.name);
+                                runScanner(item.name, selectedScannerIndex);
+                              }}
+                              title="Scan Now"
+                              className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer ml-1"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${scannerLoading && selectedScanner === item.name ? 'animate-spin' : ''}`} />
+                              <span>Scan</span>
+                            </button>
+                          </div>
                         </div>
                       ));
                     })()}
@@ -8177,6 +8289,109 @@ function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subs
             );
           })}
         </div>
+      )}
+
+      {/* Edit Scanner Modal */}
+      {editingScanner && (
+        <Dialog open={!!editingScanner} onOpenChange={(open) => !open && setEditingScanner(null)}>
+          <DialogContent className="bg-slate-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-indigo-400">
+                <Pencil className="w-5 h-5 text-indigo-400" />
+                Edit Custom Scanner: {editingScanner.name}
+              </DialogTitle>
+              <DialogDescription className="text-slate-400 text-xs">
+                Modify the scanner title, description, timeframe, or update the Javascript logic for live evaluations.
+              </DialogDescription>
+            </DialogHeader>
+
+            {editScannerError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{editScannerError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditScanner} className="space-y-4 py-2">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Scanner Name</label>
+                <input
+                  type="text"
+                  value={editScannerName}
+                  onChange={(e) => setEditScannerName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Timeframe</label>
+                <select
+                  value={editScannerTf}
+                  onChange={(e) => setEditScannerTf(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="1min">1 Min (Intraday)</option>
+                  <option value="5min">5 Min (Intraday)</option>
+                  <option value="15min">15 Min (Intraday)</option>
+                  <option value="hour">1 Hour</option>
+                  <option value="day">Daily</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Description</label>
+                <textarea
+                  value={editScannerDesc}
+                  onChange={(e) => setEditScannerDesc(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300">JavaScript Code (`functionBody`)</label>
+                  <span className="text-[10px] text-slate-400 font-mono">returns boolean</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 border border-white/10 rounded-xl font-mono text-[10px] text-slate-400 space-y-1">
+                  <div className="text-slate-400 font-semibold">// Available Parameters:</div>
+                  <div className="text-slate-500">• tick: tick.ltp (price), tick.change (%), tick.volume</div>
+                  <div className="text-slate-500">• candles: candles[i].open, high, low, close, volume</div>
+                  <div className="text-slate-400 font-semibold mt-1">// Available Helpers:</div>
+                  <div className="text-slate-500">• calculateEMA(candles, period) | calculateSMA(candles, period)</div>
+                  <div className="text-slate-500">• calculateRSI(candles, period) | calculateVWAP(candles) | calculateMACD(candles)</div>
+                </div>
+                <textarea
+                  value={editScannerCode}
+                  onChange={(e) => setEditScannerCode(e.target.value)}
+                  rows={7}
+                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl font-mono text-xs text-emerald-400 focus:outline-none focus:border-indigo-500"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setEditingScanner(null)}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-semibold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editScannerSaving}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {editScannerSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

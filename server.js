@@ -2596,32 +2596,34 @@ app.get('/api/index-constituents', requireAuth, async (req, res) => {
     }
 });
 
-app.get('/api/scanners', requireAuth, (req, res) => {
+app.get('/api/scanners', (req, res) => {
     try {
         const defaultScanners = [
-            { name: 'Top Gainers and Increasing', tf: 'day', description: 'The scanner identifies stocks where the current closing price is at least 1% higher than the previous close, and the current price is higher than the close price on a 1-minute candle at all times.' },
-            { name: 'Top Gainers', tf: 'day', description: 'The scanner identifies stocks where the current closing price is at least 1% higher than the previous close, indicating positive price momentum and potential bullish sentiment.' },
-            { name: 'Top Losers', tf: 'day', description: 'The scanner identifies stocks where the current closing price is at least 1% lower than the previous close, indicating negative price momentum and potential bearish sentiment.' },
-            { name: 'Opening Range Breakout', tf: '5min', description: 'Identifies stocks where the current price has broken above the highest high of the last 20 periods, indicating strong bullish breakout momentum.' },
-            { name: 'Opening Range Breakdown', tf: '5min', description: 'Identifies stocks where the current price has broken below the lowest low of the last 20 periods, indicating strong bearish breakdown momentum.' },
-            { name: 'Higher High For 2 Days', tf: 'day', description: 'Identifies stocks making a higher high for two consecutive periods, showing a strong short-term bullish trend.' },
-            { name: 'Lower Low For 2 Days', tf: 'day', description: 'Identifies stocks making a lower low for two consecutive periods, showing a strong short-term bearish trend.' },
-            { name: 'Short Term Bullish', tf: '5min', description: 'Identifies stocks where the 20-period EMA is above the 50-period EMA and the price is above the 20 EMA, indicating a strong short-term uptrend.' },
-            { name: 'Short Term Bear', tf: '5min', description: 'Identifies stocks where the 20-period EMA is below the 50-period EMA and the price is below the 20 EMA, indicating a strong short-term downtrend.' },
-            { name: 'Momentum Surge', tf: '5min', description: 'Identifies stocks where the 14-period RSI is above 60, indicating a strong bullish momentum expansion.' },
-            { name: 'Momentum Fade', tf: '5min', description: 'Identifies stocks where the 14-period RSI is below 40, indicating a strong bearish momentum contraction.' },
-            { name: 'Bullish Engulfing', tf: 'hour', description: 'Identifies stocks showing a classic Bullish Engulfing candlestick pattern over the last two periods.' },
-            { name: 'Bearish Engulfing', tf: 'hour', description: 'Identifies stocks showing a classic Bearish Engulfing candlestick pattern over the last two periods.' },
-            { name: 'Volume Breakout', tf: '15min', description: 'Identifies stocks where the current volume is at least 2x higher than the average volume of the last 20 periods, indicating massive institutional participation.' },
-            { name: '50 EMA 15Min Cross', tf: '15min', description: 'Identifies stocks where the 15-minute price crosses above the 50-period EMA.' },
-            { name: '21 EMA cross 50 EMA 15Min', tf: '15min', description: 'Identifies stocks where the 21-period EMA crosses above the 50-period EMA on the 15-minute timeframe.' }
+            { name: 'Top Gainers and Increasing', tf: 'day', description: 'The scanner identifies stocks where the current closing price is at least 1% higher than the previous close, and the current price is higher than the close price on a 1-minute candle at all times.', isCustom: false },
+            { name: 'Top Gainers', tf: 'day', description: 'The scanner identifies stocks where the current closing price is at least 1% higher than the previous close, indicating positive price momentum and potential bullish sentiment.', isCustom: false },
+            { name: 'Top Losers', tf: 'day', description: 'The scanner identifies stocks where the current closing price is at least 1% lower than the previous close, indicating negative price momentum and potential bearish sentiment.', isCustom: false },
+            { name: 'Opening Range Breakout', tf: '5min', description: 'Identifies stocks where the current price has broken above the highest high of the last 20 periods, indicating strong bullish breakout momentum.', isCustom: false },
+            { name: 'Opening Range Breakdown', tf: '5min', description: 'Identifies stocks where the current price has broken below the lowest low of the last 20 periods, indicating strong bearish breakdown momentum.', isCustom: false },
+            { name: 'Higher High For 2 Days', tf: 'day', description: 'Identifies stocks making a higher high for two consecutive periods, showing a strong short-term bullish trend.', isCustom: false },
+            { name: 'Lower Low For 2 Days', tf: 'day', description: 'Identifies stocks making a lower low for two consecutive periods, showing a strong short-term bearish trend.', isCustom: false },
+            { name: 'Short Term Bullish', tf: '5min', description: 'Identifies stocks where the 20-period EMA is above the 50-period EMA and the price is above the 20 EMA, indicating a strong short-term uptrend.', isCustom: false },
+            { name: 'Short Term Bear', tf: '5min', description: 'Identifies stocks where the 20-period EMA is below the 50-period EMA and the price is below the 20 EMA, indicating a strong short-term downtrend.', isCustom: false },
+            { name: 'Momentum Surge', tf: '5min', description: 'Identifies stocks where the 14-period RSI is above 60, indicating a strong bullish momentum expansion.', isCustom: false },
+            { name: 'Momentum Fade', tf: '5min', description: 'Identifies stocks where the 14-period RSI is below 40, indicating a strong bearish momentum contraction.', isCustom: false },
+            { name: 'Bullish Engulfing', tf: 'hour', description: 'Identifies stocks showing a classic Bullish Engulfing candlestick pattern over the last two periods.', isCustom: false },
+            { name: 'Bearish Engulfing', tf: 'hour', description: 'Identifies stocks showing a classic Bearish Engulfing candlestick pattern over the last two periods.', isCustom: false },
+            { name: 'Volume Breakout', tf: '15min', description: 'Identifies stocks where the current volume is at least 2x higher than the average volume of the last 20 periods, indicating massive institutional participation.', isCustom: false },
+            { name: '50 EMA 15Min Cross', tf: '15min', description: 'Identifies stocks where the 15-minute price crosses above the 50-period EMA.', isCustom: false },
+            { name: '21 EMA cross 50 EMA 15Min', tf: '15min', description: 'Identifies stocks where the 21-period EMA crosses above the 50-period EMA on the 15-minute timeframe.', isCustom: false }
         ];
 
         // Fetch custom ones from scanner module
         const customScanners = scanner.getCustomScannersList().map(cs => ({
             name: cs.name,
             tf: cs.tf || 'custom',
-            description: cs.description || 'Custom scanner generated by AI.'
+            description: cs.description || 'Custom scanner generated by AI.',
+            functionBody: cs.functionBody || '',
+            isCustom: true
         }));
 
         res.json({
@@ -2633,7 +2635,73 @@ app.get('/api/scanners', requireAuth, (req, res) => {
     }
 });
 
-app.post('/api/scanners/create-from-prompt', requireAuth, async (req, res) => {
+app.delete('/api/scanners/:name', (req, res) => {
+    try {
+        const { name } = req.params;
+        scanner.deleteCustomScanner(name);
+        res.json({ success: true, message: `Scanner '${name}' deleted successfully` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/scanners/delete', (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ error: 'Scanner name is required' });
+        scanner.deleteCustomScanner(name);
+        res.json({ success: true, message: `Scanner '${name}' deleted successfully` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/scanners/:name', (req, res) => {
+    try {
+        const oldName = req.params.name;
+        const { newName, description, functionBody, tf } = req.body;
+        if (!newName || !functionBody) {
+            return res.status(400).json({ error: 'Name and function body are required.' });
+        }
+        scanner.updateCustomScanner(oldName, newName, description, functionBody, tf);
+        res.json({
+            success: true,
+            scanner: {
+                name: newName,
+                description,
+                tf: tf || 'custom',
+                functionBody,
+                isCustom: true
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/scanners/edit', (req, res) => {
+    try {
+        const { oldName, newName, description, functionBody, tf } = req.body;
+        if (!oldName || !newName || !functionBody) {
+            return res.status(400).json({ error: 'Old name, new name, and function body are required.' });
+        }
+        scanner.updateCustomScanner(oldName, newName, description, functionBody, tf);
+        res.json({
+            success: true,
+            scanner: {
+                name: newName,
+                description,
+                tf: tf || 'custom',
+                functionBody,
+                isCustom: true
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/scanners/create-from-prompt', async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
@@ -2721,7 +2789,7 @@ Do NOT include markdown backticks around the JSON. Return ONLY the raw JSON stri
     }
 });
 
-app.get('/api/scanners/results', requireAuth, (req, res) => {
+app.get('/api/scanners/results', (req, res) => {
     const { scanner: scannerName, index, mode } = req.query;
     if (!scannerName || !index) {
         return res.status(400).json({ error: 'Both scanner and index query parameters are required' });
