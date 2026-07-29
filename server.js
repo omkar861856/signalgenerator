@@ -3498,15 +3498,6 @@ app.get('/api/admin/db-backups', requireAuth, async (req, res) => {
 });
 
 // ─── Historical Candle Sync Engine ───────────────────────────────────────────
-let historicalSyncStatus = {
-    status: 'idle',
-    progress: 0,
-    currentSymbol: '',
-    processedCount: 0,
-    totalCount: 0,
-    logs: [],
-    lastSyncDate: ''
-};
 
 async function runHistoricalSync() {
     if (historicalSyncStatus.status === 'running') return;
