@@ -6326,6 +6326,33 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
     }
 }
 
+// ─── Rust Quant Engine Integration Service ────────────────────────────────────
+const RUST_QUANT_ENGINE_URLS = [
+    process.env.RUST_ENGINE_URL || 'http://quant-engine:8000',
+    'http://127.0.0.1:8002',
+    'http://localhost:8002'
+];
+
+async function callRustQuantEngine(endpoint, method = 'GET', body = null) {
+    for (const baseUrl of RUST_QUANT_ENGINE_URLS) {
+        try {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(3000)
+            };
+            if (body) options.body = JSON.stringify(body);
+            const res = await fetch(`${baseUrl}${endpoint}`, options);
+            if (res.ok) {
+                return await res.json();
+            }
+        } catch (e) {
+            // Silence and fallback to next URL
+        }
+    }
+    return null;
+}
+
 // ─── Backtest Simulation Runner ──────────────────────────────────────────────
 function runSimulation(candles, indicatorArrays, buyFn, sellFn, params) {
     const initialCapital = parseFloat(params.initialCapital) || 100000;
@@ -6737,7 +6764,54 @@ app.post('/api/backtest', requireAuth, async (req, res) => {
         const buyFn = compileExpression(strategy.buy_signal, allKeys);
         const sellFn = compileExpression(strategy.sell_signal, allKeys);
         
-        // 4. Run Simulation
+        // 4. Try Rust Quant Engine execution for ultra-fast multi-core processing
+        let rustResult = null;
+        try {
+            const formattedCandles = candles.map(c => ({
+                timestamp: typeof c.timestamp === 'number' ? c.timestamp : new Date(c.timestamp).getTime(),
+                open: parseFloat(c.open) || 0,
+                high: parseFloat(c.high) || 0,
+                low: parseFloat(c.low) || 0,
+                close: parseFloat(c.close) || 0,
+                volume: parseFloat(c.volume) || 0
+            }));
+            
+            rustResult = await callRustQuantEngine('/api/backtest/run', 'POST', {
+                params: {
+                    initial_capital: initialCapital,
+                    stop_loss_pct: parseFloat(strategy.stop_loss_pct || 2.0),
+                    take_profit_pct: parseFloat(strategy.take_profit_pct || 5.0),
+                    rsi_buy_threshold: parseFloat(strategy.rsi_buy_threshold || 40.0),
+                    rsi_sell_threshold: parseFloat(strategy.rsi_sell_threshold || 70.0)
+                },
+                candles: formattedCandles
+            });
+        } catch (e) {
+            rustResult = null;
+        }
+
+        if (rustResult) {
+            return res.json({
+                success: true,
+                symbol,
+                interval,
+                candleCount: candles.length,
+                engineUsed: "Rust Quant Engine (Rayon Multi-Core SIMD)",
+                results: {
+                    initialCapital: rustResult.initial_capital,
+                    finalCapital: rustResult.final_equity,
+                    totalReturnPct: rustResult.total_return_pct,
+                    totalTrades: rustResult.total_trades,
+                    winRate: rustResult.win_rate,
+                    maxDrawdown: rustResult.max_drawdown_pct,
+                    profitFactor: rustResult.profit_factor,
+                    trades: rustResult.trades,
+                    equityCurve: rustResult.equity_curve
+                }
+            });
+        }
+
+        // Fallback to JS Simulation Runner if Rust engine unavailable
         const results = runSimulation(candles, indicatorArrays, buyFn, sellFn, {
             initialCapital,
             marginMultiplier,
@@ -6750,12 +6824,49 @@ app.post('/api/backtest', requireAuth, async (req, res) => {
             symbol,
             interval,
             candleCount: candles.length,
+            engineUsed: "Node.js JS Engine (Fallback)",
             results
         });
         
     } catch (err) {
         console.error('[Backtest Engine] Error:', err.message);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Direct Rust Quant Engine Proxy Endpoints ──────────────────────────────
+app.get('/api/quant-engine/status', async (req, res) => {
+    const status = await callRustQuantEngine('/health');
+    if (status) {
+        res.json({ success: true, active: true, engine: status });
+    } else {
+        res.json({ success: true, active: false, message: 'Rust Quant Engine offline or unreachable' });
+    }
+});
+
+app.post('/api/quant-engine/eval-scanner', async (req, res) => {
+    const { expression, dataset } = req.body;
+    if (!expression || !dataset) {
+        return res.status(400).json({ error: 'expression and dataset required' });
+    }
+    const result = await callRustQuantEngine('/api/scanners/eval', 'POST', { expression, dataset });
+    if (result) {
+        res.json({ success: true, engineUsed: 'Rust Quant Engine', result });
+    } else {
+        res.status(503).json({ error: 'Rust Quant Engine unavailable' });
+    }
+});
+
+app.post('/api/quant-engine/indicators', async (req, res) => {
+    const { candles, period } = req.body;
+    if (!candles) {
+        return res.status(400).json({ error: 'candles array required' });
+    }
+    const result = await callRustQuantEngine('/api/indicators/calculate', 'POST', { candles, period: period || 14 });
+    if (result) {
+        res.json({ success: true, engineUsed: 'Rust Quant Engine', result });
+    } else {
+        res.status(503).json({ error: 'Rust Quant Engine unavailable' });
     }
 });
 
