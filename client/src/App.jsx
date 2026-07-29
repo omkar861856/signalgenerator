@@ -3655,6 +3655,60 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </CardContent>
                 </Card>
 
+                {/* Admin System Position Exit Logic Reference Card */}
+                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
+                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
+                    <ShieldAlert className="h-5 w-5 text-amber-400" />
+                    <div>
+                      <CardTitle className="font-display font-semibold text-sm text-white">System Position Exit Rules & Safeguards (Admin Manual)</CardTitle>
+                      <CardDescription className="text-xs text-slate-400">Complete specifications for automatic position exits, safety switches, and risk limits</CardDescription>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0 flex flex-col gap-3 mt-2 text-xs">
+                    <div className="p-3.5 rounded-xl bg-slate-950/70 border border-white/10 flex flex-col gap-2 font-mono text-[11px] text-slate-300 leading-relaxed">
+                      <div className="text-amber-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
+                        1. Master Safety Switch (App Control ON/OFF)
+                      </div>
+                      <p className="pl-3.5 border-l border-amber-500/30">
+                        When toggled OFF, immediately cancels ALL open orders (MIS/Regular) and deletes ALL active GTT triggers. All automatic decision engines, P&L monitoring, and GTT consolidations are strictly paused.
+                      </p>
+
+                      <div className="text-indigo-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
+                        <span className="h-2 w-2 rounded-full bg-indigo-400"></span>
+                        2. User-Enabled MIS P&L Target Exit (Opt-In)
+                      </div>
+                      <p className="pl-3.5 border-l border-indigo-500/30">
+                        Requires explicit opt-in (pnlExitAutoEnabled = true). Evaluates total live MIS P&L against Profit Target and Loss Target limits. Requires sustained <strong className="text-white">10 consecutive seconds</strong> of multi-tick breach verification before executing emergency square-off.
+                      </p>
+
+                      <div className="text-emerald-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+                        3. Two-Leg Consolidated Exit GTTs (OCO)
+                      </div>
+                      <p className="pl-3.5 border-l border-emerald-500/30">
+                        Consolidates exit triggers into a single two-leg OCO GTT (Stop-Loss and Target legs). Equity default: 1% SL / 2% Target. F&O default: 15% SL / 30% Target. Automatically cleans up stale GTTs when positions close.
+                      </p>
+
+                      <div className="text-purple-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
+                        <span className="h-2 w-2 rounded-full bg-purple-400"></span>
+                        4. Trailing Stop-Loss Engine
+                      </div>
+                      <p className="pl-3.5 border-l border-purple-500/30">
+                        Polled every 5 minutes. Activates only when position profit reaches <strong className="text-white">≥ 1.5%</strong>. Trails candidate stop-loss with a safe <strong className="text-white">1.0% buffer</strong> behind LTP (Buy: LTP * 0.99, Sell: LTP * 1.01).
+                      </p>
+
+                      <div className="text-rose-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
+                        <span className="h-2 w-2 rounded-full bg-rose-400"></span>
+                        5. Intraday Auto Square-Off Cutoff
+                      </div>
+                      <p className="pl-3.5 border-l border-rose-500/30">
+                        Equity MIS: Auto-exit at 3:24 PM - 3:25 PM IST. F&O MIS: Auto-exit at 3:26 PM IST.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 {/* AI Strategy Builder */}
                 <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
                   <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">

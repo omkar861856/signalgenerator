@@ -3252,6 +3252,23 @@ CURRENT STATE NOTE:
     - Equity Intraday: Stop-Loss = ${equitySl}%, Target Profit = ${equityTarget}%
     - F&O Derivatives: Stop-Loss = ${fnoSl}%, Target Profit = ${fnoTarget}%
 
+MASTER POSITION EXIT & RISK CONTROL RULES (SYSTEM SPECIFICATIONS):
+1. Global Master Safety Switch (APP CONTROL: ON / OFF):
+   - When APP CONTROL is toggled OFF by the user:
+     a) Immediately cancels ALL open regular/MIS pending orders.
+     b) Immediately deletes ALL active GTT triggers.
+     c) Halts all automated trading decision engines, P&L monitoring, GTT consolidations, and auto-exits.
+2. User-Enabled MIS P&L Target Exit (Opt-In):
+   - Active only when 'pnlExitAutoEnabled' is explicitly set to true and limits > 0.
+   - Requires a sustained 10 consecutive seconds of multi-tick breach verification before executing emergency square-off.
+3. Two-Leg Consolidated Exit GTTs (OCO):
+   - Automatically places and consolidates two-leg OCO GTT triggers (Stop-Loss and Target) for active MIS positions (Equity: ${equitySl}% SL / ${equityTarget}% Target; F&O: ${fnoSl}% SL / ${fnoTarget}% Target).
+4. Trailing Stop-Loss Engine:
+   - Polled every 5 minutes. Activates only when position profit reaches >= 1.5%. Trails candidate stop-loss with a 1.0% buffer behind LTP (Buy: LTP * 0.99, Sell: LTP * 1.01).
+5. Intraday Auto Square-Off Timings:
+   - Equity MIS: Auto-exit at 3:24 PM - 3:25 PM IST.
+   - Derivatives MIS (F&O): Auto-exit at 3:26 PM IST.
+
 CRITICAL DIRECTIVE: NO DOUBLE CONFIRMATION
 - You MUST NOT ask the user for confirmation, approval, or "should I proceed" before placing orders or executing trades. Once the user asks for a trade, execute it immediately by calling 'place_order'.
 
