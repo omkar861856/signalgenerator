@@ -6806,23 +6806,51 @@ app.post('/api/backtest', requireAuth, async (req, res) => {
         }
 
         if (rustResult) {
+            // Normalize Rust engine result into a unified summary shape
+            const rustTrades = (rustResult.trades || []).map(t => ({
+                date: t.entry_time ? new Date(t.entry_time).toLocaleString('en-IN') : t.date || '',
+                entryTime: t.entry_time,
+                exitTime: t.exit_time,
+                type: t.direction || t.type || 'LONG',
+                entryPrice: t.entry_price || t.entryPrice || 0,
+                exitPrice: t.exit_price || t.exitPrice || 0,
+                quantity: t.quantity || t.qty || 0,
+                pnl: t.pnl || t.net_pnl || 0,
+                pnlPct: t.pnl_pct || t.pnlPct || 0,
+                reason: t.reason || 'SIGNAL'
+            }));
+            const rustTotalTrades = rustResult.total_trades || rustTrades.length;
+            const rustWins = rustTrades.filter(t => t.pnl > 0).length;
+            const rustFromDate = new Date(fromDate);
+            const rustToDate = new Date(toDate);
+            const rustTotalDays = Math.max(1, Math.round((rustToDate - rustFromDate) / (1000 * 60 * 60 * 24)));
+            const rustInitCapital = rustResult.initial_capital || initialCapital;
+            const rustFinalCapital = rustResult.final_equity || rustResult.final_capital || rustInitCapital;
+            const rustReturnPct = rustResult.total_return_pct || ((rustFinalCapital - rustInitCapital) / rustInitCapital * 100);
+            const rustYears = rustTotalDays / 365;
+            const rustCagr = rustYears > 0 ? (Math.pow(rustFinalCapital / rustInitCapital, 1 / rustYears) - 1) * 100 : 0;
             return res.json({
                 success: true,
                 symbol,
                 interval,
                 candleCount: candles.length,
-                engineUsed: "Rust Quant Engine (Rayon Multi-Core SIMD)",
-                results: {
-                    initialCapital: rustResult.initial_capital,
-                    finalCapital: rustResult.final_equity,
-                    totalReturnPct: rustResult.total_return_pct,
-                    totalTrades: rustResult.total_trades,
-                    winRate: rustResult.win_rate,
-                    maxDrawdown: rustResult.max_drawdown_pct,
-                    profitFactor: rustResult.profit_factor,
-                    trades: rustResult.trades,
-                    equityCurve: rustResult.equity_curve
-                }
+                engineUsed: 'Rust Quant Engine (Rayon Multi-Core SIMD)',
+                summary: {
+                    initialCapital: rustInitCapital,
+                    finalEquity: rustFinalCapital,
+                    totalReturnPct: rustReturnPct,
+                    cagr: rustCagr,
+                    totalDays: rustTotalDays,
+                    totalTrades: rustTotalTrades,
+                    winningTrades: rustWins,
+                    losingTrades: rustTotalTrades - rustWins,
+                    winRatePct: rustTotalTrades > 0 ? (rustWins / rustTotalTrades * 100) : 0,
+                    maxDrawdownPct: rustResult.max_drawdown_pct || 0,
+                    sharpeRatio: rustResult.sharpe_ratio || 0,
+                    profitFactor: rustResult.profit_factor || 0
+                },
+                trades: rustTrades,
+                equityCurve: rustResult.equity_curve || []
             });
         }
 
@@ -6833,14 +6861,52 @@ app.post('/api/backtest', requireAuth, async (req, res) => {
             marginPercentage,
             allowShorting
         });
-        
+
+        // Normalize JS engine result into the same unified summary shape
+        const jsTotalTrades = results.totalTrades || 0;
+        const jsWins = results.wins || 0;
+        const jsFromDate = new Date(fromDate);
+        const jsToDate = new Date(toDate);
+        const jsTotalDays = Math.max(1, Math.round((jsToDate - jsFromDate) / (1000 * 60 * 60 * 24)));
+        const jsInitCapital = results.initialCapital || initialCapital;
+        const jsFinalCapital = results.finalCapital || jsInitCapital;
+        const jsReturnPct = results.totalReturnPct || 0;
+        const jsYears = jsTotalDays / 365;
+        const jsCagr = jsYears > 0 ? (Math.pow(jsFinalCapital / jsInitCapital, 1 / jsYears) - 1) * 100 : 0;
+        const jsTrades = (results.trades || []).map(t => ({
+            date: t.date || (t.entryTime ? new Date(t.entryTime).toLocaleString('en-IN') : ''),
+            entryTime: t.entryTime,
+            exitTime: t.exitTime,
+            type: t.type || t.direction || 'LONG',
+            entryPrice: t.entryPrice || 0,
+            exitPrice: t.exitPrice || 0,
+            quantity: t.quantity || t.qty || 0,
+            pnl: t.pnl || 0,
+            pnlPct: t.pnlPct || 0,
+            reason: t.reason || 'SIGNAL'
+        }));
+
         res.json({
             success: true,
             symbol,
             interval,
             candleCount: candles.length,
-            engineUsed: "Node.js JS Engine (Fallback)",
-            results
+            engineUsed: 'Node.js JS Engine (Fallback)',
+            summary: {
+                initialCapital: jsInitCapital,
+                finalEquity: jsFinalCapital,
+                totalReturnPct: jsReturnPct,
+                cagr: jsCagr,
+                totalDays: jsTotalDays,
+                totalTrades: jsTotalTrades,
+                winningTrades: jsWins,
+                losingTrades: jsTotalTrades - jsWins,
+                winRatePct: jsTotalTrades > 0 ? (jsWins / jsTotalTrades * 100) : 0,
+                maxDrawdownPct: results.maxDrawdownPct || 0,
+                sharpeRatio: results.sharpeRatio || 0,
+                profitFactor: results.profitFactor || 0
+            },
+            trades: jsTrades
         });
         
     } catch (err) {
