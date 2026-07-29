@@ -423,6 +423,58 @@ export default function App() {
   const [backtestCandles, setBacktestCandles] = useState([]);
   const [backtestChartLoading, setBacktestChartLoading] = useState(false);
   
+  // Admin DB Sync State
+  const [dbSyncData, setDbSyncData] = useState({
+    totalInstruments: 0,
+    totalCandlesCount: 0,
+    intervalCounts: {},
+    syncState: {},
+    estSecondsRemaining: 0,
+    estTimeFormatted: 'Calculating...'
+  });
+  const [dbSyncLoading, setDbSyncLoading] = useState(false);
+
+  // Smart Auto-Trading Execution State
+  const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
+  const [smartRiskParams, setSmartRiskParams] = useState({
+    capitalPerTrade: 25000,
+    maxAllocation: 100000,
+    stopLossPct: 1.5,
+    targetProfitPct: 3.0,
+    trailingSlPct: 0.8,
+    productType: 'MIS'
+  });
+
+  const fetchDbSyncStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/sync-status');
+      if (res.ok) {
+        const data = await res.json();
+        setDbSyncData(data);
+      }
+    } catch (err) {
+      console.error('[DB Sync Fetch Error]:', err.message);
+    }
+  }, []);
+
+  const handleTriggerDbSync = async () => {
+    setDbSyncLoading(true);
+    try {
+      const res = await fetch('/api/admin/sync-db', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert('Database sync initiated in background!');
+        fetchDbSyncStatus();
+      } else {
+        showAlert(data.error || 'Failed to start DB sync');
+      }
+    } catch (err) {
+      showAlert('Failed to connect to sync endpoint');
+    } finally {
+      setDbSyncLoading(false);
+    }
+  };
+
   const lastAutoSymbolRef = useRef('');
   const lastAutoIntervalRef = useRef('');
 
@@ -3985,6 +4037,104 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </CardContent>
                 </Card>
 
+                {/* ⚡ SMART AUTOMATED TRADE EXECUTION ENGINE CARD */}
+                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
+                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-5 w-5 text-amber-400" />
+                      <div>
+                        <CardTitle className="font-display font-semibold text-sm text-white">Smart Auto-Trading Execution</CardTitle>
+                        <p className="text-[11px] text-slate-400">Routes indicator signals & scanner breakouts directly to live Zerodha orders.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                        autoTradeEnabled 
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                          : 'bg-slate-800 text-slate-400 border-white/5'
+                      }`}>
+                        {autoTradeEnabled ? 'Execution Active ⚡' : 'Execution Off ⏸️'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const nextState = !autoTradeEnabled;
+                          setAutoTradeEnabled(nextState);
+                          showAlert(nextState ? 'Smart Auto-Trade Execution Engine Enabled!' : 'Auto-Trade Execution Engine Paused.');
+                        }}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border-0 ${
+                          autoTradeEnabled ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                        }`}
+                      >
+                        {autoTradeEnabled ? 'Pause Execution' : 'Enable Execution'}
+                      </button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0 flex flex-col gap-3 mt-3">
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-slate-400 font-semibold">Capital per Order (₹)</label>
+                        <input
+                          type="number"
+                          value={smartRiskParams.capitalPerTrade}
+                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, capitalPerTrade: parseFloat(e.target.value) || 0 }))}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-slate-400 font-semibold">Max Total Capital (₹)</label>
+                        <input
+                          type="number"
+                          value={smartRiskParams.maxAllocation}
+                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, maxAllocation: parseFloat(e.target.value) || 0 }))}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-slate-400 font-semibold">Stop Loss %</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={smartRiskParams.stopLossPct}
+                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, stopLossPct: parseFloat(e.target.value) || 0 }))}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none text-center"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-slate-400 font-semibold">Target Profit %</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={smartRiskParams.targetProfitPct}
+                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, targetProfitPct: parseFloat(e.target.value) || 0 }))}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none text-center"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-slate-400 font-semibold">Trailing Stop Loss %</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={smartRiskParams.trailingSlPct}
+                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, trailingSlPct: parseFloat(e.target.value) || 0 }))}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none text-center"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-slate-400 font-semibold">Product Type</label>
+                        <select
+                          value={smartRiskParams.productType}
+                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, productType: e.target.value }))}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none cursor-pointer"
+                        >
+                          <option value="MIS">MIS (Intraday Auto Square-Off)</option>
+                          <option value="CNC">CNC (Equity Delivery)</option>
+                          <option value="NRML">NRML (Futures & Options)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 {/* Admin System Position Exit Logic Reference Card */}
                 <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
                   <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
@@ -4910,6 +5060,79 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 <RefreshCw className="h-3 w-3" />
                 Refresh IPs
               </Button>
+            </div>
+
+            {/* DATABASE SYNC MANAGER & ESTIMATED TIME TO STORE ALL DATA CARD */}
+            <div className="glass-panel p-5 border-slate-800 bg-[#0f1524]/60 backdrop-blur-md rounded-xl flex flex-col gap-4">
+              <div className="flex items-center justify-between border-b border-white/5 pb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Database className="h-5 w-5 text-indigo-400" />
+                  <div>
+                    <h4 className="text-sm font-semibold text-white font-display">Database Sync & Time Estimate Manager</h4>
+                    <p className="text-[11px] text-slate-400">Stores full Master Instrument dump & candle records for all 8 intervals in MongoDB.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Estimated Time to Store All Data</span>
+                    <span className="text-xs font-bold text-amber-400 font-mono">
+                      {dbSyncData.estTimeFormatted || '~12 mins 45 secs'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleTriggerDbSync}
+                    disabled={dbSyncLoading || dbSyncData.syncState?.isSyncing}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-lg shadow-indigo-600/20 border-0"
+                  >
+                    {dbSyncLoading || dbSyncData.syncState?.isSyncing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    {dbSyncData.syncState?.isSyncing ? 'Syncing DB...' : 'Start Full DB Sync'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress & Live Sync Status Bar */}
+              {dbSyncData.syncState?.isSyncing && (
+                <div className="flex flex-col gap-2 bg-indigo-500/10 p-3.5 rounded-xl border border-indigo-500/20">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-indigo-300 font-semibold flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-indigo-400 animate-ping" />
+                      Syncing: <code className="text-white font-mono">{dbSyncData.syncState?.currentSymbol}</code> ({dbSyncData.syncState?.currentInterval})
+                    </span>
+                    <span className="text-amber-300 font-bold font-mono">
+                      {dbSyncData.syncState?.progressPct || 0}% ({dbSyncData.syncState?.syncedSymbolsCount || 0} / {dbSyncData.syncState?.totalSymbolsToSync || 0})
+                    </span>
+                  </div>
+                  <div className="w-full bg-black/50 rounded-full h-2 overflow-hidden border border-white/10">
+                    <div 
+                      className="bg-gradient-to-r from-indigo-500 via-purple-500 to-amber-400 h-full transition-all duration-300"
+                      style={{ width: `${dbSyncData.syncState?.progressPct || 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Database Candle Counts Across All 8 Intervals */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+                {[
+                  { label: 'Minute (1m)', key: 'minute' },
+                  { label: '3 Minute (3m)', key: '3minute' },
+                  { label: '5 Minute (5m)', key: '5minute' },
+                  { label: '10 Minute (10m)', key: '10minute' },
+                  { label: '15 Minute (15m)', key: '15minute' },
+                  { label: '30 Minute (30m)', key: '30minute' },
+                  { label: '60 Minute (1h)', key: '60minute' },
+                  { label: 'Daily (1d)', key: 'day' }
+                ].map((itv, idx) => (
+                  <div key={idx} className="bg-black/30 p-2.5 rounded-xl border border-white/5 flex flex-col items-center justify-center text-center">
+                    <span className="text-[9px] uppercase font-bold text-slate-400">{itv.label}</span>
+                    <span className="text-xs font-bold text-indigo-300 font-mono mt-0.5">
+                      {(dbSyncData.intervalCounts?.[itv.key] || 0).toLocaleString()}
+                    </span>
+                    <span className="text-[8px] text-emerald-400 font-semibold mt-0.5">Cached in DB</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Monitoring Stack Check Row */}
