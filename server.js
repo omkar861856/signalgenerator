@@ -5421,11 +5421,13 @@ const rewriteRedirect = (proxyRes, req, res) => {
 app.use('/grafana', createProxyMiddleware({
     target: `http://${grafanaHost}:3000`,
     changeOrigin: true,
-    pathRewrite: {
-        '^/grafana': '', // Strip /grafana prefix before forwarding
-    },
     ws: true, // Enable websocket proxying for live feeds
-    onProxyRes: rewriteRedirect,
+    onProxyRes: (proxyRes, req, res) => {
+        if (proxyRes.headers.location) {
+            proxyRes.headers.location = proxyRes.headers.location.replace(/:\d+/, '');
+        }
+        rewriteRedirect(proxyRes, req, res);
+    },
     logLevel: 'warn',
 }));
 
@@ -6880,6 +6882,33 @@ app.post('/api/quant-engine/indicators', async (req, res) => {
         res.json({ success: true, engineUsed: 'Rust Quant Engine', result });
     } else {
         res.status(503).json({ error: 'Rust Quant Engine unavailable' });
+    }
+});
+
+// 7-Stage Ultra-Low Latency HFT Pipeline Execution Proxy Routes
+app.post('/api/quant-engine/hft/tick', async (req, res) => {
+    const { tick, inventory_qty, risk_params } = req.body;
+    if (!tick || !tick.symbol || tick.ltp == null) {
+        return res.status(400).json({ error: 'Valid HFT tick object (symbol, ltp, best_bid, best_ask) required' });
+    }
+    const result = await callRustQuantEngine('/api/hft/tick', 'POST', { tick, inventory_qty: inventory_qty || 0, risk_params });
+    if (result) {
+        res.json({ success: true, engineUsed: 'Rust HFT 7-Stage Pipeline', result });
+    } else {
+        res.status(503).json({ error: 'Rust HFT Engine unavailable' });
+    }
+});
+
+app.post('/api/quant-engine/hft/risk-check', async (req, res) => {
+    const { signal, ltp, risk_params } = req.body;
+    if (!signal || !ltp || !risk_params) {
+        return res.status(400).json({ error: 'signal, ltp, and risk_params required' });
+    }
+    const result = await callRustQuantEngine('/api/hft/risk-check', 'POST', { signal, ltp, risk_params });
+    if (result) {
+        res.json({ success: true, engineUsed: 'Rust HFT Pre-Trade Risk Engine', result });
+    } else {
+        res.status(503).json({ error: 'Rust HFT Engine unavailable' });
     }
 });
 

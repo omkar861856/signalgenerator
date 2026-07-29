@@ -1,4 +1,5 @@
 mod backtest;
+mod hft_pipeline;
 mod indicators;
 mod scanner;
 
@@ -8,6 +9,7 @@ use axum::{
     Json, Router,
 };
 use backtest::{BacktestEngine, BacktestParams, BacktestResult};
+use hft_pipeline::{HftExecutionResult, HftPipelineRunner, HftTick, PreTradeRiskEngine, RiskCheckResult, RiskParams, StrategySignal};
 use indicators::{Candle, Indicators};
 use scanner::{ScanMatch, ScannerEngine, SymbolData};
 use serde::{Deserialize, Serialize};
@@ -52,6 +54,20 @@ pub struct BacktestRequest {
     pub params: BacktestParams,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct HftTickRequest {
+    pub tick: HftTick,
+    pub inventory_qty: Option<i64>,
+    pub risk_params: Option<RiskParams>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RiskCheckRequest {
+    pub signal: StrategySignal,
+    pub ltp: f64,
+    pub risk_params: RiskParams,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
@@ -65,6 +81,8 @@ async fn main() {
         .route("/api/indicators/calculate", post(calculate_indicators_handler))
         .route("/api/scanners/eval", post(evaluate_scanner_handler))
         .route("/api/backtest/run", post(run_backtest_handler))
+        .route("/api/hft/tick", post(hft_tick_handler))
+        .route("/api/hft/risk-check", post(hft_risk_check_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -80,7 +98,12 @@ async fn health_handler() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
         "engine": "Rust Quant Engine 0.1.0",
-        "features": ["SIMD Indicators", "Rayon Parallel Scanning", "Event-Driven Backtester"]
+        "features": [
+            "SIMD Indicators",
+            "Rayon Parallel Scanning",
+            "Event-Driven Backtester",
+            "7-Stage Ultra-Low Latency HFT Pipeline"
+        ]
     }))
 }
 
@@ -124,5 +147,26 @@ async fn run_backtest_handler(
     Json(req): Json<BacktestRequest>,
 ) -> Json<BacktestResult> {
     let result = BacktestEngine::run(&req.candles, &req.params);
+    Json(result)
+}
+
+async fn hft_tick_handler(
+    Json(req): Json<HftTickRequest>,
+) -> Json<HftExecutionResult> {
+    let inventory = req.inventory_qty.unwrap_or(0);
+    let risk_params = req.risk_params.unwrap_or(RiskParams {
+        max_order_qty: 1000,
+        max_position_val: 10000000.0,
+        max_slippage_pct: 1.0,
+    });
+
+    let result = HftPipelineRunner::execute_tick_to_trade(&req.tick, inventory, &risk_params);
+    Json(result)
+}
+
+async fn hft_risk_check_handler(
+    Json(req): Json<RiskCheckRequest>,
+) -> Json<RiskCheckResult> {
+    let result = PreTradeRiskEngine::check(&req.signal, req.ltp, &req.risk_params);
     Json(result)
 }
