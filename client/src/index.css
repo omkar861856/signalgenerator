@@ -6,8 +6,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: 'Inter', sans-serif;
+  --font-sans: 'Inter', 'Geist Variable', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Roboto Mono', ui-monospace, monospace;
 
   --color-bg-dark: #0b0f19;
   --color-card-dark: #121826;
@@ -18,10 +19,19 @@
   --color-hold: #f59e0b;
 }
 
-/* Custom styling */
+/* Trader Typography & Enhanced Font Size */
+html {
+  font-size: 15.2px;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   background-color: #0b0f19;
-  color: #e2e8f0;
+  color: #f1f5f9;
+  font-family: var(--font-sans);
+  letter-spacing: -0.011em;
 }
 
 /* Custom scrollbars */

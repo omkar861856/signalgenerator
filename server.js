@@ -1151,15 +1151,28 @@ app.get('/api/history', async (req, res) => {
             return res.json([]);
         }
 
-        // Map to lightweight-charts format
-        const chartData = candles.map(c => ({
-            time: Math.floor(new Date(c.timestamp).getTime() / 1000),
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume || 0
-        }));
+        // Map to lightweight-charts format with strict null & duplicate filtering
+        const seenTimes = new Set();
+        const chartData = [];
+
+        candles
+            .filter(c => c && c.timestamp && c.open != null && c.high != null && c.low != null && c.close != null)
+            .map(c => ({
+                time: Math.floor(new Date(c.timestamp).getTime() / 1000),
+                open: Number(c.open),
+                high: Number(c.high),
+                low: Number(c.low),
+                close: Number(c.close),
+                volume: Number(c.volume) || 0
+            }))
+            .filter(c => !isNaN(c.time) && !isNaN(c.open) && !isNaN(c.high) && !isNaN(c.low) && !isNaN(c.close))
+            .sort((a, b) => a.time - b.time)
+            .forEach(c => {
+                if (!seenTimes.has(c.time)) {
+                    seenTimes.add(c.time);
+                    chartData.push(c);
+                }
+            });
 
         res.json(chartData);
     } catch (err) {

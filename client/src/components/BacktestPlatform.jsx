@@ -130,15 +130,23 @@ export default function BacktestPlatform({ candles, symbol, interval, trades = [
     const seenTimes = new Set();
     const unique = [];
     
-    // Sort to ensure chronological order
-    const sorted = [...candles].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const valid = candles.filter(c => c && c.time != null && c.open != null && c.high != null && c.low != null && c.close != null)
+      .map(c => ({
+        timeVal: typeof c.time === 'number' ? c.time : Math.floor(new Date(c.time).getTime() / 1000),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close)
+      }))
+      .filter(c => !isNaN(c.timeVal) && !isNaN(c.open) && !isNaN(c.high) && !isNaN(c.low) && !isNaN(c.close));
+
+    valid.sort((a, b) => a.timeVal - b.timeVal);
     
-    sorted.forEach(c => {
-      const tSec = Math.floor(new Date(c.time).getTime() / 1000);
-      if (!seenTimes.has(tSec)) {
-        seenTimes.add(tSec);
+    valid.forEach(c => {
+      if (!seenTimes.has(c.timeVal)) {
+        seenTimes.add(c.timeVal);
         unique.push({
-          time: tSec,
+          time: c.timeVal,
           open: c.open,
           high: c.high,
           low: c.low,

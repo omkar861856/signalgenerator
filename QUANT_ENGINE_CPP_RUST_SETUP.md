@@ -12,7 +12,35 @@ This document provides a complete blueprint for re-architecting the **SignalGene
 | **Tick Processing Speed** | 10,000 ticks/sec | **2,500,000 ticks/sec** | **10,000,000+ ticks/sec** |
 | **Memory Footprint** | ~180 MB | **~12 MB** | **~6 MB** |
 | **Concurrency Model** | Event Loop (Single-threaded) | Async Tokio Tasks + Rayon Pool | Lock-free SPSC Queues + Threads |
-| **Dynamic AI Scripting** | `new Function()` JIT | `Rhai` Script / `Wasmtime` | `ChaiScript` / `dlopen` Shared Objects |
+---
+
+## ⚡ High-Frequency Trading (HFT) Ultra-Low Latency Pipeline Architecture
+
+Systems engineered for microsecond-level tick-to-trade response times follow an integrated 7-stage architectural pipeline designed to capture minute market inefficiencies at massive throughput and velocity:
+
+1. **Market Data Ingestion**:
+   - **Colocation**: Compute nodes colocated in the exchange datacenter.
+   - **Multicast Feeds & Kernel Bypass**: Utilizes Solarflare Onload or Linux DPDK (Data Plane Development Kit) to bypass standard OS networking stack overhead, delivering raw UDP multicast tick packets directly into user-space memory ring buffers.
+
+2. **In-Memory Order Books**:
+   - **Zero Disk I/O**: Maintains the full L2/L3 order book entirely in memory.
+   - **Lock-Free Replication**: Replicated in-memory structures kept in continuous sync for fault tolerance and immediate signal feed into execution strategies.
+
+3. **Event-Driven Lock-Free Pipeline**:
+   - Single-Producer Single-Consumer (SPSC) lock-free ring buffers eliminate thread locks and context switching overhead.
+   - **Nanosecond Timestamping**: Every incoming market tick and order payload is hardware-timestamped with nanosecond precision for latency audit trails and sequence integrity.
+
+4. **FPGA Hardware Acceleration**:
+   - Field Programmable Gate Arrays (FPGAs) offload decision logic directly onto hardware-wired gates for sub-microsecond tick-to-trade execution paths.
+
+5. **Strategy & Market-Making Engines**:
+   - Software engines calculate dynamic micro-volatility, fair-value skew, and inventory risk to determine real-time quote positioning.
+
+6. **Pre-Trade Risk Checks & Smart Order Router (SOR)**:
+   - Mandatory inline pre-trade risk checks (margin checks, order size caps, price collar limits) execute within nanoseconds before routing via optimal exchange gateways.
+
+7. **Order Management System (OMS) & Latency Dashboards**:
+   - Asynchronous OMS records executions while real-time Grafana/Prometheus dashboards monitor 99.9th percentile latency metrics.
 
 ---
 

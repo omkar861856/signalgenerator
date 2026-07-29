@@ -8480,11 +8480,32 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
       try {
         const res = await fetch(`/api/history?symbol=${cleanSymbol}&interval=${kiteInterval}`);
         if (!res.ok) throw new Error('Failed to fetch history');
-        const data = await res.json();
+        const rawData = await res.json();
 
         if (!active) return;
 
-        if (!data || data.length === 0) {
+        // Sanitize data: filter out null/undefined/NaN values & duplicate timestamps
+        const seenTimes = new Set();
+        const data = [];
+        (rawData || [])
+          .filter(c => c && c.time != null && c.open != null && c.high != null && c.low != null && c.close != null)
+          .map(c => ({
+            time: typeof c.time === 'number' ? c.time : Math.floor(new Date(c.time).getTime() / 1000),
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close)
+          }))
+          .filter(c => !isNaN(c.time) && !isNaN(c.open) && !isNaN(c.high) && !isNaN(c.low) && !isNaN(c.close))
+          .sort((a, b) => a.time - b.time)
+          .forEach(c => {
+            if (!seenTimes.has(c.time)) {
+              seenTimes.add(c.time);
+              data.push(c);
+            }
+          });
+
+        if (data.length === 0) {
           setNoData(true);
           return;
         }
