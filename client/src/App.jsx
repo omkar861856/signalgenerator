@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
+  TrendingUp, TrendingDown, Shield, ShieldAlert, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil
