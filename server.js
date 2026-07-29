@@ -900,6 +900,45 @@ app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ─── ADMIN DB SYNC ENDPOINTS ──────────────────────────────────────────────────
+app.get('/api/admin/sync-status', async (req, res) => {
+    try {
+        const totalInstruments = await Instrument.countDocuments({});
+        const intervalCounts = {};
+        const intervals = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute', 'day'];
+        
+        for (const itv of intervals) {
+            intervalCounts[itv] = await HistoricalCandle.countDocuments({ interval: itv });
+        }
+        const totalCandlesCount = Object.values(intervalCounts).reduce((a, b) => a + b, 0);
+        
+        const remainingToSync = Math.max(0, (totalInstruments || 100) * 8 - (historicalSyncStatus.processedSymbols || 0));
+        const estSecondsRemaining = historicalSyncStatus.status === 'running' 
+            ? Math.round(remainingToSync * 0.8)
+            : Math.round((totalInstruments || 100) * 8 * 0.8);
+
+        res.json({
+            success: true,
+            totalInstruments,
+            intervalCounts,
+            totalCandlesCount,
+            syncState: historicalSyncStatus,
+            estSecondsRemaining,
+            estTimeFormatted: formatSecondsToMinSec ? formatSecondsToMinSec(estSecondsRemaining) : `~${Math.round(estSecondsRemaining/60)} mins`
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/sync-db', async (req, res) => {
+    if (historicalSyncStatus.status === 'running') {
+        return res.status(400).json({ error: 'DB sync is already running in background', syncState: historicalSyncStatus });
+    }
+    runHistoricalSync().catch(err => console.error('[Historical Incremental Sync] Error:', err));
+    res.json({ success: true, message: 'Incremental database historical candles sync launched in background', syncState: historicalSyncStatus });
+});
+
 // Helper to round price to nearest multiple of 0.05 (tick size)
 function roundToTickSize(price, tickSize = 0.05) {
     if (!price || isNaN(price)) return 0;
@@ -1485,6 +1524,277 @@ app.post('/api/logout', (req, res) => {
         delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
     }
     res.json({ success: true });
+});
+
+// ─── Kite Market Quotes & Instruments Specification Endpoints ────────────────
+
+// GET /instruments - Dump of all tradable instruments
+app.get(['/instruments', '/api/instruments'], async (req, res) => {
+    try {
+        let exchange = req.query.exchange;
+        if (kite && access_token) {
+            try {
+                if (exchange) {
+                    const insts = await kite.getInstruments(exchange.toUpperCase());
+                    return res.json(insts);
+                } else {
+                    const insts = await kite.getInstruments();
+                    return res.json(insts);
+                }
+            } catch (err) {
+                console.error('[Instruments API] Kite fetch error, falling back to local DB:', err.message);
+            }
+        }
+        const query = exchange ? { exchange: exchange.toUpperCase() } : {};
+        const localInsts = await Instrument.find(query).limit(5000).lean();
+        res.json(localInsts);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /instruments/:exchange - Dump of instruments for specific exchange
+app.get(['/instruments/:exchange', '/api/instruments/:exchange'], async (req, res) => {
+    try {
+        const exchange = req.params.exchange.toUpperCase();
+        if (kite && access_token) {
+            try {
+                const insts = await kite.getInstruments(exchange);
+                return res.json(insts);
+            } catch (err) {
+                console.error(`[Instruments API] Kite fetch error for ${exchange}:`, err.message);
+            }
+        }
+        const localInsts = await Instrument.find({ exchange }).limit(5000).lean();
+        res.json(localInsts);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /quote - Full market quote for up to 500 instruments
+app.get(['/quote', '/api/quote'], async (req, res) => {
+    try {
+        let iParam = req.query.i;
+        if (!iParam) return res.status(400).json({ error: 'Missing parameter i' });
+        const instruments = Array.isArray(iParam) ? iParam : [iParam];
+        
+        if (kite && access_token) {
+            try {
+                const quoteMap = await kite.getQuote(instruments);
+                return res.json({ status: 'success', data: quoteMap });
+            } catch (err) {
+                console.error('[Quote API] Kite getQuote error:', err.message);
+            }
+        }
+        
+        const mockData = {};
+        for (const inst of instruments) {
+            const parts = inst.split(':');
+            const sym = parts[1] || parts[0];
+            const ltp = scanner.getLtpBySymbol ? scanner.getLtpBySymbol(sym) : 1500;
+            mockData[inst] = {
+                instrument_token: scanner.getTokenBySymbol ? scanner.getTokenBySymbol(inst) : 408065,
+                timestamp: new Date().toISOString(),
+                last_trade_time: new Date().toISOString(),
+                last_price: ltp || 1500,
+                volume: 524000,
+                average_price: (ltp || 1500) * 0.998,
+                ohlc: { open: (ltp || 1500) * 0.99, high: (ltp || 1500) * 1.02, low: (ltp || 1500) * 0.98, close: ltp || 1500 },
+                net_change: 2.5
+            };
+        }
+        res.json({ status: 'success', data: mockData });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /quote/ohlc - Snapshot OHLC quotes for up to 1000 instruments
+app.get(['/quote/ohlc', '/api/quote/ohlc'], async (req, res) => {
+    try {
+        let iParam = req.query.i;
+        if (!iParam) return res.status(400).json({ error: 'Missing parameter i' });
+        const instruments = Array.isArray(iParam) ? iParam : [iParam];
+        
+        if (kite && access_token) {
+            try {
+                const ohlcMap = await kite.getOHLC(instruments);
+                return res.json({ status: 'success', data: ohlcMap });
+            } catch (err) {
+                console.error('[Quote OHLC API] Error:', err.message);
+            }
+        }
+        
+        const mockData = {};
+        for (const inst of instruments) {
+            const parts = inst.split(':');
+            const sym = parts[1] || parts[0];
+            const ltp = scanner.getLtpBySymbol ? scanner.getLtpBySymbol(sym) : 1500;
+            mockData[inst] = {
+                instrument_token: scanner.getTokenBySymbol ? scanner.getTokenBySymbol(inst) : 408065,
+                last_price: ltp || 1500,
+                ohlc: { open: (ltp || 1500) * 0.99, high: (ltp || 1500) * 1.02, low: (ltp || 1500) * 0.98, close: ltp || 1500 }
+            };
+        }
+        res.json({ status: 'success', data: mockData });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /quote/ltp - Snapshot LTP quotes for up to 1000 instruments
+app.get(['/quote/ltp', '/api/quote/ltp'], async (req, res) => {
+    try {
+        let iParam = req.query.i;
+        if (!iParam) return res.status(400).json({ error: 'Missing parameter i' });
+        const instruments = Array.isArray(iParam) ? iParam : [iParam];
+        
+        if (kite && access_token) {
+            try {
+                const ltpMap = await kite.getLTP(instruments);
+                return res.json({ status: 'success', data: ltpMap });
+            } catch (err) {
+                console.error('[Quote LTP API] Error:', err.message);
+            }
+        }
+        
+        const mockData = {};
+        for (const inst of instruments) {
+            const parts = inst.split(':');
+            const sym = parts[1] || parts[0];
+            const ltp = scanner.getLtpBySymbol ? scanner.getLtpBySymbol(sym) : 1500;
+            mockData[inst] = {
+                instrument_token: scanner.getTokenBySymbol ? scanner.getTokenBySymbol(inst) : 408065,
+                last_price: ltp || 1500
+            };
+        }
+        res.json({ status: 'success', data: mockData });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Incremental Database Sync Manager & Time Estimate Endpoints ─────────────
+let dbSyncState = {
+    isSyncing: false,
+    progressPct: 0,
+    totalSymbolsToSync: 0,
+    syncedSymbolsCount: 0,
+    estSecondsRemaining: 0,
+    currentInterval: '',
+    currentSymbol: '',
+    startTime: null,
+    errorsCount: 0
+};
+
+function formatSecondsToMinSec(totalSec) {
+    if (totalSec <= 0) return "Complete";
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    if (mins >= 60) {
+        const hrs = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        return `~${hrs} hr${hrs > 1 ? 's' : ''} ${remMins} min${remMins > 1 ? 's' : ''}`;
+    }
+    return `~${mins} min${mins !== 1 ? 's' : ''} ${secs} sec${secs !== 1 ? 's' : ''}`;
+}
+
+// GET /api/admin/sync-status - Incremental Sync Status & Time Estimates
+app.get('/api/admin/sync-status', async (req, res) => {
+    try {
+        const totalInstruments = await Instrument.countDocuments({});
+        const intervalCounts = {};
+        const intervals = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute', 'day'];
+        
+        for (const itv of intervals) {
+            intervalCounts[itv] = await HistoricalCandle.countDocuments({ interval: itv });
+        }
+        const totalCandlesCount = Object.values(intervalCounts).reduce((a, b) => a + b, 0);
+        
+        const remainingToSync = Math.max(0, (totalInstruments || 100) * 8 - (dbSyncState.syncedSymbolsCount || 0));
+        const estSecondsRemaining = dbSyncState.isSyncing 
+            ? Math.round(remainingToSync * 0.8)
+            : Math.round((totalInstruments || 100) * 8 * 0.8);
+
+        res.json({
+            success: true,
+            totalInstruments,
+            intervalCounts,
+            totalCandlesCount,
+            syncState: dbSyncState,
+            estSecondsRemaining,
+            estTimeFormatted: formatSecondsToMinSec(estSecondsRemaining)
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/admin/sync-db - Trigger background incremental DB sync (Gap Filling only)
+app.post('/api/admin/sync-db', async (req, res) => {
+    if (dbSyncState.isSyncing) {
+        return res.status(400).json({ error: 'DB sync is already running in background', syncState: dbSyncState });
+    }
+
+    dbSyncState = {
+        isSyncing: true,
+        progressPct: 0,
+        totalSymbolsToSync: 0,
+        syncedSymbolsCount: 0,
+        estSecondsRemaining: 0,
+        currentInterval: 'day',
+        currentSymbol: 'Preparing...',
+        startTime: Date.now(),
+        errorsCount: 0
+    };
+
+    (async () => {
+        try {
+            const instruments = await Instrument.find({ exchange: 'NSE', segment: 'NSE' }).limit(100).lean();
+            const symbolsList = instruments.length > 0 ? instruments.map(i => `NSE:${i.tradingsymbol}`) : ['NSE:RELIANCE', 'NSE:TCS', 'NSE:INFY', 'NSE:HDFCBANK', 'NSE:ICICIBANK', 'NSE:SBIN', 'NSE:BHARTIARTL', 'NSE:ITC', 'NSE:LT', 'NSE:AXISBANK'];
+            
+            const intervals = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute', 'day'];
+            const totalTasks = symbolsList.length * intervals.length;
+            dbSyncState.totalSymbolsToSync = totalTasks;
+            
+            let completedTasks = 0;
+            const fromDateStr = '2024-01-01';
+            const toDateStr = new Date().toISOString().split('T')[0];
+
+            for (const itv of intervals) {
+                dbSyncState.currentInterval = itv;
+                for (const sym of symbolsList) {
+                    dbSyncState.currentSymbol = sym;
+                    try {
+                        // Incremental fetch (does not overwrite existing candles)
+                        await getCachedHistoricalData(sym, itv, fromDateStr, toDateStr);
+                    } catch (err) {
+                        dbSyncState.errorsCount++;
+                    }
+                    completedTasks++;
+                    dbSyncState.syncedSymbolsCount = completedTasks;
+                    dbSyncState.progressPct = parseFloat(((completedTasks / totalTasks) * 100).toFixed(1));
+                    
+                    const elapsedMs = Date.now() - dbSyncState.startTime;
+                    const avgTimePerTask = elapsedMs / completedTasks;
+                    const remTasks = totalTasks - completedTasks;
+                    dbSyncState.estSecondsRemaining = Math.round((remTasks * avgTimePerTask) / 1000);
+                    
+                    await new Promise(r => setTimeout(r, 200));
+                }
+            }
+            console.log('[DB Sync Engine] Completed full incremental historical sync across all 8 intervals!');
+        } catch (err) {
+            console.error('[DB Sync Engine] Error during background sync:', err.message);
+        } finally {
+            dbSyncState.isSyncing = false;
+            dbSyncState.currentSymbol = 'Done';
+            dbSyncState.progressPct = 100;
+        }
+    })();
+
+    res.json({ success: true, message: 'Incremental database historical candles sync launched in background', syncState: dbSyncState });
 });
 
 // ─── 7b. REST State API (MongoDB Source of Truth) ─────────────────────────────
@@ -3084,6 +3394,46 @@ app.post('/api/admin/historical-sync/start', requireAuth, (req, res) => {
     }
     runHistoricalSync().catch(err => console.error('[Historical Sync] Run error:', err));
     res.json({ success: true, message: 'Sync started' });
+});
+
+// Non-blocking sync status endpoint for Admin Panel
+app.get('/api/admin/sync-status', async (req, res) => {
+    try {
+        const totalInstruments = await Instrument.countDocuments({});
+        const intervalCounts = {};
+        const intervals = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute', 'day'];
+        
+        for (const itv of intervals) {
+            intervalCounts[itv] = await HistoricalCandle.countDocuments({ interval: itv });
+        }
+        const totalCandlesCount = Object.values(intervalCounts).reduce((a, b) => a + b, 0);
+        
+        const remainingToSync = Math.max(0, (totalInstruments || 100) * 8 - (historicalSyncStatus.processedSymbols || 0));
+        const estSecondsRemaining = historicalSyncStatus.status === 'running' 
+            ? Math.round(remainingToSync * 0.8)
+            : Math.round((totalInstruments || 100) * 8 * 0.8);
+
+        res.json({
+            success: true,
+            totalInstruments,
+            intervalCounts,
+            totalCandlesCount,
+            syncState: historicalSyncStatus,
+            estSecondsRemaining,
+            estTimeFormatted: formatSecondsToMinSec ? formatSecondsToMinSec(estSecondsRemaining) : `~${Math.round(estSecondsRemaining/60)} mins`
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Non-blocking incremental sync trigger for Admin Panel (Gap filling only)
+app.post('/api/admin/sync-db', async (req, res) => {
+    if (historicalSyncStatus.status === 'running') {
+        return res.status(400).json({ error: 'DB sync is already running in background', syncState: historicalSyncStatus });
+    }
+    runHistoricalSync().catch(err => console.error('[Historical Incremental Sync] Error:', err));
+    res.json({ success: true, message: 'Incremental database historical candles sync launched in background', syncState: historicalSyncStatus });
 });
 
 app.get('/api/admin/db-backups', requireAuth, async (req, res) => {
@@ -5858,11 +6208,31 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
     const parts = symbol.split(':');
     const symbolOnly = parts[1] || parts[0];
 
-    // Determine bounds of already-stored candles
-    const existingCount = await HistoricalCandle.countDocuments({ symbol, interval });
-    
-    if (existingCount >= 1000) {
-        console.log(`[Historical Cache] Serving ${existingCount} candles from MongoDB for ${symbol} (${interval})`);
+    // Determine bounds of already-stored candles for incremental gap-filling
+    let needsFetch = true;
+    let fetchSegments = [];
+    const bounds = await HistoricalCandle.aggregate([
+        { $match: { symbol, interval } },
+        { $group: { _id: null, minT: { $min: "$timestamp" }, maxT: { $max: "$timestamp" } } }
+    ]);
+
+    if (bounds.length > 0) {
+        const { minT, maxT } = bounds[0];
+        if (fromDate >= minT && toDate <= maxT) {
+            needsFetch = false;
+        } else {
+            if (fromDate < minT) {
+                fetchSegments.push({ start: fromDate, end: new Date(minT.getTime() - 1000) });
+            }
+            if (toDate > maxT) {
+                fetchSegments.push({ start: new Date(maxT.getTime() + 1000), end: toDate });
+            }
+        }
+    } else {
+        fetchSegments.push({ start: fromDate, end: toDate });
+    }
+
+    if (!needsFetch || fetchSegments.length === 0) {
         return await HistoricalCandle.find({
             symbol,
             interval,
@@ -5871,48 +6241,18 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
     }
 
     try {
-        // 1. Resolve instrumentToken from Kite
         if (!kite || !access_token || access_token.startsWith("mock_")) {
             throw new Error("Simulation mode: using mock candles fallback");
         }
         
-        // 2. Resolve instrumentToken locally instead of making an API call
         const instrumentToken = scanner.getTokenBySymbol ? scanner.getTokenBySymbol(symbol) : null;
-        
         if (!instrumentToken) {
             throw new Error(`Symbol ${symbol} token could not be resolved from scanner mappings.`);
         }
         
-        let needsFetch = true;
-        let fetchSegments = [];
-        
-        if (existingCount > 0) {
-            const bounds = await HistoricalCandle.aggregate([
-                { $match: { symbol, interval } },
-                { $group: { _id: null, minT: { $min: "$timestamp" }, maxT: { $max: "$timestamp" } } }
-            ]);
-            
-            if (bounds.length > 0) {
-                const { minT, maxT } = bounds[0];
-                if (fromDate >= minT && toDate <= maxT) {
-                    needsFetch = false;
-                } else {
-                    if (fromDate < minT) {
-                        fetchSegments.push({ start: fromDate, end: new Date(minT.getTime() - 1000) });
-                    }
-                    if (toDate > maxT) {
-                        fetchSegments.push({ start: new Date(maxT.getTime() + 1000), end: toDate });
-                    }
-                }
-            }
-        } else {
-            fetchSegments.push({ start: fromDate, end: toDate });
-        }
-        
-        if (needsFetch && fetchSegments.length > 0) {
-            let maxDays = 1000;
-            if (interval === 'minute') maxDays = 30;
-            else if (interval.includes('minute')) maxDays = 60;
+        let maxDays = 1000;
+        if (interval === 'minute') maxDays = 30;
+        else if (interval.includes('minute')) maxDays = 60;
             
             for (const seg of fetchSegments) {
                 let currStart = new Date(seg.start);
@@ -5957,7 +6297,6 @@ async function getCachedHistoricalData(symbol, interval, fromDateStr, toDateStr)
                     currStart = new Date(currEnd.getTime() + 24 * 60 * 60 * 1000);
                 }
             }
-        }
         
         // 3. Return sorted records from the database
         return await HistoricalCandle.find({
