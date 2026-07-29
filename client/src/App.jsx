@@ -404,8 +404,19 @@ export default function App() {
   const [fastEmaPeriod, setFastEmaPeriod] = useState(9);
   const [slowEmaPeriod, setSlowEmaPeriod] = useState(21);
   const [rsiPeriod, setRsiPeriod] = useState(14);
-  const [buySignalExpr, setBuySignalExpr] = useState("close > ema_fast and ema_fast > ema_slow and rsi > 50");
-  const [sellSignalExpr, setSellSignalExpr] = useState("close < ema_fast or rsi < 40");
+  const [buySignalExpr, setBuySignalExpr] = useState("close > supertrend and rsi > 60");
+  const [sellSignalExpr, setSellSignalExpr] = useState("close < supertrend or rsi < 40");
+
+  // Visual Backtest Entry & Exit Condition State
+  const [backtestRulesMode, setBacktestRulesMode] = useState('visual'); // 'visual' | 'expr'
+  const [backtestBuyRules, setBacktestBuyRules] = useState([
+    { id: 1, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'Supertrend', logic: 'AND' },
+    { id: 2, leftIndicator: 'RSI', leftPeriod: 14, operator: '>', rightType: 'VALUE', rightValue: 60, logic: 'AND' }
+  ]);
+  const [backtestSellRules, setBacktestSellRules] = useState([
+    { id: 1, leftIndicator: 'Price', operator: '<', rightType: 'INDICATOR', rightIndicator: 'Supertrend', logic: 'OR' },
+    { id: 2, leftIndicator: 'RSI', leftPeriod: 14, operator: '<', rightType: 'VALUE', rightValue: 40, logic: 'OR' }
+  ]);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState('');
   const [backtestResults, setBacktestResults] = useState(null);
@@ -2648,6 +2659,86 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     }
   };
 
+  // Visual Backtest Entry/Exit Condition Rule Compiler
+  const compileBacktestRuleToExpr = (rules) => {
+    if (!rules || rules.length === 0) return 'true';
+    return rules.map((r, idx) => {
+      let leftExpr = '';
+      if (r.leftIndicator === 'Price') leftExpr = 'close';
+      else if (r.leftIndicator === 'Change') leftExpr = 'change';
+      else if (r.leftIndicator === 'Volume') leftExpr = 'volume';
+      else if (r.leftIndicator === 'RSI') leftExpr = 'rsi';
+      else if (r.leftIndicator === 'EMA_Fast') leftExpr = 'ema_fast';
+      else if (r.leftIndicator === 'EMA_Slow') leftExpr = 'ema_slow';
+      else if (r.leftIndicator === 'WMA') leftExpr = 'wma';
+      else if (r.leftIndicator === 'DEMA') leftExpr = 'dema';
+      else if (r.leftIndicator === 'TEMA') leftExpr = 'tema';
+      else if (r.leftIndicator === 'Supertrend') leftExpr = 'supertrend';
+      else if (r.leftIndicator === 'ADX') leftExpr = 'adx';
+      else if (r.leftIndicator === 'VWAP') leftExpr = 'vwap';
+      else if (r.leftIndicator === 'MACD_Hist') leftExpr = 'macd_hist';
+      else if (r.leftIndicator === 'Stochastic_K') leftExpr = 'stoch_k';
+      else if (r.leftIndicator === 'MFI') leftExpr = 'mfi';
+      else if (r.leftIndicator === 'Ichimoku_SpanA') leftExpr = 'ichimoku_spanA';
+      else if (r.leftIndicator === 'ParabolicSAR') leftExpr = 'psar';
+      else if (r.leftIndicator === 'OBV') leftExpr = 'obv';
+      else if (r.leftIndicator === 'CCI') leftExpr = 'cci';
+      else if (r.leftIndicator === 'WilliamsR') leftExpr = 'williams';
+      else if (r.leftIndicator === 'Aroon_Osc') leftExpr = 'aroon_osc';
+      else if (r.leftIndicator === 'LinReg') leftExpr = 'linreg';
+      else if (r.leftIndicator === 'Momentum') leftExpr = 'mom';
+      else if (r.leftIndicator === 'ROC') leftExpr = 'roc';
+      else if (r.leftIndicator === 'Bollinger_Upper') leftExpr = 'bb_upper';
+      else if (r.leftIndicator === 'Bollinger_Lower') leftExpr = 'bb_lower';
+      else leftExpr = 'close';
+
+      let rightExpr = '';
+      if (r.rightType === 'VALUE') {
+        rightExpr = `${r.rightValue ?? 0}`;
+      } else {
+        if (r.rightIndicator === 'Supertrend') rightExpr = 'supertrend';
+        else if (r.rightIndicator === 'EMA_Slow') rightExpr = 'ema_slow';
+        else if (r.rightIndicator === 'VWAP') rightExpr = 'vwap';
+        else if (r.rightIndicator === 'Bollinger_Upper') rightExpr = 'bb_upper';
+        else if (r.rightIndicator === 'Bollinger_Lower') rightExpr = 'bb_lower';
+        else if (r.rightIndicator === 'ParabolicSAR') rightExpr = 'psar';
+        else rightExpr = 'ema_slow';
+      }
+
+      let op = r.operator;
+      if (op === 'CROSSES_ABOVE') op = '>';
+      else if (op === 'CROSSES_BELOW') op = '<';
+
+      const exprStr = `${leftExpr} ${op} ${rightExpr}`;
+      if (idx === 0) return exprStr;
+      return `${r.logic || 'AND'} ${exprStr}`;
+    }).join(' ');
+  };
+
+  const handleAddBacktestBuyRule = () => {
+    setBacktestBuyRules(prev => [...prev, { id: Date.now(), leftIndicator: 'RSI', operator: '>', rightType: 'VALUE', rightValue: 50, logic: 'AND' }]);
+  };
+
+  const handleRemoveBacktestBuyRule = (id) => {
+    setBacktestBuyRules(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleBacktestBuyRuleChange = (id, field, val) => {
+    setBacktestBuyRules(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
+  };
+
+  const handleAddBacktestSellRule = () => {
+    setBacktestSellRules(prev => [...prev, { id: Date.now(), leftIndicator: 'RSI', operator: '<', rightType: 'VALUE', rightValue: 40, logic: 'OR' }]);
+  };
+
+  const handleRemoveBacktestSellRule = (id) => {
+    setBacktestSellRules(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleBacktestSellRuleChange = (id, field, val) => {
+    setBacktestSellRules(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
+  };
+
   // Backtest Strategy execution
   const handleRunBacktest = async (e) => {
     e.preventDefault();
@@ -2659,6 +2750,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     setBacktestLoading(true);
     setBacktestError('');
     setBacktestResults(null);
+
+    const finalBuyExpr = backtestRulesMode === 'visual' ? compileBacktestRuleToExpr(backtestBuyRules) : buySignalExpr;
+    const finalSellExpr = backtestRulesMode === 'visual' ? compileBacktestRuleToExpr(backtestSellRules) : sellSignalExpr;
 
     const indicatorsConfig = {
       indicators: {
@@ -2689,8 +2783,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         macd: { type: 'MACD', fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
         bb: { type: 'BOLLINGER', period: 20, stdDevMultiplier: 2 }
       },
-      buy_signal: buySignalExpr,
-      sell_signal: sellSignalExpr
+      buy_signal: finalBuyExpr,
+      sell_signal: finalSellExpr
     };
 
     try {
@@ -4146,91 +4240,377 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         <label htmlFor="allow-shorting" className="text-slate-300 font-semibold text-xs cursor-pointer">Allow Short Positions</label>
                       </div>
 
-                      {/* 1-Click Backtest Strategy Presets Bar */}
-                      <div className="md:col-span-2 flex flex-col gap-2 border-t border-white/5 pt-3">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider font-display flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                            1-Click Indicator Backtest Presets:
-                          </label>
-                          <span className="text-[10px] text-indigo-300 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                            27 Indicators Enabled
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { label: '⚡ Supertrend & RSI', buy: 'close > supertrend && rsi > 60', sell: 'close < supertrend || rsi < 40' },
-                            { label: '📈 Golden Cross + ADX', buy: 'ema_fast > ema_slow && adx > 25', sell: 'ema_fast < ema_slow' },
-                            { label: '📊 Bollinger Squeeze + MFI', buy: 'close > bb_upper && mfi > 55', sell: 'close < bb_middle' },
-                            { label: '📉 MACD & Stochastic', buy: 'macd_hist > 0 && stoch_k > 70', sell: 'macd_hist < 0 || stoch_k < 30' },
-                            { label: '☁️ Ichimoku & OBV', buy: 'close > ichimoku_spanA && obv > 0', sell: 'close < ichimoku_spanA' },
-                            { label: '🎯 Parabolic SAR & VWAP', buy: 'close > psar && close > vwap && cci > 100', sell: 'close < psar || close < vwap' },
-                            { label: '🚀 LinReg & Momentum', buy: 'close > linreg && mom > 0 && roc > 1.0', sell: 'close < linreg || mom < 0' }
-                          ].map((p, idx) => (
+                      {/* Visual Backtest Strategy Builder Header & Mode Switch */}
+                      <div className="md:col-span-2 flex flex-col gap-3 border-t border-white/5 pt-4">
+                        <div className="flex items-center justify-between bg-white/[0.02] p-2.5 rounded-xl border border-white/5">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-amber-400" />
+                            <span className="text-xs font-bold text-white font-display">Backtest Entry & Exit Rules Builder</span>
+                            <span className="text-[10px] text-indigo-300 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                              27 Indicators Active
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5 text-[11px] font-semibold">
                             <button
-                              key={idx}
                               type="button"
-                              onClick={() => {
-                                setBuySignalExpr(p.buy);
-                                setSellSignalExpr(p.sell);
-                              }}
-                              className="px-2.5 py-1 bg-white/5 hover:bg-indigo-600/30 border border-white/10 hover:border-indigo-500/40 rounded-lg text-xs font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
+                              onClick={() => setBacktestRulesMode('visual')}
+                              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                                backtestRulesMode === 'visual'
+                                  ? 'bg-indigo-600 text-white font-bold shadow'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
                             >
-                              {p.label}
+                              Visual Builder 🎛️
                             </button>
-                          ))}
+                            <button
+                              type="button"
+                              onClick={() => setBacktestRulesMode('expr')}
+                              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                                backtestRulesMode === 'expr'
+                                  ? 'bg-indigo-600 text-white font-bold shadow'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              Code / Expressions 💻
+                            </button>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Interactive Form for Indicators */}
-                      <div className="md:col-span-2 grid grid-cols-3 gap-3">
-                        <div className="flex flex-col gap-1 text-xs">
-                          <label className="text-slate-400 font-semibold">Fast EMA Period</label>
-                          <input 
-                            type="number" 
-                            value={fastEmaPeriod}
-                            onChange={(e) => setFastEmaPeriod(parseInt(e.target.value) || 9)}
-                            className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white text-center focus:outline-none"
-                          />
+                        {/* 1-Click Backtest Strategy Presets Bar */}
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Strategy Presets:</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              { label: '⚡ Supertrend & RSI', buy: 'close > supertrend && rsi > 60', sell: 'close < supertrend || rsi < 40' },
+                              { label: '📈 Golden Cross + ADX', buy: 'ema_fast > ema_slow && adx > 25', sell: 'ema_fast < ema_slow' },
+                              { label: '📊 Bollinger Squeeze + MFI', buy: 'close > bb_upper && mfi > 55', sell: 'close < bb_middle' },
+                              { label: '📉 MACD & Stochastic', buy: 'macd_hist > 0 && stoch_k > 70', sell: 'macd_hist < 0 || stoch_k < 30' },
+                              { label: '☁️ Ichimoku & OBV', buy: 'close > ichimoku_spanA && obv > 0', sell: 'close < ichimoku_spanA' },
+                              { label: '🎯 Parabolic SAR & VWAP', buy: 'close > psar && close > vwap && cci > 100', sell: 'close < psar || close < vwap' },
+                              { label: '🚀 LinReg & Momentum', buy: 'close > linreg && mom > 0 && roc > 1.0', sell: 'close < linreg || mom < 0' }
+                            ].map((p, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  setBuySignalExpr(p.buy);
+                                  setSellSignalExpr(p.sell);
+                                  setBacktestBuyRules([
+                                    { id: 1, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'Supertrend', logic: 'AND' },
+                                    { id: 2, leftIndicator: 'RSI', leftPeriod: 14, operator: '>', rightType: 'VALUE', rightValue: 60, logic: 'AND' }
+                                  ]);
+                                  setBacktestSellRules([
+                                    { id: 1, leftIndicator: 'Price', operator: '<', rightType: 'INDICATOR', rightIndicator: 'Supertrend', logic: 'OR' },
+                                    { id: 2, leftIndicator: 'RSI', leftPeriod: 14, operator: '<', rightType: 'VALUE', rightValue: 40, logic: 'OR' }
+                                  ]);
+                                }}
+                                className="px-2.5 py-1 bg-white/5 hover:bg-indigo-600/30 border border-white/10 hover:border-indigo-500/40 rounded-lg text-xs font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-1 text-xs">
-                          <label className="text-slate-400 font-semibold">Slow EMA Period</label>
-                          <input 
-                            type="number" 
-                            value={slowEmaPeriod}
-                            onChange={(e) => setSlowEmaPeriod(parseInt(e.target.value) || 21)}
-                            className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white text-center focus:outline-none"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1 text-xs">
-                          <label className="text-slate-400 font-semibold">RSI Period</label>
-                          <input 
-                            type="number" 
-                            value={rsiPeriod}
-                            onChange={(e) => setRsiPeriod(parseInt(e.target.value) || 14)}
-                            className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white text-center focus:outline-none"
-                          />
-                        </div>
-                      </div>
 
-                      <div className="flex flex-col gap-1 text-xs md:col-span-2">
-                        <label className="text-slate-400 font-semibold">Buy Condition</label>
-                        <input 
-                          type="text" 
-                          value={buySignalExpr}
-                          onChange={(e) => setBuySignalExpr(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
-                        />
-                      </div>
+                        {/* MODE 1: VISUAL ENTRY & EXIT RULES BUILDER */}
+                        {backtestRulesMode === 'visual' && (
+                          <div className="flex flex-col gap-4 bg-[#090d16] p-4 rounded-xl border border-white/5">
+                            
+                            {/* 🟢 ENTRY CONDITIONS (BUY SIGNALS) */}
+                            <div className="flex flex-col gap-2.5 border-b border-white/5 pb-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">Entry Conditions (Buy Long)</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleAddBacktestBuyRule}
+                                  className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center gap-1 border border-emerald-500/30 cursor-pointer"
+                                >
+                                  + Add Entry Rule
+                                </button>
+                              </div>
 
-                      <div className="flex flex-col gap-1 text-xs md:col-span-2">
-                        <label className="text-slate-400 font-semibold">Sell Condition</label>
-                        <input 
-                          type="text" 
-                          value={sellSignalExpr}
-                          onChange={(e) => setSellSignalExpr(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
-                        />
+                              {backtestBuyRules.map((rule, idx) => (
+                                <div key={rule.id} className="flex flex-wrap md:flex-nowrap items-center gap-2 bg-white/[0.02] p-2 rounded-lg border border-white/5">
+                                  {idx > 0 && (
+                                    <select
+                                      value={rule.logic || 'AND'}
+                                      onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'logic', e.target.value)}
+                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-bold text-amber-400 font-mono outline-none"
+                                    >
+                                      <option value="AND">AND</option>
+                                      <option value="OR">OR</option>
+                                    </select>
+                                  )}
+                                  {idx === 0 && (
+                                    <span className="text-[10px] font-mono text-emerald-400 font-bold px-2 py-1 bg-emerald-500/10 rounded border border-emerald-500/20">
+                                      BUY IF
+                                    </span>
+                                  )}
+
+                                  <select
+                                    value={rule.leftIndicator}
+                                    onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'leftIndicator', e.target.value)}
+                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
+                                  >
+                                    <option value="Price">Price (Close)</option>
+                                    <option value="EMA_Fast">Fast EMA (9/20)</option>
+                                    <option value="EMA_Slow">Slow EMA (50/200)</option>
+                                    <option value="RSI">RSI (Relative Strength Index)</option>
+                                    <option value="Supertrend">Supertrend Line</option>
+                                    <option value="ADX">ADX Trend Strength</option>
+                                    <option value="VWAP">VWAP (Volume Weighted Avg Price)</option>
+                                    <option value="MACD_Hist">MACD Histogram</option>
+                                    <option value="Stochastic_K">Stochastic %K</option>
+                                    <option value="MFI">Money Flow Index (MFI)</option>
+                                    <option value="Ichimoku_SpanA">Ichimoku Senkou Span A</option>
+                                    <option value="ParabolicSAR">Parabolic SAR</option>
+                                    <option value="OBV">On-Balance Volume (OBV)</option>
+                                    <option value="CCI">Commodity Channel Index (CCI)</option>
+                                    <option value="WilliamsR">Williams %R</option>
+                                    <option value="Aroon_Osc">Aroon Oscillator</option>
+                                    <option value="LinReg">Linear Regression Forecast</option>
+                                    <option value="Momentum">Momentum</option>
+                                    <option value="ROC">Price Rate of Change (ROC)</option>
+                                    <option value="Bollinger_Upper">Bollinger Upper Band</option>
+                                    <option value="Bollinger_Lower">Bollinger Lower Band</option>
+                                  </select>
+
+                                  <select
+                                    value={rule.operator}
+                                    onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'operator', e.target.value)}
+                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs font-mono text-indigo-300 font-bold outline-none"
+                                  >
+                                    <option value=">">&gt; (Greater Than)</option>
+                                    <option value=">=">&gt;= (Greater or Equal)</option>
+                                    <option value="<">&lt; (Less Than)</option>
+                                    <option value="<=">&lt;= (Less or Equal)</option>
+                                    <option value="CROSSES_ABOVE">Crosses Above ↗</option>
+                                    <option value="CROSSES_BELOW">Crosses Below ↘</option>
+                                  </select>
+
+                                  <select
+                                    value={rule.rightType}
+                                    onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'rightType', e.target.value)}
+                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-semibold text-slate-300 outline-none"
+                                  >
+                                    <option value="VALUE">Fixed Value</option>
+                                    <option value="INDICATOR">Indicator</option>
+                                  </select>
+
+                                  {rule.rightType === 'VALUE' ? (
+                                    <input
+                                      type="number"
+                                      value={rule.rightValue ?? 50}
+                                      onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'rightValue', parseFloat(e.target.value))}
+                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white text-center outline-none w-20"
+                                    />
+                                  ) : (
+                                    <select
+                                      value={rule.rightIndicator || 'Supertrend'}
+                                      onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'rightIndicator', e.target.value)}
+                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
+                                    >
+                                      <option value="Supertrend">Supertrend Line</option>
+                                      <option value="EMA_Slow">Slow EMA</option>
+                                      <option value="VWAP">VWAP Line</option>
+                                      <option value="Bollinger_Upper">Bollinger Upper Band</option>
+                                      <option value="Bollinger_Lower">Bollinger Lower Band</option>
+                                      <option value="ParabolicSAR">Parabolic SAR</option>
+                                    </select>
+                                  )}
+
+                                  {backtestBuyRules.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveBacktestBuyRule(rule.id)}
+                                      className="text-rose-400 hover:text-rose-300 text-xs px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 cursor-pointer"
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* 🔴 EXIT CONDITIONS (SELL / SQUARE-OFF SIGNALS) */}
+                            <div className="flex flex-col gap-2.5">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-2 w-2 rounded-full bg-rose-400 animate-pulse" />
+                                  <span className="text-xs font-bold uppercase tracking-wider text-rose-400">Exit Conditions (Sell Square-Off)</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleAddBacktestSellRule}
+                                  className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[11px] font-semibold flex items-center gap-1 border border-rose-500/30 cursor-pointer"
+                                >
+                                  + Add Exit Rule
+                                </button>
+                              </div>
+
+                              {backtestSellRules.map((rule, idx) => (
+                                <div key={rule.id} className="flex flex-wrap md:flex-nowrap items-center gap-2 bg-white/[0.02] p-2 rounded-lg border border-white/5">
+                                  {idx > 0 && (
+                                    <select
+                                      value={rule.logic || 'OR'}
+                                      onChange={(e) => handleBacktestSellRuleChange(rule.id, 'logic', e.target.value)}
+                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-bold text-amber-400 font-mono outline-none"
+                                    >
+                                      <option value="OR">OR</option>
+                                      <option value="AND">AND</option>
+                                    </select>
+                                  )}
+                                  {idx === 0 && (
+                                    <span className="text-[10px] font-mono text-rose-400 font-bold px-2 py-1 bg-rose-500/10 rounded border border-rose-500/20">
+                                      SELL IF
+                                    </span>
+                                  )}
+
+                                  <select
+                                    value={rule.leftIndicator}
+                                    onChange={(e) => handleBacktestSellRuleChange(rule.id, 'leftIndicator', e.target.value)}
+                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
+                                  >
+                                    <option value="Price">Price (Close)</option>
+                                    <option value="EMA_Fast">Fast EMA</option>
+                                    <option value="EMA_Slow">Slow EMA</option>
+                                    <option value="RSI">RSI (Relative Strength Index)</option>
+                                    <option value="Supertrend">Supertrend Line</option>
+                                    <option value="ADX">ADX Trend Strength</option>
+                                    <option value="VWAP">VWAP Line</option>
+                                    <option value="MACD_Hist">MACD Histogram</option>
+                                    <option value="Stochastic_K">Stochastic %K</option>
+                                    <option value="MFI">Money Flow Index (MFI)</option>
+                                    <option value="ParabolicSAR">Parabolic SAR</option>
+                                  </select>
+
+                                  <select
+                                    value={rule.operator}
+                                    onChange={(e) => handleBacktestSellRuleChange(rule.id, 'operator', e.target.value)}
+                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs font-mono text-indigo-300 font-bold outline-none"
+                                  >
+                                    <option value="<">&lt; (Less Than)</option>
+                                    <option value="<=">&lt;= (Less or Equal)</option>
+                                    <option value=">">&gt; (Greater Than)</option>
+                                    <option value=">=">&gt;= (Greater or Equal)</option>
+                                    <option value="CROSSES_BELOW">Crosses Below ↘</option>
+                                    <option value="CROSSES_ABOVE">Crosses Above ↗</option>
+                                  </select>
+
+                                  <select
+                                    value={rule.rightType}
+                                    onChange={(e) => handleBacktestSellRuleChange(rule.id, 'rightType', e.target.value)}
+                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-semibold text-slate-300 outline-none"
+                                  >
+                                    <option value="INDICATOR">Indicator</option>
+                                    <option value="VALUE">Fixed Value</option>
+                                  </select>
+
+                                  {rule.rightType === 'VALUE' ? (
+                                    <input
+                                      type="number"
+                                      value={rule.rightValue ?? 40}
+                                      onChange={(e) => handleBacktestSellRuleChange(rule.id, 'rightValue', parseFloat(e.target.value))}
+                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white text-center outline-none w-20"
+                                    />
+                                  ) : (
+                                    <select
+                                      value={rule.rightIndicator || 'Supertrend'}
+                                      onChange={(e) => handleBacktestSellRuleChange(rule.id, 'rightIndicator', e.target.value)}
+                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
+                                    >
+                                      <option value="Supertrend">Supertrend Line</option>
+                                      <option value="EMA_Slow">Slow EMA</option>
+                                      <option value="VWAP">VWAP Line</option>
+                                      <option value="Bollinger_Lower">Bollinger Lower Band</option>
+                                      <option value="ParabolicSAR">Parabolic SAR</option>
+                                    </select>
+                                  )}
+
+                                  {backtestSellRules.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveBacktestSellRule(rule.id)}
+                                      className="text-rose-400 hover:text-rose-300 text-xs px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 cursor-pointer"
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Live Compiled Expression Preview Box */}
+                            <div className="bg-black/50 p-2.5 rounded-lg border border-white/10 flex flex-col gap-1 text-[11px]">
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                                <span>COMPILED ENTRY RULE:</span>
+                                <code className="text-emerald-400 font-bold">{compileBacktestRuleToExpr(backtestBuyRules)}</code>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                                <span>COMPILED EXIT RULE:</span>
+                                <code className="text-rose-400 font-bold">{compileBacktestRuleToExpr(backtestSellRules)}</code>
+                              </div>
+                            </div>
+
+                          </div>
+                        )}
+
+                        {/* MODE 2: CUSTOM CODE / EXPRESSIONS */}
+                        {backtestRulesMode === 'expr' && (
+                          <div className="flex flex-col gap-3 bg-[#090d16] p-4 rounded-xl border border-white/5">
+                            <div className="flex flex-col gap-1 text-xs">
+                              <label className="text-emerald-400 font-bold flex items-center gap-1.5">
+                                🟢 Custom Entry Condition (Buy Signal)
+                              </label>
+                              <input 
+                                type="text" 
+                                value={buySignalExpr}
+                                onChange={(e) => setBuySignalExpr(e.target.value)}
+                                placeholder="e.g. close > supertrend and rsi > 60"
+                                className="bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500/50"
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1 text-xs">
+                              <label className="text-rose-400 font-bold flex items-center gap-1.5">
+                                🔴 Custom Exit Condition (Sell / Square-Off)
+                              </label>
+                              <input 
+                                type="text" 
+                                value={sellSignalExpr}
+                                onChange={(e) => setSellSignalExpr(e.target.value)}
+                                placeholder="e.g. close < supertrend or rsi < 40"
+                                className="bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-rose-500/50"
+                              />
+                            </div>
+
+                            {/* Indicator Expression Cheat Sheet Badges */}
+                            <div className="flex flex-col gap-1 text-[10px]">
+                              <span className="text-slate-400 font-semibold">Click to Insert Indicator Variable:</span>
+                              <div className="flex flex-wrap gap-1">
+                                {[
+                                  'close', 'supertrend', 'rsi', 'adx', 'adx_plus', 'adx_minus', 'ema_fast', 'ema_slow', 'vwap', 
+                                  'macd_hist', 'stoch_k', 'stoch_d', 'mfi', 'ichimoku_spanA', 'obv', 'psar', 'cci', 'williams', 
+                                  'aroon_osc', 'linreg', 'mom', 'roc', 'cmf', 'bb_upper', 'bb_lower'
+                                ].map((varName, vIdx) => (
+                                  <button
+                                    key={vIdx}
+                                    type="button"
+                                    onClick={() => setBuySignalExpr(prev => `${prev} && ${varName}`)}
+                                    className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-indigo-600/30 text-indigo-300 font-mono border border-white/5 transition-all text-[9px] cursor-pointer"
+                                  >
+                                    +{varName}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                       </div>
 
                       <div className="md:col-span-2 mt-2">
