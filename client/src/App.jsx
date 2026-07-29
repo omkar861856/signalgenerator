@@ -144,7 +144,8 @@ export default function App() {
   const [profitTargetExit, setProfitTargetExit] = useState(0);
   const [lossTargetExit, setLossTargetExit] = useState(0);
   const [pnlExitMode, setPnlExitMode] = useState('current');
-  const [pnlExitAutoEnabled, setPnlExitAutoEnabled] = useState(true);
+  const [pnlExitAutoEnabled, setPnlExitAutoEnabled] = useState(false);
+  const [systemAutomationEnabled, setSystemAutomationEnabled] = useState(true);
   const [reallocationAutoEnabled, setReallocationAutoEnabled] = useState(false);
   const [lastReallocationTime, setLastReallocationTime] = useState(null);
   const [showMorningIpModal, setShowMorningIpModal] = useState(false);
@@ -180,7 +181,7 @@ export default function App() {
   const [profitTargetExitDraft, setProfitTargetExitDraft] = useState('');
   const [lossTargetExitDraft, setLossTargetExitDraft] = useState('');
   const [pnlExitModeDraft, setPnlExitModeDraft] = useState('current');
-  const [pnlExitAutoEnabledDraft, setPnlExitAutoEnabledDraft] = useState(true);
+  const [pnlExitAutoEnabledDraft, setPnlExitAutoEnabledDraft] = useState(false);
   
   // Custom quick preset pills state, loaded from localStorage or using defaults
   const [pnlPresets, setPnlPresets] = useState(() => {
@@ -1315,6 +1316,9 @@ export default function App() {
         setPnlExitAutoEnabled(positionsRes.pnlExitAutoEnabled);
         if (!isPnlFormDirty) setPnlExitAutoEnabledDraft(positionsRes.pnlExitAutoEnabled);
       }
+      if (positionsRes && positionsRes.systemAutomationEnabled !== undefined) {
+        setSystemAutomationEnabled(positionsRes.systemAutomationEnabled);
+      }
       if (positionsRes && positionsRes.totalCharges !== undefined) setTotalCharges(positionsRes.totalCharges);
 
       setPositions(netPositions);
@@ -1726,6 +1730,27 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
   // Handle immediate change of auto exit enabled switch (draft-only)
   const handleExitAutoEnabledChange = (val) => {
     setPnlExitAutoEnabledDraft(val);
+  };
+
+  // Handle Master System Automation Toggle (App Control ON/OFF)
+  const handleToggleSystemAutomation = async () => {
+    const nextVal = !systemAutomationEnabled;
+    setSystemAutomationEnabled(nextVal);
+    try {
+      await fetch('/api/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemAutomationEnabled: nextVal })
+      });
+      if (nextVal) {
+        appendActionLog(`[Master Control] APP CONTROL ON: Automated decision engine active.`);
+      } else {
+        appendActionLog(`[Master Control] ⚠️ APP CONTROL OFF: All open orders & active GTT triggers cancelled immediately. Automatic decisions paused.`);
+      }
+    } catch (err) {
+      console.error('Failed to toggle system automation:', err);
+      setSystemAutomationEnabled(!nextVal);
+    }
   };
 
   // WebSocket Streaming Helpers
@@ -2674,6 +2699,23 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
         {/* Right Badges / Actions */}
         <div className="flex items-center gap-3">
+          {/* Master System Automation Toggle Button */}
+          <button
+            onClick={handleToggleSystemAutomation}
+            className={`px-3 py-1.5 rounded-xl border transition-all cursor-pointer flex items-center gap-2 font-display text-xs font-bold shadow-lg ${
+              systemAutomationEnabled
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25 shadow-emerald-500/10'
+                : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30 shadow-rose-500/20 animate-pulse'
+            }`}
+            title={systemAutomationEnabled ? "APP IS IN CONTROL: Click to HALT all auto-decisions & cancel open orders/GTTs" : "APP CONTROL IS OFF: Click to ENABLE automated execution"}
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${systemAutomationEnabled ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${systemAutomationEnabled ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+            </span>
+            <span>{systemAutomationEnabled ? 'APP CONTROL: ON' : 'APP CONTROL: OFF'}</span>
+          </button>
+
           {/* Notification Alerts Icon */}
           <div className="relative">
             <Button
@@ -3277,17 +3319,22 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </div>
 
                   {/* Cutoff enabled toggle */}
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="checkbox"
-                      id="pnl-exit-auto-enabled"
-                      checked={pnlExitAutoEnabledDraft}
-                      onChange={(e) => handleExitAutoEnabledChange(e.target.checked)}
-                      className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
-                    />
-                    <label htmlFor="pnl-exit-auto-enabled" className="font-medium text-slate-300 cursor-pointer select-none">
-                      Auto-Exit Cutoff Switch
-                    </label>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="checkbox"
+                        id="pnl-exit-auto-enabled"
+                        checked={pnlExitAutoEnabledDraft}
+                        onChange={(e) => handleExitAutoEnabledChange(e.target.checked)}
+                        className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
+                      />
+                      <label htmlFor="pnl-exit-auto-enabled" className="font-medium text-slate-300 cursor-pointer select-none">
+                        Auto-Exit Cutoff Switch
+                      </label>
+                    </div>
+                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${pnlExitAutoEnabledDraft ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                      {pnlExitAutoEnabledDraft ? 'ACTIVE' : 'OFF'}
+                    </span>
                   </div>
 
                   <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/5">

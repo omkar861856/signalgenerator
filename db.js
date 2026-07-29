@@ -18,7 +18,8 @@ const AppStateSchema = new mongoose.Schema({
     profitTargetExit: { type: Number, default: 0 },
     lossTargetExit: { type: Number, default: 0 },
     pnlExitMode: { type: String, default: 'current' },
-    pnlExitAutoEnabled: { type: Boolean, default: true },
+    pnlExitAutoEnabled: { type: Boolean, default: false },
+    systemAutomationEnabled: { type: Boolean, default: true },
     reallocationAutoEnabled: { type: Boolean, default: false },
     equityStopLossPercent: { type: Number, default: 1 },
     equityTargetPercent: { type: Number, default: 2 },
@@ -74,14 +75,11 @@ async function connectDB(retries = 15, delayMs = 3000) {
             // Ensure default global state document exists
             let state = await AppState.findOne({ key: 'global_state' });
             if (!state) {
-                state = new AppState({ key: 'global_state', pnlExitMode: 'current', pnlExitAutoEnabled: true });
+                state = new AppState({ key: 'global_state', pnlExitMode: 'current', pnlExitAutoEnabled: false });
                 await state.save();
                 console.log('[MongoDB] Created default global state document.');
             } else {
-                state.pnlExitMode = 'current';
-                state.pnlExitAutoEnabled = true;
-                await state.save();
-                console.log('[MongoDB] Updated global state to set pnlExitMode: current and pnlExitAutoEnabled: true.');
+                console.log('[MongoDB] Loaded existing global state document.');
             }
             return;
         } catch (err) {

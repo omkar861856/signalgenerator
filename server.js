@@ -1516,6 +1516,7 @@ app.post('/api/state', async (req, res) => {
             'customTargetPercent',
             'pnlExitMode',
             'pnlExitAutoEnabled',
+            'systemAutomationEnabled',
             'reallocationAutoEnabled',
             'equityStopLossPercent',
             'equityTargetPercent',
@@ -1536,6 +1537,10 @@ app.post('/api/state', async (req, res) => {
             { new: true, upsert: true }
         );
         cachedDbState = state;
+
+        if (updateFields.systemAutomationEnabled === false) {
+            cancelAllOrdersAndGttsServer().catch(err => console.error('[Master Control] Immediate cancellation error:', err.message));
+        }
 
         if (updateFields.subscribedTokens) {
             try {
@@ -1898,6 +1903,59 @@ app.delete('/api/gtt/triggers/:id', requireAuth, async (req, res) => {
         handleKiteError(err, res, '[GTT API] deleteGTT');
     }
 });
+
+// Helper function to cancel all open orders and delete all active GTT triggers
+async function cancelAllOrdersAndGttsServer() {
+    try {
+        if (!kite || !access_token) return;
+        
+        await logServerAction(`[Master Safety Control] System Automation toggled OFF. Immediately cancelling all open orders and active GTTs...`);
+        
+        const openStatuses = ['OPEN', 'AMEND REQ RECEIVED', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'MODIFY VALIDATION PENDING'];
+        const [ordersRes, gttsRes] = await Promise.all([
+            kite.getOrders().catch(() => []),
+            kite.getGTTs().catch(() => [])
+        ]);
+
+        const orders = Array.isArray(ordersRes) ? ordersRes : [];
+        const gtts = Array.isArray(gttsRes) ? gttsRes : [];
+
+        const openOrders = orders.filter(o => openStatuses.includes(o.status));
+        const activeGtts = gtts.filter(g => g.status === 'active');
+
+        const cancelPromises = [];
+
+        for (let o of openOrders) {
+            cancelPromises.push((async () => {
+                try {
+                    await kite.cancelOrder(o.variety || 'regular', o.order_id);
+                    await logServerAction(`[Master Control] Cancelled open order ${o.order_id} (${o.tradingsymbol})`);
+                } catch (err) {
+                    console.error(`[Master Control] Failed to cancel order ${o.order_id}:`, err.message);
+                }
+            })());
+        }
+
+        for (let g of activeGtts) {
+            cancelPromises.push((async () => {
+                try {
+                    await kite.deleteGTT(g.id);
+                    await logServerAction(`[Master Control] Deleted GTT trigger ${g.id} (${g.condition?.tradingsymbol || 'GTT'})`);
+                } catch (err) {
+                    console.error(`[Master Control] Failed to delete GTT trigger ${g.id}:`, err.message);
+                }
+            })());
+        }
+
+        if (cancelPromises.length > 0) {
+            await Promise.all(cancelPromises);
+        }
+
+        await logServerAction(`[Master Control] Cancelled ${openOrders.length} open orders and ${activeGtts.length} active GTT triggers. Automatic decisions HALTED.`);
+    } catch (err) {
+        console.error('[Master Control] Error during cancelAllOrdersAndGttsServer:', err.message);
+    }
+}
 
 let isExitingAll = false;
 
@@ -2407,7 +2465,8 @@ app.get('/api/positions', requireAuth, async (req, res) => {
         profitTargetExit: dbState ? dbState.profitTargetExit : 0,
         lossTargetExit: dbState ? dbState.lossTargetExit : 0,
         pnlExitMode: dbState ? dbState.pnlExitMode : 'current',
-        pnlExitAutoEnabled: dbState ? dbState.pnlExitAutoEnabled !== false : true
+        pnlExitAutoEnabled: dbState ? (dbState.pnlExitAutoEnabled === true) : false,
+        systemAutomationEnabled: dbState ? (dbState.systemAutomationEnabled !== false) : true
     });
 });
 
@@ -5918,6 +5977,14 @@ async function logServerAction(msg) {
 }
 
 async function placeOrderWithAIReason(params, contextContext = "Manual or automated UI trigger") {
+    const isManualUserAction = contextContext.toLowerCase().includes("manual");
+    const systemAutomationEnabled = cachedDbState ? (cachedDbState.systemAutomationEnabled !== false) : true;
+    if (!systemAutomationEnabled && !isManualUserAction) {
+        console.warn(`[Master Safety Control] Blocked automated order for ${params.tradingsymbol} because App Control is OFF.`);
+        await logServerAction(`[Master Control] Blocked automated order for ${params.tradingsymbol} (App Control is OFF)`);
+        throw new Error('SYSTEM_AUTOMATION_OFF: Automated order execution is paused while App Control is OFF.');
+    }
+
     // Generate deduplication key based on critical parameters
     const dedupeKey = `${params.exchange || 'NSE'}:${params.tradingsymbol}:${params.transaction_type}:${params.quantity}:${params.price || 0}`;
     const now = Date.now();
@@ -6149,70 +6216,25 @@ async function runServerConsolidation() {
         
         const activeStrategy = dbState ? dbState.activeStrategy : 'momentum_surfing_morning';
         const selectedMarginPercentage = dbState ? dbState.selectedMarginPercentage : 100;
+        const systemAutomationEnabled = dbState ? (dbState.systemAutomationEnabled !== false) : true;
         
+        if (!systemAutomationEnabled) {
+            // Master Safety Control OFF: Halt all automated decisions, GTT placement/consolidation, and auto-exits
+            pnlBreachStartTime = null;
+            currentBreachType = null;
+            isConsolidationRunning = false;
+            return;
+        }
+
         const activeMisPositions = netPositions.filter(p => p.product === 'MIS' && Math.abs(p.quantity) > 0);
         const misTradingSymbols = new Set(activeMisPositions.map(p => p.tradingsymbol));
 
-        // Check if positions are active and have stabilized to auto-set PnL targets
+        // Track active MIS position count stability without overwriting user PnL settings
         if (activeMisPositions.length > 0) {
-            if (lastActivePositionsCount === 0) {
-                shouldAutoSetPnL = true;
-                positionsStableSince = Date.now();
-                lastActivePositionsCount = activeMisPositions.length;
-                console.log(`[Auto PnL] Active MIS positions detected: ${lastActivePositionsCount}. Monitoring for stabilization...`);
-            } else if (activeMisPositions.length !== lastActivePositionsCount) {
+            if (lastActivePositionsCount !== activeMisPositions.length) {
                 lastActivePositionsCount = activeMisPositions.length;
                 positionsStableSince = Date.now();
-                console.log(`[Auto PnL] Positions count changed to ${lastActivePositionsCount}. Resetting stabilization timer...`);
-            } else if (shouldAutoSetPnL && positionsStableSince && (Date.now() - positionsStableSince >= 3000)) {
-                // Positions have been stable for at least 3 seconds. Let's make sure no orders are pending.
-                let hasPendingOrders = false;
-                try {
-                    const orders = await kite.getOrders();
-                    hasPendingOrders = orders.some(o => ['OPEN', 'VALIDATION PENDING', 'PUT ORDER REQ RECEIVED', 'MODIFY VALIDATION PENDING'].includes(o.status));
-                } catch (orderErr) {
-                    console.error('[Auto PnL] Error fetching orders:', orderErr.message);
-                    hasPendingOrders = true; // Assume true on error to be safe
-                }
-                
-                if (!hasPendingOrders) {
-                    let utilisedMargin = 0;
-                    // Try getting utilized margin from Zerodha
-                    if (latestMarginsResponseCached && latestMarginsResponseCached.equity && latestMarginsResponseCached.equity.utilised) {
-                        utilisedMargin = latestMarginsResponseCached.equity.utilised.debits || 0;
-                    }
-                    
-                    // Fallback to calculation based on 5x leverage if Zerodha reports 0 or simulation mode
-                    if (utilisedMargin <= 0) {
-                        for (const p of activeMisPositions) {
-                            const avgPrice = p.average_price || p.buy_price || p.sell_price || scanner.getLtpBySymbol(p.tradingsymbol) || p.last_price || 0;
-                            const leverage = (p.tradingsymbol.match(/(FUT|CE|PE)$/i) || p.tradingsymbol.match(/\d{2}[A-Z]{3}\d+/)) ? 1 : 5;
-                            utilisedMargin += (Math.abs(p.quantity) * avgPrice) / leverage;
-                        }
-                    }
-                    
-                    if (utilisedMargin > 0) {
-                        const halfPercent = utilisedMargin * 0.005; // 0.5% (1/2 %) of utilized margin
-                        console.log(`[Auto PnL] Positions stabilized. Calculated utilised margin: ₹${utilisedMargin.toFixed(2)}. Setting PnL exit values: Profit Target = ₹${halfPercent.toFixed(2)}, Loss Target = -₹${halfPercent.toFixed(2)}`);
-                        
-                        try {
-                            const state = await AppState.findOneAndUpdate(
-                                { key: 'global_state' },
-                                { $set: { 
-                                    profitTargetExit: Number(halfPercent.toFixed(2)), 
-                                    lossTargetExit: Number((-halfPercent).toFixed(2)),
-                                    pnlExitMode: 'current',
-                                    pnlExitAutoEnabled: true
-                                } },
-                                { new: true }
-                            );
-                            if (state) cachedDbState = state;
-                            shouldAutoSetPnL = false;
-                        } catch (dbErr) {
-                            console.error('[Auto PnL] Failed to update global state in DB:', dbErr.message);
-                        }
-                    }
-                }
+                console.log(`[Auto PnL] Active MIS positions count changed to ${lastActivePositionsCount}.`);
             }
         } else {
             if (lastActivePositionsCount > 0) {
@@ -6257,14 +6279,12 @@ async function runServerConsolidation() {
             }
         }
 
-        // Evaluate thresholds directly against the computed MIS PnL (matching UI selected PnL)
+        // Evaluate thresholds directly against the computed MIS PnL ONLY if explicitly enabled by user
+        const profitTargetExit = dbState ? (dbState.profitTargetExit || 0) : 0;
+        const lossTargetExit = dbState ? (dbState.lossTargetExit || 0) : 0;
+        const pnlExitAutoEnabled = dbState ? (dbState.pnlExitAutoEnabled === true) : false;
         
-        // Check P&L limits
-        const profitTargetExit = dbState ? dbState.profitTargetExit : 0;
-        const lossTargetExit = dbState ? dbState.lossTargetExit : 0;
-        const pnlExitAutoEnabled = dbState ? dbState.pnlExitAutoEnabled : true;
-        
-        // Reset 5-second breach tracker if the user changed the limits
+        // Reset breach tracker if the user changed limits or disabled auto exit
         if (lastProfitTargetExit !== null && (lastProfitTargetExit !== profitTargetExit || lastLossTargetExit !== lossTargetExit)) {
             pnlBreachStartTime = null;
             currentBreachType = null;
@@ -6272,7 +6292,7 @@ async function runServerConsolidation() {
         lastProfitTargetExit = profitTargetExit;
         lastLossTargetExit = lossTargetExit;
         
-        if (pnlExitAutoEnabled !== false) {
+        if (pnlExitAutoEnabled && activeMisPositions.length > 0) {
             let isCurrentlyBreached = false;
             let detectedBreachType = null;
             const maxLoss = lossTargetExit > 0 ? -lossTargetExit : lossTargetExit;
@@ -6280,7 +6300,7 @@ async function runServerConsolidation() {
             if (profitTargetExit > 0 && totalMisPnL >= profitTargetExit) {
                 isCurrentlyBreached = true;
                 detectedBreachType = 'profit';
-            } else if (maxLoss < 0 && totalMisPnL <= maxLoss) {
+            } else if (lossTargetExit !== 0 && maxLoss < 0 && totalMisPnL <= maxLoss) {
                 isCurrentlyBreached = true;
                 detectedBreachType = 'loss';
             }
@@ -6289,9 +6309,12 @@ async function runServerConsolidation() {
                 if (!pnlBreachStartTime) {
                     pnlBreachStartTime = Date.now();
                     currentBreachType = detectedBreachType;
-                } else if (Date.now() - pnlBreachStartTime >= 5000) {
-                    // 5 consecutive seconds elapsed
-                    // Disable triggers first to prevent duplicate triggering from other checks or ticks
+                    await logServerAction(`[PnL Auto-Exit Warning] ${detectedBreachType.toUpperCase()} target breached! Current MIS PnL: ₹${totalMisPnL.toFixed(2)} (Target: ₹${detectedBreachType === 'profit' ? profitTargetExit : maxLoss}). Sustaining 10s multi-tick verification before auto-exit...`);
+                } else if (Date.now() - pnlBreachStartTime >= 10000) {
+                    // 10 consecutive seconds of sustained breach verified
+                    await logServerAction(`[PnL Auto-Exit Triggered] Sustained 10s breach verified for ${currentBreachType.toUpperCase()} target (PnL: ₹${totalMisPnL.toFixed(2)}). Executing emergency square-off.`);
+                    
+                    // Disable triggers first to prevent duplicate triggering
                     const state = await AppState.findOneAndUpdate(
                         { key: 'global_state' },
                         { $set: { 
@@ -6311,6 +6334,9 @@ async function runServerConsolidation() {
                     return;
                 }
             } else {
+                if (pnlBreachStartTime) {
+                    console.log('[PnL Auto-Exit Guard] PnL returned within safe boundaries. Breach timer reset.');
+                }
                 pnlBreachStartTime = null;
                 currentBreachType = null;
             }
@@ -6319,7 +6345,7 @@ async function runServerConsolidation() {
             currentBreachType = null;
         }
 
-        // Check trailing stop losses every 5 minutes
+        // Check trailing stop losses every 5 minutes (requires minimum 1.5% profit step & 1.0% trailing distance)
         const now = Date.now();
         if (now - lastTrailingCheckTime >= 5 * 60 * 1000) {
             lastTrailingCheckTime = now;
@@ -6333,8 +6359,8 @@ async function runServerConsolidation() {
                 const tickSize = await getTickSizeForSymbol(p.tradingsymbol, p.exchange);
                 if (direction === 'BUY') {
                     const profitPct = (ltp - entryPrice) / entryPrice;
-                    if (profitPct >= 0.005) {
-                        const candidateSl = roundToTickSize(ltp * 0.995, tickSize);
+                    if (profitPct >= 0.015) { // Minimum 1.5% profit before trailing SL activates
+                        const candidateSl = roundToTickSize(ltp * 0.99, tickSize); // 1.0% trailing buffer below LTP
                         const currentTrailed = positionTrailedSl.get(p.tradingsymbol);
                         if (!currentTrailed || candidateSl > currentTrailed) {
                             positionTrailedSl.set(p.tradingsymbol, candidateSl);
@@ -6343,8 +6369,8 @@ async function runServerConsolidation() {
                     }
                 } else {
                     const profitPct = (entryPrice - ltp) / entryPrice;
-                    if (profitPct >= 0.005) {
-                        const candidateSl = roundToTickSize(ltp * 1.005, tickSize);
+                    if (profitPct >= 0.015) { // Minimum 1.5% profit before trailing SL activates
+                        const candidateSl = roundToTickSize(ltp * 1.01, tickSize); // 1.0% trailing buffer above LTP
                         const currentTrailed = positionTrailedSl.get(p.tradingsymbol);
                         if (!currentTrailed || candidateSl < currentTrailed) {
                             positionTrailedSl.set(p.tradingsymbol, candidateSl);
