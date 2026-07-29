@@ -9,3 +9,8 @@ scratch/*
 
 # Vite Client Build Outputs
 public/
+
+# Rust Build Artifacts
+quant-engine/target/
+.dev_cert.*
+
