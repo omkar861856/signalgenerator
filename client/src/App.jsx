@@ -4491,7 +4491,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   <CardContent className="p-0 flex flex-col gap-5 mt-4">
                     
                     {/* Simulator Inputs Grid */}
-                    <form onSubmit={(e) => { e.preventDefault(); handleRunBacktest(); }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <form onSubmit={(e) => handleRunBacktest(e)} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1.5 text-xs">
                         <label className="text-slate-400 font-semibold">Symbol</label>
                         <select 

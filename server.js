@@ -925,33 +925,68 @@ function formatSecondsToMinSec(totalSec) {
 
 // ─── ADMIN DB SYNC ENDPOINTS (All URL variations supported) ─────────────────
 app.get(['/api/admin/sync-status', '/admin/sync-status', '/api/admin/historical-sync/status'], async (req, res) => {
-    try {
-        const totalInstruments = await Instrument.countDocuments({});
-        const intervalCounts = {};
-        const intervals = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute', 'day'];
-        
-        for (const itv of intervals) {
-            intervalCounts[itv] = await HistoricalCandle.countDocuments({ interval: itv });
+    // Set a 5s deadline so this never causes a 504
+    res.setTimeout(5000, () => {
+        if (!res.headersSent) {
+            res.json({
+                success: true,
+                totalInstruments: null,
+                intervalCounts: {},
+                totalCandlesCount: null,
+                status: historicalSyncStatus,
+                syncState: historicalSyncStatus,
+                estSecondsRemaining: 0,
+                estTimeFormatted: 'N/A',
+                warning: 'DB count timed out – returning in-memory status only'
+            });
         }
+    });
+    try {
+        const withTimeout = (promise, ms) => Promise.race([
+            promise,
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))
+        ]);
+        const intervals = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute', 'day'];
+        const [totalInstruments, ...intervalCountsArr] = await withTimeout(
+            Promise.all([
+                Instrument.countDocuments({}),
+                ...intervals.map(itv => HistoricalCandle.countDocuments({ interval: itv }))
+            ]),
+            4000
+        );
+        const intervalCounts = {};
+        intervals.forEach((itv, i) => { intervalCounts[itv] = intervalCountsArr[i]; });
         const totalCandlesCount = Object.values(intervalCounts).reduce((a, b) => a + b, 0);
-        
         const remainingToSync = Math.max(0, (totalInstruments || 100) * 8 - (historicalSyncStatus.processedCount || 0));
-        const estSecondsRemaining = historicalSyncStatus.status === 'running' 
+        const estSecondsRemaining = historicalSyncStatus.status === 'running'
             ? Math.round(remainingToSync * 0.8)
             : Math.round((totalInstruments || 100) * 8 * 0.8);
-
-        res.json({
-            success: true,
-            totalInstruments,
-            intervalCounts,
-            totalCandlesCount,
-            status: historicalSyncStatus,
-            syncState: historicalSyncStatus,
-            estSecondsRemaining,
-            estTimeFormatted: formatSecondsToMinSec(estSecondsRemaining)
-        });
+        if (!res.headersSent) {
+            res.json({
+                success: true,
+                totalInstruments,
+                intervalCounts,
+                totalCandlesCount,
+                status: historicalSyncStatus,
+                syncState: historicalSyncStatus,
+                estSecondsRemaining,
+                estTimeFormatted: formatSecondsToMinSec(estSecondsRemaining)
+            });
+        }
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        if (!res.headersSent) {
+            res.json({
+                success: true,
+                totalInstruments: null,
+                intervalCounts: {},
+                totalCandlesCount: null,
+                status: historicalSyncStatus,
+                syncState: historicalSyncStatus,
+                estSecondsRemaining: 0,
+                estTimeFormatted: 'N/A',
+                warning: err.message
+            });
+        }
     }
 });
 
@@ -7985,6 +8020,22 @@ function getDevCertificate() {
 
 const devTlsCreds = getDevCertificate();
 const httpServer = http.createServer(app);
+
+// ─── Wire Grafana WebSocket upgrade through the proxy ────────────────────────
+// http-proxy-middleware's ws:true only auto-wires on Express's underlying server.
+// Since we use a custom hybridServer, we must manually forward upgrade events.
+const grafanaProxyInstance = createProxyMiddleware({
+    target: `http://${grafanaHost}:3000`,
+    changeOrigin: true,
+    ws: true,
+    logLevel: 'silent',
+});
+httpServer.on('upgrade', (req, socket, head) => {
+    if (req.url && req.url.startsWith('/grafana/')) {
+        grafanaProxyInstance.upgrade(req, socket, head);
+    }
+    // All other WS upgrades (Kite ticker, etc.) are handled by their own registered listeners — don't destroy
+});
 
 let tlsServer = null;
 if (devTlsCreds) {
