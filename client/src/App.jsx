@@ -342,6 +342,29 @@ export default function App() {
   const [scannedRsiStocks, setScannedRsiStocks] = useState([]);
   const [rsiFilterSummary, setRsiFilterSummary] = useState('');
 
+  // Interactive Visual Custom Scanner Builder State
+  const [visualBuilderMode, setVisualBuilderMode] = useState('visual'); // 'visual' | 'ai_prompt'
+  const [visualScannerName, setVisualScannerName] = useState('');
+  const [visualScannerTf, setVisualScannerTf] = useState('5min');
+  const [visualScannerDesc, setVisualScannerDesc] = useState('');
+  const [visualRules, setVisualRules] = useState([
+    {
+      id: 1,
+      leftIndicator: 'RSI',
+      leftPeriod: 14,
+      leftParam2: 3,
+      operator: '>',
+      rightType: 'VALUE',
+      rightValue: 60,
+      rightIndicator: 'EMA',
+      rightPeriod: 50,
+      logic: 'AND'
+    }
+  ]);
+  const [visualSaving, setVisualSaving] = useState(false);
+  const [visualError, setVisualError] = useState('');
+  const [visualSuccess, setVisualSuccess] = useState('');
+
   // Advanced Screener State
   const [screenerInput, setScreenerInput] = useState('');
   const [screenerPreset, setScreenerPreset] = useState('preferred');
@@ -1000,6 +1023,200 @@ export default function App() {
     } finally {
       setAiGenerating(false);
     }
+  };
+
+  // Interactive Visual Scanner Code Builder Helper
+  const generateCodeFromVisualRules = (rules) => {
+    if (!rules || rules.length === 0) return 'return false;';
+
+    const conditions = rules.map((r, idx) => {
+      let leftExpr = '';
+      if (r.leftIndicator === 'Price') leftExpr = 'tick.ltp';
+      else if (r.leftIndicator === 'Change') leftExpr = 'tick.change';
+      else if (r.leftIndicator === 'Volume') leftExpr = 'tick.volume';
+      else if (r.leftIndicator === 'RSI') leftExpr = `calculateRSI(candles, ${r.leftPeriod || 14})`;
+      else if (r.leftIndicator === 'EMA') leftExpr = `calculateEMA(candles, ${r.leftPeriod || 20})`;
+      else if (r.leftIndicator === 'SMA') leftExpr = `calculateSMA(candles, ${r.leftPeriod || 20})`;
+      else if (r.leftIndicator === 'WMA') leftExpr = `calculateWMA(candles, ${r.leftPeriod || 20})`;
+      else if (r.leftIndicator === 'DEMA') leftExpr = `calculateDEMA(candles, ${r.leftPeriod || 20})`;
+      else if (r.leftIndicator === 'TEMA') leftExpr = `calculateTEMA(candles, ${r.leftPeriod || 20})`;
+      else if (r.leftIndicator === 'VWAP') leftExpr = `calculateVWAP(candles)`;
+      else if (r.leftIndicator === 'MACD') leftExpr = `calculateMACD(candles).macd`;
+      else if (r.leftIndicator === 'MACD_Hist') leftExpr = `calculateMACD(candles).histogram`;
+      else if (r.leftIndicator === 'Bollinger_Upper') leftExpr = `calculateBollingerBands(candles, ${r.leftPeriod || 20}).upper`;
+      else if (r.leftIndicator === 'Bollinger_Lower') leftExpr = `calculateBollingerBands(candles, ${r.leftPeriod || 20}).lower`;
+      else if (r.leftIndicator === 'Bollinger_Bandwidth') leftExpr = `calculateBollingerBands(candles, ${r.leftPeriod || 20}).bandwidth`;
+      else if (r.leftIndicator === 'Supertrend') leftExpr = `calculateSupertrend(candles, ${r.leftPeriod || 10}, ${r.leftParam2 || 3}).supertrend`;
+      else if (r.leftIndicator === 'ADX') leftExpr = `calculateADX(candles, ${r.leftPeriod || 14}).adx`;
+      else if (r.leftIndicator === 'WilliamsR') leftExpr = `calculateWilliamsR(candles, ${r.leftPeriod || 14})`;
+      else if (r.leftIndicator === 'Aroon_Osc') leftExpr = `calculateAroon(candles, ${r.leftPeriod || 25}).oscillator`;
+      else if (r.leftIndicator === 'CCI') leftExpr = `calculateCCI(candles, ${r.leftPeriod || 20})`;
+      else if (r.leftIndicator === 'Stochastic_K') leftExpr = `calculateStochastic(candles, ${r.leftPeriod || 14}).percentK`;
+      else if (r.leftIndicator === 'MFI') leftExpr = `calculateMFI(candles, ${r.leftPeriod || 14})`;
+      else if (r.leftIndicator === 'Ichimoku_Tenkan') leftExpr = `calculateIchimoku(candles).tenkan`;
+      else if (r.leftIndicator === 'Ichimoku_SpanA') leftExpr = `calculateIchimoku(candles).spanA`;
+      else if (r.leftIndicator === 'AO') leftExpr = `calculateAwesomeOscillator(candles)`;
+      else if (r.leftIndicator === 'ParabolicSAR') leftExpr = `calculateParabolicSAR(candles).sar`;
+      else if (r.leftIndicator === 'OBV') leftExpr = `calculateOBV(candles)`;
+      else if (r.leftIndicator === 'StochRSI') leftExpr = `calculateStochRSI(candles, ${r.leftPeriod || 14}).stochRsi`;
+      else if (r.leftIndicator === 'CMF') leftExpr = `calculateCMF(candles, ${r.leftPeriod || 20})`;
+      else if (r.leftIndicator === 'LinearRegression') leftExpr = `calculateLinearRegression(candles, ${r.leftPeriod || 14})`;
+      else if (r.leftIndicator === 'VolumeOsc') leftExpr = `calculateVolumeOscillator(candles)`;
+      else if (r.leftIndicator === 'Momentum') leftExpr = `calculateMomentum(candles, ${r.leftPeriod || 10})`;
+      else if (r.leftIndicator === 'ROC') leftExpr = `calculateROC(candles, ${r.leftPeriod || 10})`;
+      else leftExpr = 'tick.ltp';
+
+      let rightExpr = '';
+      if (r.rightType === 'VALUE') {
+        rightExpr = `${r.rightValue ?? 0}`;
+      } else if (r.rightType === 'INDICATOR') {
+        if (r.rightIndicator === 'EMA') rightExpr = `calculateEMA(candles, ${r.rightPeriod || 50})`;
+        else if (r.rightIndicator === 'SMA') rightExpr = `calculateSMA(candles, ${r.rightPeriod || 50})`;
+        else if (r.rightIndicator === 'VWAP') rightExpr = `calculateVWAP(candles)`;
+        else if (r.rightIndicator === 'Supertrend') rightExpr = `calculateSupertrend(candles, 10, 3).supertrend`;
+        else if (r.rightIndicator === 'Bollinger_Upper') rightExpr = `calculateBollingerBands(candles, 20).upper`;
+        else if (r.rightIndicator === 'Bollinger_Lower') rightExpr = `calculateBollingerBands(candles, 20).lower`;
+        else if (r.rightIndicator === 'ParabolicSAR') rightExpr = `calculateParabolicSAR(candles).sar`;
+        else rightExpr = `calculateEMA(candles, ${r.rightPeriod || 50})`;
+      } else {
+        rightExpr = 'tick.ltp';
+      }
+
+      let op = r.operator;
+      if (op === 'CROSSES_ABOVE') op = '>';
+      else if (op === 'CROSSES_BELOW') op = '<';
+
+      const ruleCode = `${leftExpr} ${op} ${rightExpr}`;
+      if (idx === 0) return ruleCode;
+      return `${r.logic || 'AND'} ${ruleCode}`;
+    });
+
+    const codeStr = conditions.join(' ');
+    return `if (!candles || candles.length < 20) return false;\nreturn ${codeStr.replace(/\bAND\b/g, '&&').replace(/\bOR\b/g, '||')};`;
+  };
+
+  const handleSaveVisualScanner = async (e) => {
+    e.preventDefault();
+    if (!visualScannerName.trim()) {
+      setVisualError('Please provide a name for your custom scanner.');
+      return;
+    }
+    setVisualSaving(true);
+    setVisualError('');
+    setVisualSuccess('');
+
+    const generatedCode = generateCodeFromVisualRules(visualRules);
+    try {
+      const res = await fetch('/api/scanners/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: visualScannerName,
+          description: visualScannerDesc || `Custom ${visualRules.length}-rule technical indicator scanner`,
+          functionBody: generatedCode,
+          tf: visualScannerTf
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setVisualSuccess(`Custom scanner "${visualScannerName}" successfully built and deployed live!`);
+        fetchScannersList();
+        setSelectedScanner(visualScannerName);
+        setVisualScannerName('');
+        setVisualScannerDesc('');
+      } else {
+        setVisualError(data.error || 'Failed to save custom scanner.');
+      }
+    } catch (err) {
+      setVisualError(err.message || 'An error occurred while deploying scanner.');
+    } finally {
+      setVisualSaving(false);
+    }
+  };
+
+  const loadPresetTemplate = (presetType) => {
+    setVisualSuccess('');
+    setVisualError('');
+    if (presetType === 'supertrend_rsi') {
+      setVisualScannerName('Supertrend & RSI Bullish Breakout');
+      setVisualScannerTf('5min');
+      setVisualScannerDesc('Price above Supertrend (10,3), RSI(14) above 60, and Volume momentum expansion.');
+      setVisualRules([
+        { id: 1, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'Supertrend', logic: 'AND' },
+        { id: 2, leftIndicator: 'RSI', leftPeriod: 14, operator: '>', rightType: 'VALUE', rightValue: 60, logic: 'AND' },
+        { id: 3, leftIndicator: 'Change', operator: '>', rightType: 'VALUE', rightValue: 1.0, logic: 'AND' }
+      ]);
+    } else if (presetType === 'golden_cross') {
+      setVisualScannerName('Golden Cross (EMA 20 > EMA 50) + ADX');
+      setVisualScannerTf('15min');
+      setVisualScannerDesc('EMA 20 crossing above EMA 50 with strong ADX trend confirmation (> 25).');
+      setVisualRules([
+        { id: 1, leftIndicator: 'EMA', leftPeriod: 20, operator: '>', rightType: 'INDICATOR', rightIndicator: 'EMA', rightPeriod: 50, logic: 'AND' },
+        { id: 2, leftIndicator: 'ADX', leftPeriod: 14, operator: '>', rightType: 'VALUE', rightValue: 25, logic: 'AND' }
+      ]);
+    } else if (presetType === 'bollinger_squeeze') {
+      setVisualScannerName('Bollinger Band Squeeze & Breakout');
+      setVisualScannerTf('15min');
+      setVisualScannerDesc('Tight Bollinger Bandwidth (< 6%) breaking out above upper band with high Money Flow.');
+      setVisualRules([
+        { id: 1, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'Bollinger_Upper', logic: 'AND' },
+        { id: 2, leftIndicator: 'Bollinger_Bandwidth', leftPeriod: 20, operator: '<', rightType: 'VALUE', rightValue: 6.0, logic: 'AND' },
+        { id: 3, leftIndicator: 'MFI', leftPeriod: 14, operator: '>', rightType: 'VALUE', rightValue: 55, logic: 'AND' }
+      ]);
+    } else if (presetType === 'macd_stochastic') {
+      setVisualScannerName('MACD & Stochastic Double Confirmation');
+      setVisualScannerTf('5min');
+      setVisualScannerDesc('Bullish MACD Histogram expansion combined with Stochastic %K momentum (> 70).');
+      setVisualRules([
+        { id: 1, leftIndicator: 'MACD_Hist', operator: '>', rightType: 'VALUE', rightValue: 0, logic: 'AND' },
+        { id: 2, leftIndicator: 'Stochastic_K', leftPeriod: 14, operator: '>', rightType: 'VALUE', rightValue: 70, logic: 'AND' },
+        { id: 3, leftIndicator: 'ROC', leftPeriod: 10, operator: '>', rightType: 'VALUE', rightValue: 1.0, logic: 'AND' }
+      ]);
+    } else if (presetType === 'ichimoku_obv') {
+      setVisualScannerName('Ichimoku Cloud Bullish Trend + OBV');
+      setVisualScannerTf('1hour');
+      setVisualScannerDesc('Price above Senkou Span A with positive On-Balance Volume accumulation.');
+      setVisualRules([
+        { id: 1, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'Ichimoku_SpanA', logic: 'AND' },
+        { id: 2, leftIndicator: 'Ichimoku_Tenkan', operator: '>', rightType: 'INDICATOR', rightIndicator: 'Ichimoku_SpanA', logic: 'AND' },
+        { id: 3, leftIndicator: 'OBV', operator: '>', rightType: 'VALUE', rightValue: 0, logic: 'AND' }
+      ]);
+    } else if (presetType === 'psar_vwap') {
+      setVisualScannerName('Parabolic SAR & VWAP Intraday Reversal');
+      setVisualScannerTf('5min');
+      setVisualScannerDesc('Bullish Parabolic SAR flip with price trading above VWAP and CCI > 100.');
+      setVisualRules([
+        { id: 1, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'ParabolicSAR', logic: 'AND' },
+        { id: 2, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'VWAP', logic: 'AND' },
+        { id: 3, leftIndicator: 'CCI', leftPeriod: 20, operator: '>', rightType: 'VALUE', rightValue: 100, logic: 'AND' }
+      ]);
+    }
+  };
+
+  const handleAddVisualRule = () => {
+    setVisualRules(prev => [
+      ...prev,
+      {
+        id: Date.now(),
+        leftIndicator: 'RSI',
+        leftPeriod: 14,
+        leftParam2: 3,
+        operator: '>',
+        rightType: 'VALUE',
+        rightValue: 50,
+        rightIndicator: 'EMA',
+        rightPeriod: 50,
+        logic: 'AND'
+      }
+    ]);
+  };
+
+  const handleRemoveVisualRule = (ruleId) => {
+    setVisualRules(prev => prev.filter(r => r.id !== ruleId));
+  };
+
+  const handleVisualRuleChange = (ruleId, field, val) => {
+    setVisualRules(prev => prev.map(r => r.id === ruleId ? { ...r, [field]: val } : r));
   };
 
   // Scanner Editing & Deleting Handlers
@@ -5792,57 +6009,363 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               </div>
             </div>
 
-            {/* AI Scanner Generator Card */}
-            <Card id="ai-scanner-builder" className="glass-panel border-0 ring-0 p-5">
-              <CardHeader className="p-0 mb-4 border-b border-white/5 pb-3">
-                <div className="flex items-center gap-2">
-                  <Brain className="h-5 w-5 text-indigo-400 animate-pulse" />
-                  <CardTitle className="font-display font-semibold text-sm text-white">AI Scanner Builder</CardTitle>
+            {/* Interactive Visual & AI Custom Scanner Builder Panel */}
+            <Card id="ai-scanner-builder" className="glass-panel border-0 ring-0 p-5 bg-slate-900/80 border-indigo-500/20">
+              <CardHeader className="p-0 mb-4 border-b border-white/5 pb-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Sliders className="h-5 w-5 text-indigo-400" />
+                    <CardTitle className="font-display font-semibold text-base text-white">Interactive Custom Scanner Builder</CardTitle>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300">
+                      27 Indicators Supported
+                    </span>
+                  </div>
+                  <CardDescription className="text-xs text-slate-400 mt-1">
+                    Visually combine Supertrend, RSI, EMA, Bollinger, Ichimoku, ADX, VWAP, Stochastic, MACD & more into custom high-probability market scanners.
+                  </CardDescription>
                 </div>
-                <CardDescription className="text-xs text-slate-400 mt-1">
-                  Describe what you want to scan for in plain English (e.g., "RSI above 70 on high volume" or "EMA 20 crossover EMA 50"), and our AI will code and register a live scanner for you instantly.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                <form onSubmit={handleCreateScannerFromPrompt} className="flex flex-col md:flex-row gap-3">
-                  <input 
-                    type="text"
-                    placeholder="Describe your scanner (e.g., 'stocks where current price is above EMA 50 and daily change is over 2%')"
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    disabled={aiGenerating}
-                    className="flex-1 bg-black/40 border border-white/5 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-indigo-500/50 text-white placeholder-slate-500 disabled:opacity-50"
-                  />
-                  <Button 
-                    type="submit"
-                    disabled={aiGenerating || !aiPrompt.trim()}
-                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 shadow-md shadow-indigo-600/10 flex items-center gap-1.5 cursor-pointer"
+
+                {/* Builder Mode Selector */}
+                <div className="flex bg-black/40 border border-white/10 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setVisualBuilderMode('visual')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      visualBuilderMode === 'visual'
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
                   >
-                    {aiGenerating ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Generating...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Build Scanner</span>
-                      </>
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Visual Builder 🎛️</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisualBuilderMode('ai_prompt')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      visualBuilderMode === 'ai_prompt'
+                        ? 'bg-purple-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>AI Prompt ✨</span>
+                  </button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-0">
+                {visualBuilderMode === 'visual' ? (
+                  <form onSubmit={handleSaveVisualScanner} className="flex flex-col gap-4">
+                    {/* Preset Templates Selector Bar */}
+                    <div className="flex flex-col gap-2 bg-black/30 p-3 rounded-xl border border-white/5">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-display flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        Quick Indicator Presets & Templates:
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: 'supertrend_rsi', label: '⚡ Supertrend & RSI Breakout' },
+                          { id: 'golden_cross', label: '📈 Golden Cross + ADX' },
+                          { id: 'bollinger_squeeze', label: '📊 Bollinger Squeeze & MFI' },
+                          { id: 'macd_stochastic', label: '📉 MACD & Stochastic' },
+                          { id: 'ichimoku_obv', label: '☁️ Ichimoku & OBV' },
+                          { id: 'psar_vwap', label: '🎯 Parabolic SAR & VWAP' },
+                        ].map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => loadPresetTemplate(t.id)}
+                            className="px-2.5 py-1 bg-white/5 hover:bg-indigo-600/30 border border-white/10 hover:border-indigo-500/40 rounded-lg text-xs font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Scanner Name & Timeframe Controls */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="flex flex-col gap-1 md:col-span-2">
+                        <label className="text-xs font-semibold text-slate-300">Scanner Title / Strategy Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g., Multi-Indicator Supertrend & RSI Momentum Scanner"
+                          value={visualScannerName}
+                          onChange={(e) => setVisualScannerName(e.target.value)}
+                          className="bg-black/40 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                          required
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-slate-300">Timeframe</label>
+                        <select
+                          value={visualScannerTf}
+                          onChange={(e) => setVisualScannerTf(e.target.value)}
+                          className="bg-black/40 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="1min">1 Min (Intraday)</option>
+                          <option value="5min">5 Min (Intraday)</option>
+                          <option value="15min">15 Min (Intraday)</option>
+                          <option value="hour">1 Hour</option>
+                          <option value="day">Daily</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Interactive Rule Rows */}
+                    <div className="flex flex-col gap-2.5 bg-black/40 p-4 rounded-xl border border-white/10">
+                      <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                        <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                          Indicator Conditions ({visualRules.length})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleAddVisualRule}
+                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Add Indicator Rule
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col gap-2.5">
+                        {visualRules.map((rule, idx) => (
+                          <div
+                            key={rule.id}
+                            className="flex flex-wrap items-center gap-2 p-3 bg-white/[0.02] border border-white/5 rounded-xl text-xs"
+                          >
+                            {/* Logic AND/OR connector (for idx > 0) */}
+                            {idx > 0 && (
+                              <select
+                                value={rule.logic || 'AND'}
+                                onChange={(e) => handleVisualRuleChange(rule.id, 'logic', e.target.value)}
+                                className="bg-indigo-950 border border-indigo-500/30 rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-300 focus:outline-none"
+                              >
+                                <option value="AND">AND</option>
+                                <option value="OR">OR</option>
+                              </select>
+                            )}
+
+                            {/* Left Indicator */}
+                            <select
+                              value={rule.leftIndicator}
+                              onChange={(e) => handleVisualRuleChange(rule.id, 'leftIndicator', e.target.value)}
+                              className="bg-black/60 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-semibold"
+                            >
+                              <optgroup label="Price & Volume">
+                                <option value="Price">Current Price (LTP)</option>
+                                <option value="Change">Daily Change %</option>
+                                <option value="Volume">Current Volume</option>
+                              </optgroup>
+                              <optgroup label="Moving Averages">
+                                <option value="EMA">EMA (Exponential MA)</option>
+                                <option value="SMA">SMA (Simple MA)</option>
+                                <option value="WMA">WMA (Weighted MA)</option>
+                                <option value="DEMA">DEMA (Double EMA)</option>
+                                <option value="TEMA">TEMA (Triple EMA)</option>
+                              </optgroup>
+                              <optgroup label="Trend & Momentum">
+                                <option value="RSI">RSI (Relative Strength)</option>
+                                <option value="Supertrend">Supertrend</option>
+                                <option value="ADX">ADX (Directional Index)</option>
+                                <option value="MACD">MACD Line</option>
+                                <option value="MACD_Hist">MACD Histogram</option>
+                                <option value="Stochastic_K">Stochastic %K</option>
+                                <option value="StochRSI">Stochastic RSI</option>
+                                <option value="WilliamsR">Williams %R</option>
+                                <option value="Aroon_Osc">Aroon Oscillator</option>
+                                <option value="CCI">CCI (Commodity Channel)</option>
+                                <option value="AO">Awesome Oscillator (AO)</option>
+                                <option value="Momentum">Momentum</option>
+                                <option value="ROC">Price Rate of Change (ROC)</option>
+                              </optgroup>
+                              <optgroup label="Volatility & Bands">
+                                <option value="Bollinger_Upper">Bollinger Upper Band</option>
+                                <option value="Bollinger_Lower">Bollinger Lower Band</option>
+                                <option value="Bollinger_Bandwidth">Bollinger Bandwidth %</option>
+                                <option value="ParabolicSAR">Parabolic SAR</option>
+                              </optgroup>
+                              <optgroup label="Volume & Money Flow">
+                                <option value="VWAP">VWAP</option>
+                                <option value="MFI">Money Flow Index (MFI)</option>
+                                <option value="OBV">On-Balance Volume (OBV)</option>
+                                <option value="CMF">Chaikin Money Flow (CMF)</option>
+                                <option value="VolumeOsc">Volume Oscillator</option>
+                              </optgroup>
+                              <optgroup label="Cloud & Forecast">
+                                <option value="Ichimoku_Tenkan">Ichimoku Tenkan-sen</option>
+                                <option value="Ichimoku_SpanA">Ichimoku Senkou Span A</option>
+                                <option value="LinearRegression">Linear Reg Forecast</option>
+                              </optgroup>
+                            </select>
+
+                            {/* Left Period Input (if indicator takes period) */}
+                            {!['Price', 'Change', 'Volume', 'VWAP', 'AO', 'OBV', 'Ichimoku_Tenkan', 'Ichimoku_SpanA', 'ParabolicSAR', 'VolumeOsc'].includes(rule.leftIndicator) && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500 font-mono">Period:</span>
+                                <input
+                                  type="number"
+                                  value={rule.leftPeriod || 14}
+                                  onChange={(e) => handleVisualRuleChange(rule.id, 'leftPeriod', parseInt(e.target.value) || 14)}
+                                  className="w-14 bg-black/60 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none text-center"
+                                />
+                              </div>
+                            )}
+
+                            {/* Operator */}
+                            <select
+                              value={rule.operator}
+                              onChange={(e) => handleVisualRuleChange(rule.id, 'operator', e.target.value)}
+                              className="bg-indigo-950/80 border border-indigo-500/40 rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-200 focus:outline-none"
+                            >
+                              <option value=">">Is Greater Than (&gt;)</option>
+                              <option value=">=">Is Greater/Equal (&ge;)</option>
+                              <option value="<">Is Less Than (&lt;)</option>
+                              <option value="<=">Is Less/Equal (&le;)</option>
+                              <option value="CROSSES_ABOVE">Crosses Above ↗</option>
+                              <option value="CROSSES_BELOW">Crosses Below ↘</option>
+                            </select>
+
+                            {/* Right Type (Value vs Indicator) */}
+                            <select
+                              value={rule.rightType}
+                              onChange={(e) => handleVisualRuleChange(rule.id, 'rightType', e.target.value)}
+                              className="bg-black/60 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-300 focus:outline-none"
+                            >
+                              <option value="VALUE">Fixed Value</option>
+                              <option value="INDICATOR">Another Indicator</option>
+                            </select>
+
+                            {/* Right Value or Right Indicator */}
+                            {rule.rightType === 'VALUE' ? (
+                              <input
+                                type="number"
+                                step="any"
+                                value={rule.rightValue ?? 0}
+                                onChange={(e) => handleVisualRuleChange(rule.id, 'rightValue', parseFloat(e.target.value) || 0)}
+                                className="w-24 bg-black/60 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-emerald-400 font-mono focus:outline-none"
+                              />
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={rule.rightIndicator || 'EMA'}
+                                  onChange={(e) => handleVisualRuleChange(rule.id, 'rightIndicator', e.target.value)}
+                                  className="bg-black/60 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none"
+                                >
+                                  <option value="EMA">EMA</option>
+                                  <option value="SMA">SMA</option>
+                                  <option value="VWAP">VWAP</option>
+                                  <option value="Supertrend">Supertrend</option>
+                                  <option value="Bollinger_Upper">Bollinger Upper</option>
+                                  <option value="Bollinger_Lower">Bollinger Lower</option>
+                                  <option value="ParabolicSAR">Parabolic SAR</option>
+                                </select>
+                                {['EMA', 'SMA'].includes(rule.rightIndicator || 'EMA') && (
+                                  <input
+                                    type="number"
+                                    value={rule.rightPeriod || 50}
+                                    onChange={(e) => handleVisualRuleChange(rule.id, 'rightPeriod', parseInt(e.target.value) || 50)}
+                                    className="w-14 bg-black/60 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none text-center"
+                                  />
+                                )}
+                              </div>
+                            )}
+
+                            {/* Delete rule button */}
+                            {visualRules.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveVisualRule(rule.id)}
+                                className="p-1.5 text-slate-500 hover:text-rose-400 transition-all ml-auto"
+                                title="Remove rule"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Compiled JavaScript Logic Preview */}
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold text-slate-400 font-mono">Generated Code Logic (Auto-compiled)</span>
+                        <span className="text-[10px] text-slate-500">Live evaluation on tick stream</span>
+                      </div>
+                      <div className="p-3 bg-slate-950 border border-white/10 rounded-xl font-mono text-[11px] text-emerald-400 whitespace-pre-wrap">
+                        {generateCodeFromVisualRules(visualRules)}
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <Button
+                        type="submit"
+                        disabled={visualSaving || !visualScannerName.trim()}
+                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20 h-auto"
+                      >
+                        {visualSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        <span>Deploy Custom Scanner Live</span>
+                      </Button>
+                    </div>
+
+                    {visualError && (
+                      <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs font-medium">
+                        {visualError}
+                      </div>
                     )}
-                  </Button>
-                </form>
 
-                {aiError && (
-                  <div className="mt-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs font-medium">
-                    {aiError}
-                  </div>
-                )}
+                    {visualSuccess && (
+                      <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-medium">
+                        {visualSuccess}
+                      </div>
+                    )}
+                  </form>
+                ) : (
+                  <form onSubmit={handleCreateScannerFromPrompt} className="flex flex-col gap-3">
+                    <div className="flex flex-col md:flex-row gap-3">
+                      <input 
+                        type="text"
+                        placeholder="Describe your scanner (e.g., 'stocks where current price is above Supertrend and RSI is above 60')"
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        disabled={aiGenerating}
+                        className="flex-1 bg-black/40 border border-white/5 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-indigo-500/50 text-white placeholder-slate-500 disabled:opacity-50"
+                      />
+                      <Button 
+                        type="submit"
+                        disabled={aiGenerating || !aiPrompt.trim()}
+                        className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all disabled:opacity-50 shadow-md shadow-purple-600/10 flex items-center gap-1.5 cursor-pointer h-auto"
+                      >
+                        {aiGenerating ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Generating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Build Scanner</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
 
-                {aiSuccess && (
-                  <div className="mt-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-medium flex flex-col gap-1">
-                    <span className="font-bold">✨ Scanner Built Successfully: {aiSuccess.name}</span>
-                    <span className="text-slate-300">{aiSuccess.description}</span>
-                  </div>
+                    {aiError && (
+                      <div className="mt-1 p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs font-medium">
+                        {aiError}
+                      </div>
+                    )}
+
+                    {aiSuccess && (
+                      <div className="mt-1 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-medium flex flex-col gap-1">
+                        <span className="font-bold">✨ Scanner Built Successfully: {aiSuccess.name}</span>
+                        <span className="text-slate-300">{aiSuccess.description}</span>
+                      </div>
+                    )}
+                  </form>
                 )}
               </CardContent>
             </Card>

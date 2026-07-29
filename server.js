@@ -2760,6 +2760,28 @@ app.post('/api/scanners/edit', (req, res) => {
     }
 });
 
+app.post('/api/scanners/create', (req, res) => {
+    try {
+        const { name, description, functionBody, tf } = req.body;
+        if (!name || !functionBody) {
+            return res.status(400).json({ error: 'Scanner name and code logic are required.' });
+        }
+        scanner.registerCustomScanner(name, description || '', functionBody, tf || 'custom');
+        res.json({
+            success: true,
+            scanner: {
+                name,
+                description,
+                tf: tf || 'custom',
+                functionBody,
+                isCustom: true
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/scanners/create-from-prompt', async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) {
