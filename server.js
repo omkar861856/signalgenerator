@@ -5485,6 +5485,300 @@ function calculateADX(candles, period = 14) {
     return { adx, plusDI, minusDI };
 }
 
+function calculateSupertrendArray(candles, period = 10, multiplier = 3) {
+    const atrArr = calculateATR(candles, period);
+    const supertrend = new Array(candles.length).fill(null);
+    const trend = new Array(candles.length).fill(null);
+    if (candles.length < period) return { supertrend, trend };
+
+    let currentTrend = 1;
+    let upperBand = 0;
+    let lowerBand = 0;
+
+    for (let i = period; i < candles.length; i++) {
+        const c = candles[i];
+        const atr = atrArr[i] || 0;
+        const hl2 = (c.high + c.low) / 2;
+        const basicUpper = hl2 + multiplier * atr;
+        const basicLower = hl2 - multiplier * atr;
+
+        const prevUpper = upperBand;
+        const prevLower = lowerBand;
+        const prevClose = candles[i - 1].close;
+
+        upperBand = (basicUpper < prevUpper || prevClose > prevUpper) ? basicUpper : prevUpper;
+        lowerBand = (basicLower > prevLower || prevClose < prevLower) ? basicLower : prevLower;
+
+        if (currentTrend === 1) {
+            if (c.close < lowerBand) {
+                currentTrend = -1;
+            }
+        } else {
+            if (c.close > upperBand) {
+                currentTrend = 1;
+            }
+        }
+
+        supertrend[i] = currentTrend === 1 ? lowerBand : upperBand;
+        trend[i] = currentTrend;
+    }
+    return { supertrend, trend };
+}
+
+function calculateWilliamsRArray(candles, period = 14) {
+    const wR = new Array(candles.length).fill(null);
+    for (let i = period - 1; i < candles.length; i++) {
+        const slice = candles.slice(i - period + 1, i + 1);
+        const hh = Math.max(...slice.map(c => c.high));
+        const ll = Math.min(...slice.map(c => c.low));
+        const close = candles[i].close;
+        wR[i] = hh === ll ? -50 : ((hh - close) / (hh - ll)) * -100;
+    }
+    return wR;
+}
+
+function calculateAroonArray(candles, period = 25) {
+    const up = new Array(candles.length).fill(null);
+    const down = new Array(candles.length).fill(null);
+    const osc = new Array(candles.length).fill(null);
+    for (let i = period - 1; i < candles.length; i++) {
+        const slice = candles.slice(i - period + 1, i + 1);
+        let highIdx = 0, lowIdx = 0, maxH = -Infinity, minL = Infinity;
+        for (let j = 0; j < slice.length; j++) {
+            if (slice[j].high >= maxH) { maxH = slice[j].high; highIdx = j; }
+            if (slice[j].low <= minL) { minL = slice[j].low; lowIdx = j; }
+        }
+        const daysHigh = period - 1 - highIdx;
+        const daysLow = period - 1 - lowIdx;
+        const u = ((period - daysHigh) / period) * 100;
+        const d = ((period - daysLow) / period) * 100;
+        up[i] = u;
+        down[i] = d;
+        osc[i] = u - d;
+    }
+    return { up, down, osc };
+}
+
+function calculateCCIArray(candles, period = 20) {
+    const cci = new Array(candles.length).fill(null);
+    const tpList = candles.map(c => (c.high + c.low + c.close) / 3);
+    for (let i = period - 1; i < candles.length; i++) {
+        const slice = tpList.slice(i - period + 1, i + 1);
+        const meanTp = slice.reduce((a, b) => a + b, 0) / period;
+        const meanDev = slice.reduce((a, b) => a + Math.abs(b - meanTp), 0) / period;
+        cci[i] = meanDev === 0 ? 0 : (tpList[i] - meanTp) / (0.015 * meanDev);
+    }
+    return cci;
+}
+
+function calculateStochasticArray(candles, kPeriod = 14, dPeriod = 3) {
+    const kArr = new Array(candles.length).fill(null);
+    const dArr = new Array(candles.length).fill(null);
+    for (let i = kPeriod - 1; i < candles.length; i++) {
+        const slice = candles.slice(i - kPeriod + 1, i + 1);
+        const hh = Math.max(...slice.map(c => c.high));
+        const ll = Math.min(...slice.map(c => c.low));
+        const close = candles[i].close;
+        kArr[i] = hh === ll ? 50 : ((close - ll) / (hh - ll)) * 100;
+    }
+    const validKStart = kArr.findIndex(x => x !== null);
+    if (validKStart !== -1) {
+        const kSub = kArr.slice(validKStart);
+        const dSub = calculateSMA(kSub, dPeriod);
+        for (let j = 0; j < dSub.length; j++) {
+            dArr[validKStart + j] = dSub[j];
+        }
+    }
+    return { k: kArr, d: dArr };
+}
+
+function calculateMFIArray(candles, period = 14) {
+    const mfi = new Array(candles.length).fill(null);
+    if (candles.length <= period) return mfi;
+    const tpList = candles.map(c => (c.high + c.low + c.close) / 3);
+    for (let i = period; i < candles.length; i++) {
+        let posMf = 0, negMf = 0;
+        for (let j = i - period + 1; j <= i; j++) {
+            const mf = tpList[j] * (candles[j].volume || 1);
+            if (tpList[j] > tpList[j - 1]) posMf += mf;
+            else if (tpList[j] < tpList[j - 1]) negMf += mf;
+        }
+        if (negMf === 0) mfi[i] = 100;
+        else mfi[i] = 100 - (100 / (1 + posMf / negMf));
+    }
+    return mfi;
+}
+
+function calculateIchimokuArray(candles) {
+    const tenkan = new Array(candles.length).fill(null);
+    const kijun = new Array(candles.length).fill(null);
+    const spanA = new Array(candles.length).fill(null);
+    const spanB = new Array(candles.length).fill(null);
+    const chikou = new Array(candles.length).fill(null);
+
+    const getMid = (arr, start, len) => {
+        const slice = arr.slice(start - len + 1, start + 1);
+        return (Math.max(...slice.map(c => c.high)) + Math.min(...slice.map(c => c.low))) / 2;
+    };
+
+    for (let i = 0; i < candles.length; i++) {
+        chikou[i] = candles[i].close;
+        if (i >= 8) tenkan[i] = getMid(candles, i, 9);
+        if (i >= 25) kijun[i] = getMid(candles, i, 26);
+        if (i >= 25 && tenkan[i] !== null && kijun[i] !== null) spanA[i] = (tenkan[i] + kijun[i]) / 2;
+        if (i >= 51) spanB[i] = getMid(candles, i, 52);
+    }
+    return { tenkan, kijun, spanA, spanB, chikou };
+}
+
+function calculateAwesomeOscillatorArray(candles) {
+    const ao = new Array(candles.length).fill(null);
+    const medianPrices = candles.map(c => (c.high + c.low) / 2);
+    const sma5 = calculateSMA(medianPrices, 5);
+    const sma34 = calculateSMA(medianPrices, 34);
+    for (let i = 33; i < candles.length; i++) {
+        if (sma5[i] !== null && sma34[i] !== null) {
+            ao[i] = sma5[i] - sma34[i];
+        }
+    }
+    return ao;
+}
+
+function calculateParabolicSARArray(candles, step = 0.02, maxStep = 0.2) {
+    const sarArr = new Array(candles.length).fill(null);
+    if (candles.length < 2) return sarArr;
+    let isUp = candles[1].close >= candles[0].close;
+    let sar = isUp ? candles[0].low : candles[0].high;
+    let ep = isUp ? candles[0].high : candles[0].low;
+    let af = step;
+    sarArr[0] = sar;
+
+    for (let i = 1; i < candles.length; i++) {
+        const c = candles[i];
+        sar = sar + af * (ep - sar);
+        if (isUp) {
+            if (c.low < sar) { isUp = false; sar = ep; ep = c.low; af = step; }
+            else { if (c.high > ep) { ep = c.high; af = Math.min(af + step, maxStep); } }
+        } else {
+            if (c.high > sar) { isUp = true; sar = ep; ep = c.high; af = step; }
+            else { if (c.low < ep) { ep = c.low; af = Math.min(af + step, maxStep); } }
+        }
+        sarArr[i] = sar;
+    }
+    return sarArr;
+}
+
+function calculateOBVArray(candles) {
+    const obv = new Array(candles.length).fill(0);
+    let currentObv = 0;
+    obv[0] = currentObv;
+    for (let i = 1; i < candles.length; i++) {
+        const diff = candles[i].close - candles[i - 1].close;
+        const vol = candles[i].volume || 0;
+        if (diff > 0) currentObv += vol;
+        else if (diff < 0) currentObv -= vol;
+        obv[i] = currentObv;
+    }
+    return obv;
+}
+
+function calculateStochRSIArray(candles, rsiPeriod = 14, stochPeriod = 14) {
+    const stochRsi = new Array(candles.length).fill(null);
+    const closePrices = candles.map(c => c.close);
+    const rsiArr = calculateRSI(closePrices, rsiPeriod);
+
+    for (let i = rsiPeriod + stochPeriod - 1; i < candles.length; i++) {
+        const slice = rsiArr.slice(i - stochPeriod + 1, i + 1);
+        const minR = Math.min(...slice);
+        const maxR = Math.max(...slice);
+        const currR = rsiArr[i];
+        if (maxR === minR) stochRsi[i] = 50;
+        else stochRsi[i] = ((currR - minR) / (maxR - minR)) * 100;
+    }
+    return stochRsi;
+}
+
+function calculateCMFArray(candles, period = 20) {
+    const cmf = new Array(candles.length).fill(null);
+    for (let i = period - 1; i < candles.length; i++) {
+        const slice = candles.slice(i - period + 1, i + 1);
+        let mfVolSum = 0, volSum = 0;
+        slice.forEach(c => {
+            const range = c.high - c.low;
+            const vol = c.volume || 1;
+            const mfMultiplier = range > 0 ? ((c.close - c.low) - (c.high - c.close)) / range : 0;
+            mfVolSum += mfMultiplier * vol;
+            volSum += vol;
+        });
+        cmf[i] = volSum > 0 ? mfVolSum / volSum : 0;
+    }
+    return cmf;
+}
+
+function calculateLinearRegressionArray(prices, period = 14) {
+    const linreg = new Array(prices.length).fill(null);
+    for (let i = period - 1; i < prices.length; i++) {
+        const slice = prices.slice(i - period + 1, i + 1);
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        for (let j = 0; j < period; j++) {
+            const x = j;
+            const y = slice[j];
+            sumX += x; sumY += y; sumXY += x * y; sumXX += x * x;
+        }
+        const slope = (period * sumXY - sumX * sumY) / (period * sumXX - sumX * sumX);
+        const intercept = (sumY - slope * sumX) / period;
+        linreg[i] = intercept + slope * period;
+    }
+    return linreg;
+}
+
+function calculateVolumeOscillatorArray(candles, shortPeriod = 5, longPeriod = 10) {
+    const volOsc = new Array(candles.length).fill(null);
+    const volumes = candles.map(c => c.volume || 0);
+    const shortSma = calculateSMA(volumes, shortPeriod);
+    const longSma = calculateSMA(volumes, longPeriod);
+
+    for (let i = longPeriod - 1; i < candles.length; i++) {
+        if (longSma[i] && longSma[i] > 0) {
+            volOsc[i] = ((shortSma[i] - longSma[i]) / longSma[i]) * 100;
+        } else {
+            volOsc[i] = 0;
+        }
+    }
+    return volOsc;
+}
+
+function calculateMomentumArray(prices, period = 10) {
+    const mom = new Array(prices.length).fill(null);
+    for (let i = period; i < prices.length; i++) {
+        mom[i] = prices[i] - prices[i - period];
+    }
+    return mom;
+}
+
+function calculateROCArray(prices, period = 10) {
+    const roc = new Array(prices.length).fill(null);
+    for (let i = period; i < prices.length; i++) {
+        const prev = prices[i - period];
+        roc[i] = prev > 0 ? ((prices[i] - prev) / prev) * 100 : 0;
+    }
+    return roc;
+}
+
+function calculateVWAPArray(candles) {
+    const vwap = new Array(candles.length).fill(null);
+    let pvSum = 0;
+    let volumeSum = 0;
+    for (let i = 0; i < candles.length; i++) {
+        const c = candles[i];
+        const typPrice = (c.high + c.low + c.close) / 3;
+        pvSum += typPrice * (c.volume || 1);
+        volumeSum += (c.volume || 1);
+        vwap[i] = volumeSum > 0 ? pvSum / volumeSum : c.close;
+    }
+    return vwap;
+}
+
 // ─── Strategy Rule Compiler ──────────────────────────────────────────────────
 function compileExpression(expression, keys) {
     if (!expression) return () => false;
@@ -5985,6 +6279,12 @@ app.post('/api/backtest', requireAuth, async (req, res) => {
                 indicatorArrays[key] = calculateEMA(closePrices, period);
             } else if (type === 'SMA') {
                 indicatorArrays[key] = calculateSMA(closePrices, period);
+            } else if (type === 'WMA') {
+                indicatorArrays[key] = calculateWMA(closePrices, period);
+            } else if (type === 'DEMA') {
+                indicatorArrays[key] = calculateDEMA(closePrices, period);
+            } else if (type === 'TEMA') {
+                indicatorArrays[key] = calculateTEMA(closePrices, period);
             } else if (type === 'RSI') {
                 indicatorArrays[key] = calculateRSI(closePrices, period);
             } else if (type === 'ATR') {
@@ -5999,6 +6299,57 @@ app.post('/api/backtest', requireAuth, async (req, res) => {
                 indicatorArrays[`${key}_middle`] = bbRes.middle;
                 indicatorArrays[`${key}_upper`] = bbRes.upper;
                 indicatorArrays[`${key}_lower`] = bbRes.lower;
+            } else if (type === 'SUPERTREND') {
+                const stRes = calculateSupertrendArray(candles, period || 10, def.multiplier || 3);
+                indicatorArrays[key] = stRes.supertrend;
+                indicatorArrays[`${key}_trend`] = stRes.trend;
+            } else if (type === 'ADX') {
+                const adxRes = calculateADX(candles, period);
+                indicatorArrays[key] = adxRes.adx;
+                indicatorArrays[`${key}_plus`] = adxRes.plusDI;
+                indicatorArrays[`${key}_minus`] = adxRes.minusDI;
+            } else if (type === 'WILLIAMS' || type === 'WILLIAMS_R') {
+                indicatorArrays[key] = calculateWilliamsRArray(candles, period);
+            } else if (type === 'AROON') {
+                const aroonRes = calculateAroonArray(candles, period || 25);
+                indicatorArrays[`${key}_up`] = aroonRes.up;
+                indicatorArrays[`${key}_down`] = aroonRes.down;
+                indicatorArrays[`${key}_osc`] = aroonRes.osc;
+            } else if (type === 'CCI') {
+                indicatorArrays[key] = calculateCCIArray(candles, period || 20);
+            } else if (type === 'STOCHASTIC' || type === 'STOCH') {
+                const stochRes = calculateStochasticArray(candles, period || 14, def.dPeriod || 3);
+                indicatorArrays[`${key}_k`] = stochRes.k;
+                indicatorArrays[`${key}_d`] = stochRes.d;
+            } else if (type === 'MFI') {
+                indicatorArrays[key] = calculateMFIArray(candles, period || 14);
+            } else if (type === 'ICHIMOKU') {
+                const ichiRes = calculateIchimokuArray(candles);
+                indicatorArrays[`${key}_tenkan`] = ichiRes.tenkan;
+                indicatorArrays[`${key}_kijun`] = ichiRes.kijun;
+                indicatorArrays[`${key}_spanA`] = ichiRes.spanA;
+                indicatorArrays[`${key}_spanB`] = ichiRes.spanB;
+                indicatorArrays[`${key}_chikou`] = ichiRes.chikou;
+            } else if (type === 'AO' || type === 'AWESOME') {
+                indicatorArrays[key] = calculateAwesomeOscillatorArray(candles);
+            } else if (type === 'PARABOLIC_SAR' || type === 'PSAR' || type === 'SAR') {
+                indicatorArrays[key] = calculateParabolicSARArray(candles, def.step || 0.02, def.maxStep || 0.2);
+            } else if (type === 'OBV') {
+                indicatorArrays[key] = calculateOBVArray(candles);
+            } else if (type === 'STOCH_RSI') {
+                indicatorArrays[key] = calculateStochRSIArray(candles, period || 14);
+            } else if (type === 'CMF') {
+                indicatorArrays[key] = calculateCMFArray(candles, period || 20);
+            } else if (type === 'LINEAR_REGRESSION' || type === 'LINREG') {
+                indicatorArrays[key] = calculateLinearRegressionArray(closePrices, period || 14);
+            } else if (type === 'VOLUME_OSCILLATOR' || type === 'VOL_OSC') {
+                indicatorArrays[key] = calculateVolumeOscillatorArray(candles);
+            } else if (type === 'MOMENTUM' || type === 'MOM') {
+                indicatorArrays[key] = calculateMomentumArray(closePrices, period || 10);
+            } else if (type === 'ROC') {
+                indicatorArrays[key] = calculateROCArray(closePrices, period || 10);
+            } else if (type === 'VWAP') {
+                indicatorArrays[key] = calculateVWAPArray(candles);
             } else {
                 return res.status(400).json({ error: `Unsupported indicator type: ${type}` });
             }
@@ -6009,13 +6360,23 @@ app.post('/api/backtest', requireAuth, async (req, res) => {
         // 3. Compile Entry Rules
         const keys = Object.keys(indicatorDefinitions);
         const allKeys = [...keys, 'close', 'open', 'high', 'low', 'volume', 'atr'];
-        // Also map MACD and Bollinger Bands sub-keys
+        // Also map sub-keys for complex indicators
         for (const [key, def] of Object.entries(indicatorDefinitions)) {
             const type = def.type.toUpperCase();
             if (type === 'MACD') {
                 allKeys.push(`${key}_signal`, `${key}_hist`);
             } else if (type === 'BOLLINGER' || type === 'BB') {
                 allKeys.push(`${key}_middle`, `${key}_upper`, `${key}_lower`);
+            } else if (type === 'SUPERTREND') {
+                allKeys.push(`${key}_trend`);
+            } else if (type === 'ADX') {
+                allKeys.push(`${key}_plus`, `${key}_minus`);
+            } else if (type === 'AROON') {
+                allKeys.push(`${key}_up`, `${key}_down`, `${key}_osc`);
+            } else if (type === 'STOCHASTIC' || type === 'STOCH') {
+                allKeys.push(`${key}_k`, `${key}_d`);
+            } else if (type === 'ICHIMOKU') {
+                allKeys.push(`${key}_tenkan`, `${key}_kijun`, `${key}_spanA`, `${key}_spanB`, `${key}_chikou`);
             }
         }
         

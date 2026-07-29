@@ -2662,9 +2662,32 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
     const indicatorsConfig = {
       indicators: {
-        ema_fast: { type: 'EMA', period: Number(fastEmaPeriod) },
-        ema_slow: { type: 'EMA', period: Number(slowEmaPeriod) },
-        rsi: { type: 'RSI', period: Number(rsiPeriod) }
+        ema_fast: { type: 'EMA', period: Number(fastEmaPeriod) || 20 },
+        ema_slow: { type: 'EMA', period: Number(slowEmaPeriod) || 50 },
+        rsi: { type: 'RSI', period: Number(rsiPeriod) || 14 },
+        wma: { type: 'WMA', period: 20 },
+        dema: { type: 'DEMA', period: 20 },
+        tema: { type: 'TEMA', period: 20 },
+        supertrend: { type: 'SUPERTREND', period: 10, multiplier: 3 },
+        adx: { type: 'ADX', period: 14 },
+        williams: { type: 'WILLIAMS_R', period: 14 },
+        aroon: { type: 'AROON', period: 25 },
+        cci: { type: 'CCI', period: 20 },
+        stoch: { type: 'STOCHASTIC', period: 14, dPeriod: 3 },
+        mfi: { type: 'MFI', period: 14 },
+        ichimoku: { type: 'ICHIMOKU' },
+        ao: { type: 'AO' },
+        psar: { type: 'PARABOLIC_SAR', step: 0.02, maxStep: 0.2 },
+        obv: { type: 'OBV' },
+        stoch_rsi: { type: 'STOCH_RSI', period: 14 },
+        cmf: { type: 'CMF', period: 20 },
+        linreg: { type: 'LINEAR_REGRESSION', period: 14 },
+        vol_osc: { type: 'VOLUME_OSCILLATOR' },
+        mom: { type: 'MOMENTUM', period: 10 },
+        roc: { type: 'ROC', period: 10 },
+        vwap: { type: 'VWAP' },
+        macd: { type: 'MACD', fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+        bb: { type: 'BOLLINGER', period: 20, stdDevMultiplier: 2 }
       },
       buy_signal: buySignalExpr,
       sell_signal: sellSignalExpr
@@ -4123,8 +4146,44 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         <label htmlFor="allow-shorting" className="text-slate-300 font-semibold text-xs cursor-pointer">Allow Short Positions</label>
                       </div>
 
+                      {/* 1-Click Backtest Strategy Presets Bar */}
+                      <div className="md:col-span-2 flex flex-col gap-2 border-t border-white/5 pt-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider font-display flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            1-Click Indicator Backtest Presets:
+                          </label>
+                          <span className="text-[10px] text-indigo-300 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                            27 Indicators Enabled
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { label: '⚡ Supertrend & RSI', buy: 'close > supertrend && rsi > 60', sell: 'close < supertrend || rsi < 40' },
+                            { label: '📈 Golden Cross + ADX', buy: 'ema_fast > ema_slow && adx > 25', sell: 'ema_fast < ema_slow' },
+                            { label: '📊 Bollinger Squeeze + MFI', buy: 'close > bb_upper && mfi > 55', sell: 'close < bb_middle' },
+                            { label: '📉 MACD & Stochastic', buy: 'macd_hist > 0 && stoch_k > 70', sell: 'macd_hist < 0 || stoch_k < 30' },
+                            { label: '☁️ Ichimoku & OBV', buy: 'close > ichimoku_spanA && obv > 0', sell: 'close < ichimoku_spanA' },
+                            { label: '🎯 Parabolic SAR & VWAP', buy: 'close > psar && close > vwap && cci > 100', sell: 'close < psar || close < vwap' },
+                            { label: '🚀 LinReg & Momentum', buy: 'close > linreg && mom > 0 && roc > 1.0', sell: 'close < linreg || mom < 0' }
+                          ].map((p, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                setBuySignalExpr(p.buy);
+                                setSellSignalExpr(p.sell);
+                              }}
+                              className="px-2.5 py-1 bg-white/5 hover:bg-indigo-600/30 border border-white/10 hover:border-indigo-500/40 rounded-lg text-xs font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       {/* Interactive Form for Indicators */}
-                      <div className="md:col-span-2 grid grid-cols-3 gap-3 border-t border-white/5 pt-3">
+                      <div className="md:col-span-2 grid grid-cols-3 gap-3">
                         <div className="flex flex-col gap-1 text-xs">
                           <label className="text-slate-400 font-semibold">Fast EMA Period</label>
                           <input 
