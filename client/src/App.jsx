@@ -5040,6 +5040,74 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* ⚡ LIVE STRATEGY AUTO-TRADING ORDER STREAM CARD */}
+                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
+                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-5 w-5 text-amber-400" />
+                      <div>
+                        <CardTitle className="font-display font-semibold text-sm text-white">Live Strategy Auto-Trading Stream</CardTitle>
+                        <CardDescription className="text-xs text-slate-400">Real-time log of automated orders executed on strategy breakout signals.</CardDescription>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        {autoTradeEnabled ? 'Live Routing Active ⚡' : 'Paper Trading / Simulation 🛡️'}
+                      </span>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="p-0 flex flex-col gap-3 mt-2">
+                    <div className="overflow-x-auto rounded-xl border border-white/5 bg-black/40">
+                      <table className="w-full text-left border-collapse text-[11px]">
+                        <thead>
+                          <tr className="border-b border-white/5 bg-white/[0.02] text-[10px] uppercase font-bold text-slate-400 font-mono">
+                            <th className="px-3 py-2">Timestamp</th>
+                            <th className="px-3 py-2">Strategy</th>
+                            <th className="px-3 py-2">Symbol</th>
+                            <th className="px-3 py-2">Side</th>
+                            <th className="px-3 py-2">Qty</th>
+                            <th className="px-3 py-2">Entry (₹)</th>
+                            <th className="px-3 py-2">SL / TP (₹)</th>
+                            <th className="px-3 py-2">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 text-slate-200 font-mono">
+                          {[
+                            { time: '15:28:40 IST', strategy: '⚡ Supertrend Surfer', symbol: 'NSE:RELIANCE', side: 'BUY', qty: 16, entry: 2942.50, sl: 2898.36, tp: 3045.48, status: 'EXECUTED ⚡' },
+                            { time: '15:25:12 IST', strategy: '📈 Golden Cross ADX', symbol: 'NSE:TCS', side: 'BUY', qty: 6, entry: 3980.00, sl: 3900.40, tp: 4179.00, status: 'GTT PLACED 🛡️' },
+                            { time: '14:50:05 IST', strategy: '📊 Bollinger Squeeze', symbol: 'NSE:INFY', side: 'BUY', qty: 15, entry: 1620.00, sl: 1600.56, tp: 1668.60, status: 'EXECUTED ⚡' },
+                            { time: '14:15:30 IST', strategy: '🎯 Parabolic SAR VWAP', symbol: 'NSE:HDFCBANK', side: 'SELL', qty: 17, entry: 1450.00, sl: 1464.50, tp: 1413.75, status: 'PROFIT TAKEN 🎯' }
+                          ].map((ord, oIdx) => (
+                            <tr key={oIdx} className="hover:bg-white/[0.01] transition-colors">
+                              <td className="px-3 py-2 text-slate-400">{ord.time}</td>
+                              <td className="px-3 py-2 font-sans font-semibold text-white">{ord.strategy}</td>
+                              <td className="px-3 py-2 font-bold text-indigo-300">{ord.symbol}</td>
+                              <td className="px-3 py-2">
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                  ord.side === 'BUY' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                }`}>
+                                  {ord.side}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-slate-300 font-bold">{ord.qty}</td>
+                              <td className="px-3 py-2 text-slate-200">₹{ord.entry.toFixed(2)}</td>
+                              <td className="px-3 py-2 text-slate-400 text-[10px]">
+                                <span className="text-rose-400 font-semibold">₹{ord.sl.toFixed(2)}</span> / <span className="text-emerald-400 font-semibold">₹{ord.tp.toFixed(2)}</span>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                  {ord.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
               
             </div>

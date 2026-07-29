@@ -900,8 +900,31 @@ app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── ADMIN DB SYNC ENDPOINTS ──────────────────────────────────────────────────
-app.get('/api/admin/sync-status', async (req, res) => {
+// Global Historical Sync State (Declared before route handlers)
+var historicalSyncStatus = {
+    status: 'idle',
+    progress: 0,
+    currentSymbol: '',
+    processedCount: 0,
+    totalCount: 0,
+    logs: [],
+    lastSyncDate: ''
+};
+
+function formatSecondsToMinSec(totalSec) {
+    if (!totalSec || totalSec <= 0) return "Complete";
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    if (mins >= 60) {
+        const hrs = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        return `~${hrs} hr${hrs > 1 ? 's' : ''} ${remMins} min${remMins > 1 ? 's' : ''}`;
+    }
+    return `~${mins} min${mins !== 1 ? 's' : ''} ${secs} sec${secs !== 1 ? 's' : ''}`;
+}
+
+// ─── ADMIN DB SYNC ENDPOINTS (All URL variations supported) ─────────────────
+app.get(['/api/admin/sync-status', '/admin/sync-status', '/api/admin/historical-sync/status'], async (req, res) => {
     try {
         const totalInstruments = await Instrument.countDocuments({});
         const intervalCounts = {};
@@ -912,7 +935,7 @@ app.get('/api/admin/sync-status', async (req, res) => {
         }
         const totalCandlesCount = Object.values(intervalCounts).reduce((a, b) => a + b, 0);
         
-        const remainingToSync = Math.max(0, (totalInstruments || 100) * 8 - (historicalSyncStatus.processedSymbols || 0));
+        const remainingToSync = Math.max(0, (totalInstruments || 100) * 8 - (historicalSyncStatus.processedCount || 0));
         const estSecondsRemaining = historicalSyncStatus.status === 'running' 
             ? Math.round(remainingToSync * 0.8)
             : Math.round((totalInstruments || 100) * 8 * 0.8);
@@ -922,16 +945,17 @@ app.get('/api/admin/sync-status', async (req, res) => {
             totalInstruments,
             intervalCounts,
             totalCandlesCount,
+            status: historicalSyncStatus,
             syncState: historicalSyncStatus,
             estSecondsRemaining,
-            estTimeFormatted: formatSecondsToMinSec ? formatSecondsToMinSec(estSecondsRemaining) : `~${Math.round(estSecondsRemaining/60)} mins`
+            estTimeFormatted: formatSecondsToMinSec(estSecondsRemaining)
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/admin/sync-db', async (req, res) => {
+app.post(['/api/admin/sync-db', '/admin/sync-db', '/api/admin/historical-sync/start'], async (req, res) => {
     if (historicalSyncStatus.status === 'running') {
         return res.status(400).json({ error: 'DB sync is already running in background', syncState: historicalSyncStatus });
     }
