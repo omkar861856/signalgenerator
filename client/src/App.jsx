@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { HashRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { 
   TrendingUp, TrendingDown, Shield, ShieldAlert, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
@@ -13,6 +14,53 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import BacktestPlatform from './components/BacktestPlatform';
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[React ErrorBoundary Intercepted Error]:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-[#070a12] text-white flex flex-col items-center justify-center p-6 font-sans">
+          <div className="max-w-md w-full glass-panel p-6 rounded-2xl border border-rose-500/30 flex flex-col gap-4 text-center bg-[#0b0f19] shadow-2xl">
+            <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-400">
+              <Shield className="h-6 w-6" />
+            </div>
+            <h2 className="text-lg font-bold font-display text-white">Platform View Recovered</h2>
+            <p className="text-xs text-slate-400">
+              A rendering exception occurred in this view. Click below to reset state and return safely to Dashboard.
+            </p>
+            <div className="bg-black/50 p-3 rounded-xl border border-white/5 text-[11px] font-mono text-rose-300 text-left overflow-x-auto max-h-32">
+              {this.state.error?.toString() || 'Unknown Rendering Exception'}
+            </div>
+            <button
+              onClick={() => {
+                localStorage.clear();
+                window.location.hash = '#/dashboard';
+                window.location.reload();
+              }}
+              className="py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all border-0 cursor-pointer shadow-lg shadow-indigo-600/20"
+            >
+              Reset & Reload Workspace ⚡
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Formatting helper
 const formatCurrency = (val) => {
@@ -96,35 +144,19 @@ function StockAvatar({ symbol = 'STK', size = 'sm' }) {
   );
 }
 
-export default function App() {
-  // Navigation & Views with URL Hash Routing
-  const [view, setViewState] = useState(() => {
-    if (typeof window !== 'undefined' && window.location.hash) {
-      const h = window.location.hash.replace('#', '').trim();
-      if (['dashboard', 'scanners', 'charts', 'strategies', 'fno', 'monitoring', 'admin'].includes(h)) {
-        return h;
-      }
-    }
-    return 'dashboard';
-  });
+function AppContent() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Navigation & Views driven by React Router
+  const pathSegment = location.pathname.replace(/^\//, '').trim();
+  const view = ['dashboard', 'scanners', 'charts', 'strategies', 'fno', 'monitoring', 'admin'].includes(pathSegment)
+    ? pathSegment
+    : 'dashboard';
 
   const setView = useCallback((nextView) => {
-    setViewState(nextView);
-    if (typeof window !== 'undefined') {
-      window.location.hash = '#' + nextView;
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleHashChange = () => {
-      const h = window.location.hash.replace('#', '').trim();
-      if (['dashboard', 'scanners', 'charts', 'strategies', 'fno', 'monitoring', 'admin'].includes(h)) {
-        setViewState(h);
-      }
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    navigate('/' + nextView);
+  }, [navigate]);
 
   // Scanner Alert Subscriptions State
   const [subscribedAlerts, setSubscribedAlerts] = useState(() => {
@@ -582,10 +614,7 @@ export default function App() {
   const fetchCandles = useCallback(async () => {
     if (!chartSymbol) {
       setChartError('Symbol is required');
-      return;
-    }
-    if (!appConfig.hasAccessToken) {
-      setChartError('Not authenticated. Click "Connect Zerodha".');
+      setChartLoading(false);
       return;
     }
     setChartLoading(true);
@@ -9913,5 +9942,15 @@ function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subs
         </Dialog>
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <HashRouter>
+        <AppContent />
+      </HashRouter>
+    </ErrorBoundary>
   );
 }
