@@ -97,8 +97,34 @@ function StockAvatar({ symbol = 'STK', size = 'sm' }) {
 }
 
 export default function App() {
-  // Navigation & Views
-  const [view, setView] = useState('dashboard'); // 'dashboard' | 'scanners' | 'admin' | 'strategies'
+  // Navigation & Views with URL Hash Routing
+  const [view, setViewState] = useState(() => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const h = window.location.hash.replace('#', '').trim();
+      if (['dashboard', 'scanners', 'charts', 'strategies', 'fno', 'monitoring', 'admin'].includes(h)) {
+        return h;
+      }
+    }
+    return 'dashboard';
+  });
+
+  const setView = useCallback((nextView) => {
+    setViewState(nextView);
+    if (typeof window !== 'undefined') {
+      window.location.hash = '#' + nextView;
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const h = window.location.hash.replace('#', '').trim();
+      if (['dashboard', 'scanners', 'charts', 'strategies', 'fno', 'monitoring', 'admin'].includes(h)) {
+        setViewState(h);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   // Scanner Alert Subscriptions State
   const [subscribedAlerts, setSubscribedAlerts] = useState(() => {
@@ -4279,7 +4305,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 {/* Admin System Position Exit Logic Reference Card */}
                 <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
                   <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
-                    <ShieldAlert className="h-5 w-5 text-amber-400" />
+                    <Shield className="h-5 w-5 text-amber-400" />
                     <div>
                       <CardTitle className="font-display font-semibold text-sm text-white">System Position Exit Rules & Safeguards (Admin Manual)</CardTitle>
                       <CardDescription className="text-xs text-slate-400">Complete specifications for automatic position exits, safety switches, and risk limits</CardDescription>
