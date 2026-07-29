@@ -12,7 +12,7 @@ RUN cargo build --release
 # Minimal runtime image
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates libgcc
+RUN apk add --no-cache ca-certificates libgcc curl
 
 WORKDIR /app
 COPY --from=builder /usr/src/quant-engine/target/release/quant-engine /app/quant-engine
