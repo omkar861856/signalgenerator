@@ -924,7 +924,7 @@ function formatSecondsToMinSec(totalSec) {
 }
 
 // ─── ADMIN DB SYNC ENDPOINTS (All URL variations supported) ─────────────────
-app.get(['/api/admin/sync-status', '/admin/sync-status', '/api/admin/historical-sync/status'], async (req, res) => {
+app.get(['/api/admin/sync-status', '/admin/sync-status'], async (req, res) => {
     // Set a 5s deadline so this never causes a 504
     res.setTimeout(5000, () => {
         if (!res.headersSent) {
