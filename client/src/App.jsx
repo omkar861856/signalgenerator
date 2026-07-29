@@ -3085,10 +3085,6 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 <div className="px-5 py-4 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Brain className="h-5 w-5 text-indigo-400 animate-pulse" />
-                    <div>
-                      <h3 className="font-display font-semibold text-sm">Portfolio Strategist Chat</h3>
-                      <p className="text-[10px] text-slate-400">Powered by OpenAI GPT & local technical analysis tools</p>
-                    </div>
                   </div>
 
                   {/* Mode and Margin selector toggle */}

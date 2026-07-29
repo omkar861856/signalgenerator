@@ -5350,6 +5350,119 @@ function calculateBollingerBands(prices, period = 20, stdDevMultiplier = 2) {
     return { middle, upper, lower };
 }
 
+function calculateWMA(prices, period = 20) {
+    const wma = new Array(prices.length).fill(null);
+    const weightSum = (period * (period + 1)) / 2;
+    for (let i = period - 1; i < prices.length; i++) {
+        let weightedSum = 0;
+        for (let j = 0; j < period; j++) {
+            weightedSum += prices[i - period + 1 + j] * (j + 1);
+        }
+        wma[i] = weightedSum / weightSum;
+    }
+    return wma;
+}
+
+function calculateDEMA(prices, period = 20) {
+    const ema1 = calculateEMA(prices, period);
+    const validStart = ema1.findIndex(v => v !== null);
+    const dema = new Array(prices.length).fill(null);
+    if (validStart === -1) return dema;
+    
+    const ema1Sub = ema1.slice(validStart);
+    const ema2Sub = calculateEMA(ema1Sub, period);
+    
+    for (let i = 0; i < ema2Sub.length; i++) {
+        if (ema1Sub[i] !== null && ema2Sub[i] !== null) {
+            dema[validStart + i] = 2 * ema1Sub[i] - ema2Sub[i];
+        }
+    }
+    return dema;
+}
+
+function calculateTEMA(prices, period = 20) {
+    const ema1 = calculateEMA(prices, period);
+    const validStart1 = ema1.findIndex(v => v !== null);
+    const tema = new Array(prices.length).fill(null);
+    if (validStart1 === -1) return tema;
+    
+    const ema1Sub = ema1.slice(validStart1);
+    const ema2Sub = calculateEMA(ema1Sub, period);
+    const validStart2 = ema2Sub.findIndex(v => v !== null);
+    if (validStart2 === -1) return tema;
+    
+    const ema2Sub2 = ema2Sub.slice(validStart2);
+    const ema3Sub = calculateEMA(ema2Sub2, period);
+    
+    const offset = validStart1 + validStart2;
+    for (let i = 0; i < ema3Sub.length; i++) {
+        const e1 = ema1Sub[validStart2 + i];
+        const e2 = ema2Sub2[i];
+        const e3 = ema3Sub[i];
+        if (e1 !== null && e2 !== null && e3 !== null) {
+            tema[offset + i] = 3 * e1 - 3 * e2 + e3;
+        }
+    }
+    return tema;
+}
+
+function calculateADX(candles, period = 14) {
+    const adx = new Array(candles.length).fill(null);
+    const plusDI = new Array(candles.length).fill(null);
+    const minusDI = new Array(candles.length).fill(null);
+    if (candles.length <= period) return { adx, plusDI, minusDI };
+
+    const tr = new Array(candles.length).fill(0);
+    const pDM = new Array(candles.length).fill(0);
+    const mDM = new Array(candles.length).fill(0);
+
+    for (let i = 1; i < candles.length; i++) {
+        const upMove = candles[i].high - candles[i - 1].high;
+        const downMove = candles[i - 1].low - candles[i].low;
+
+        pDM[i] = (upMove > downMove && upMove > 0) ? upMove : 0;
+        mDM[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
+
+        tr[i] = Math.max(
+            candles[i].high - candles[i].low,
+            Math.abs(candles[i].high - candles[i - 1].close),
+            Math.abs(candles[i].low - candles[i - 1].close)
+        );
+    }
+
+    let smoothTr = tr.slice(1, period + 1).reduce((a, b) => a + b, 0);
+    let smoothPDM = pDM.slice(1, period + 1).reduce((a, b) => a + b, 0);
+    let smoothMDM = mDM.slice(1, period + 1).reduce((a, b) => a + b, 0);
+
+    const dxArr = new Array(candles.length).fill(null);
+
+    for (let i = period; i < candles.length; i++) {
+        if (i > period) {
+            smoothTr = smoothTr - (smoothTr / period) + tr[i];
+            smoothPDM = smoothPDM - (smoothPDM / period) + pDM[i];
+            smoothMDM = smoothMDM - (smoothMDM / period) + mDM[i];
+        }
+
+        const pDI = smoothTr > 0 ? (smoothPDM / smoothTr) * 100 : 0;
+        const mDI = smoothTr > 0 ? (smoothMDM / smoothTr) * 100 : 0;
+        plusDI[i] = pDI;
+        minusDI[i] = mDI;
+
+        const sumDI = pDI + mDI;
+        dxArr[i] = sumDI > 0 ? (Math.abs(pDI - mDI) / sumDI) * 100 : 0;
+    }
+
+    const validDxStart = dxArr.findIndex(v => v !== null);
+    if (validDxStart !== -1) {
+        const dxSub = dxArr.slice(validDxStart);
+        const adxSub = calculateEMA(dxSub, period);
+        for (let i = 0; i < adxSub.length; i++) {
+            adx[validDxStart + i] = adxSub[i];
+        }
+    }
+    return { adx, plusDI, minusDI };
+}
+
 // ─── Strategy Rule Compiler ──────────────────────────────────────────────────
 function compileExpression(expression, keys) {
     if (!expression) return () => false;

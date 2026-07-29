@@ -401,23 +401,82 @@ function updateCandlesWithTick(token, ltp, volume, high, low, open, close) {
 }
 
 // Technical Indicator Calculations
+
+// 1. SMA (Simple Moving Average)
 function calculateSMA(candles, period = 20) {
     if (!candles || candles.length < period) return 0;
     const slice = candles.slice(-period);
-    const sum = slice.reduce((acc, c) => acc + c.close, 0);
+    const sum = slice.reduce((acc, c) => acc + (c.close !== undefined ? c.close : c), 0);
     return sum / period;
 }
 
+// 2. EMA (Exponential Moving Average)
 function calculateEMA(candles, period = 20) {
     if (!candles || candles.length < period) return 0;
     const k = 2 / (period + 1);
-    let ema = candles[0].close;
+    let ema = candles[0].close !== undefined ? candles[0].close : candles[0];
     for (let i = 1; i < candles.length; i++) {
-        ema = candles[i].close * k + ema * (1 - k);
+        const val = candles[i].close !== undefined ? candles[i].close : candles[i];
+        ema = val * k + ema * (1 - k);
     }
     return ema;
 }
 
+// 3. WMA (Weighted Moving Average)
+function calculateWMA(candles, period = 20) {
+    if (!candles || candles.length < period) return 0;
+    const slice = candles.slice(-period);
+    let weightedSum = 0;
+    let weightSum = 0;
+    for (let i = 0; i < period; i++) {
+        const weight = i + 1;
+        const val = slice[i].close !== undefined ? slice[i].close : slice[i];
+        weightedSum += val * weight;
+        weightSum += weight;
+    }
+    return weightSum > 0 ? weightedSum / weightSum : 0;
+}
+
+// 4. DEMA (Double EMA: 2 * EMA - EMA(EMA))
+function calculateDEMA(candles, period = 20) {
+    if (!candles || candles.length < period * 2) return calculateEMA(candles, period);
+    const ema1 = calculateEMA(candles, period);
+    const k = 2 / (period + 1);
+    const emaArr = [];
+    let current = candles[0].close !== undefined ? candles[0].close : candles[0];
+    for (let i = 0; i < candles.length; i++) {
+        const val = candles[i].close !== undefined ? candles[i].close : candles[i];
+        current = val * k + current * (1 - k);
+        emaArr.push(current);
+    }
+    const emaEma = calculateEMA(emaArr, period);
+    return 2 * ema1 - emaEma;
+}
+
+// 5. TEMA (Triple EMA: 3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA)))
+function calculateTEMA(candles, period = 20) {
+    if (!candles || candles.length < period * 3) return calculateDEMA(candles, period);
+    const k = 2 / (period + 1);
+    const ema1Arr = [];
+    let curr1 = candles[0].close !== undefined ? candles[0].close : candles[0];
+    for (let i = 0; i < candles.length; i++) {
+        const val = candles[i].close !== undefined ? candles[i].close : candles[i];
+        curr1 = val * k + curr1 * (1 - k);
+        ema1Arr.push(curr1);
+    }
+    const ema2Arr = [];
+    let curr2 = ema1Arr[0];
+    for (let i = 0; i < ema1Arr.length; i++) {
+        curr2 = ema1Arr[i] * k + curr2 * (1 - k);
+        ema2Arr.push(curr2);
+    }
+    const ema3 = calculateEMA(ema2Arr, period);
+    const ema2 = ema2Arr[ema2Arr.length - 1];
+    const ema1 = ema1Arr[ema1Arr.length - 1];
+    return 3 * ema1 - 3 * ema2 + ema3;
+}
+
+// 6. RSI (Relative Strength Index)
 function calculateRSI(candles, period = 14) {
     if (!candles || candles.length <= period) return 50;
     let gains = 0;
@@ -443,31 +502,37 @@ function calculateRSI(candles, period = 14) {
     return 100 - (100 / (1 + rs));
 }
 
-function calculateMACD(candles) {
-    if (!candles || candles.length < 26) return { macd: 0, signal: 0, histogram: 0 };
-    const ema12 = calculateEMA(candles, 12);
-    const ema26 = calculateEMA(candles, 26);
-    const macd = ema12 - ema26;
+// 7. MACD
+function calculateMACD(candles, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+    if (!candles || candles.length < slowPeriod) return { macd: 0, signal: 0, histogram: 0 };
+    const emaFast = calculateEMA(candles, fastPeriod);
+    const emaSlow = calculateEMA(candles, slowPeriod);
+    const macd = emaFast - emaSlow;
+    const signal = macd * 0.9;
     return {
         macd,
-        signal: macd * 0.9,
-        histogram: macd - (macd * 0.9)
+        signal,
+        histogram: macd - signal
     };
 }
 
+// 8. Bollinger Bands (%B and Bandwidth included)
 function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
-    if (!candles || candles.length < period) return { middle: 0, upper: 0, lower: 0, bandwidth: 0 };
+    if (!candles || candles.length < period) return { middle: 0, upper: 0, lower: 0, bandwidth: 0, percentB: 0.5 };
     const slice = candles.slice(-period);
-    const sum = slice.reduce((acc, c) => acc + c.close, 0);
+    const sum = slice.reduce((acc, c) => acc + (c.close !== undefined ? c.close : c), 0);
     const middle = sum / period;
-    const variance = slice.reduce((acc, c) => acc + Math.pow(c.close - middle, 2), 0) / period;
+    const variance = slice.reduce((acc, c) => acc + Math.pow((c.close !== undefined ? c.close : c) - middle, 2), 0) / period;
     const stdDev = Math.sqrt(variance);
     const upper = middle + stdDevMultiplier * stdDev;
     const lower = middle - stdDevMultiplier * stdDev;
     const bandwidth = middle > 0 ? ((upper - lower) / middle) * 100 : 0;
-    return { middle, upper, lower, bandwidth };
+    const lastClose = candles[candles.length - 1]?.close || middle;
+    const percentB = (upper - lower) > 0 ? (lastClose - lower) / (upper - lower) : 0.5;
+    return { middle, upper, lower, bandwidth, percentB };
 }
 
+// 9. VWAP (Volume Weighted Average Price)
 function calculateVWAP(candles) {
     if (!candles || candles.length === 0) return 0;
     let pvSum = 0;
@@ -479,6 +544,15 @@ function calculateVWAP(candles) {
         volumeSum += c.volume;
     });
     return volumeSum > 0 ? (pvSum / volumeSum) : (candles[candles.length - 1]?.close || 0);
+}
+
+// 10. ATR & True Range
+function calculateTR(candles) {
+    if (!candles || candles.length === 0) return 0;
+    const last = candles[candles.length - 1];
+    if (candles.length === 1) return last.high - last.low;
+    const prev = candles[candles.length - 2];
+    return Math.max(last.high - last.low, Math.abs(last.high - prev.close), Math.abs(last.low - prev.close));
 }
 
 function calculateATR(candles, period = 14) {
@@ -494,14 +568,313 @@ function calculateATR(candles, period = 14) {
     return trSum / period;
 }
 
+// 11. ADX (+DI, -DI, ADX)
+function calculateADX(candles, period = 14) {
+    if (!candles || candles.length <= period) return { adx: 0, plusDI: 0, minusDI: 0 };
+    let plusDM = 0;
+    let minusDM = 0;
+    let trSum = 0;
+
+    for (let i = candles.length - period; i < candles.length; i++) {
+        const upMove = candles[i].high - candles[i - 1].high;
+        const downMove = candles[i - 1].low - candles[i].low;
+
+        plusDM += (upMove > downMove && upMove > 0) ? upMove : 0;
+        minusDM += (downMove > upMove && downMove > 0) ? downMove : 0;
+
+        const tr = Math.max(
+            candles[i].high - candles[i].low,
+            Math.abs(candles[i].high - candles[i - 1].close),
+            Math.abs(candles[i].low - candles[i - 1].close)
+        );
+        trSum += tr;
+    }
+
+    if (trSum === 0) return { adx: 0, plusDI: 0, minusDI: 0 };
+    const plusDI = (plusDM / trSum) * 100;
+    const minusDI = (minusDM / trSum) * 100;
+    const dx = (plusDI + minusDI) > 0 ? (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100 : 0;
+    return { adx: dx, plusDI, minusDI };
+}
+
+// 12. Supertrend (ATR Bands with Multiplier)
+function calculateSupertrend(candles, period = 10, multiplier = 3) {
+    if (!candles || candles.length < period) return { supertrend: 0, trend: 1 };
+    const atr = calculateATR(candles, period);
+    const last = candles[candles.length - 1];
+    const hl2 = (last.high + last.low) / 2;
+    const basicUpper = hl2 + multiplier * atr;
+    const basicLower = hl2 - multiplier * atr;
+    const isBullish = last.close >= basicLower;
+    return {
+        supertrend: isBullish ? basicLower : basicUpper,
+        trend: isBullish ? 1 : -1
+    };
+}
+
+// 13. Williams %R
+function calculateWilliamsR(candles, period = 14) {
+    if (!candles || candles.length < period) return -50;
+    const slice = candles.slice(-period);
+    const highestHigh = Math.max(...slice.map(c => c.high));
+    const lowestLow = Math.min(...slice.map(c => c.low));
+    const close = candles[candles.length - 1].close;
+    if (highestHigh === lowestLow) return -50;
+    return ((highestHigh - close) / (highestHigh - lowestLow)) * -100;
+}
+
+// 14. Aroon (Aroon Up, Aroon Down, Oscillator)
+function calculateAroon(candles, period = 25) {
+    if (!candles || candles.length < period) return { up: 50, down: 50, oscillator: 0 };
+    const slice = candles.slice(-period);
+    let highIdx = 0;
+    let lowIdx = 0;
+    let maxH = -Infinity;
+    let minL = Infinity;
+    
+    for (let i = 0; i < slice.length; i++) {
+        if (slice[i].high >= maxH) { maxH = slice[i].high; highIdx = i; }
+        if (slice[i].low <= minL) { minL = slice[i].low; lowIdx = i; }
+    }
+    
+    const daysSinceHigh = period - 1 - highIdx;
+    const daysSinceLow = period - 1 - lowIdx;
+    const up = ((period - daysSinceHigh) / period) * 100;
+    const down = ((period - daysSinceLow) / period) * 100;
+    return { up, down, oscillator: up - down };
+}
+
+// 15. CCI (Commodity Channel Index)
+function calculateCCI(candles, period = 20) {
+    if (!candles || candles.length < period) return 0;
+    const slice = candles.slice(-period);
+    const tpList = slice.map(c => (c.high + c.low + c.close) / 3);
+    const meanTp = tpList.reduce((a, b) => a + b, 0) / period;
+    const meanDev = tpList.reduce((a, b) => a + Math.abs(b - meanTp), 0) / period;
+    if (meanDev === 0) return 0;
+    const lastTp = tpList[tpList.length - 1];
+    return (lastTp - meanTp) / (0.015 * meanDev);
+}
+
+// 16. Stochastic Oscillator (%K, %D)
+function calculateStochastic(candles, kPeriod = 14, dPeriod = 3) {
+    if (!candles || candles.length < kPeriod) return { percentK: 50, percentD: 50 };
+    const slice = candles.slice(-kPeriod);
+    const highestHigh = Math.max(...slice.map(c => c.high));
+    const lowestLow = Math.min(...slice.map(c => c.low));
+    const close = candles[candles.length - 1].close;
+    if (highestHigh === lowestLow) return { percentK: 50, percentD: 50 };
+    const percentK = ((close - lowestLow) / (highestHigh - lowestLow)) * 100;
+    return { percentK, percentD: percentK };
+}
+
+// 17. Money Flow Index (MFI)
+function calculateMFI(candles, period = 14) {
+    if (!candles || candles.length <= period) return 50;
+    const slice = candles.slice(-(period + 1));
+    let posMf = 0;
+    let negMf = 0;
+    for (let i = 1; i < slice.length; i++) {
+        const tpCurr = (slice[i].high + slice[i].low + slice[i].close) / 3;
+        const tpPrev = (slice[i - 1].high + slice[i - 1].low + slice[i - 1].close) / 3;
+        const mf = tpCurr * (slice[i].volume || 1);
+        if (tpCurr > tpPrev) posMf += mf;
+        else if (tpCurr < tpPrev) negMf += mf;
+    }
+    if (negMf === 0) return 100;
+    const ratio = posMf / negMf;
+    return 100 - (100 / (1 + ratio));
+}
+
+// 18. Ichimoku Cloud
+function calculateIchimoku(candles) {
+    if (!candles || candles.length < 52) return { tenkan: 0, kijun: 0, spanA: 0, spanB: 0, chikou: 0 };
+    const getMid = (arr, len) => {
+        const slice = arr.slice(-len);
+        return (Math.max(...slice.map(c => c.high)) + Math.min(...slice.map(c => c.low))) / 2;
+    };
+    const tenkan = getMid(candles, 9);
+    const kijun = getMid(candles, 26);
+    const spanA = (tenkan + kijun) / 2;
+    const spanB = getMid(candles, 52);
+    const chikou = candles[candles.length - 1].close;
+    return { tenkan, kijun, spanA, spanB, chikou };
+}
+
+// 19. Awesome Oscillator (AO)
+function calculateAwesomeOscillator(candles) {
+    if (!candles || candles.length < 34) return 0;
+    const medianPrices = candles.map(c => (c.high + c.low) / 2);
+    const sma5 = medianPrices.slice(-5).reduce((a, b) => a + b, 0) / 5;
+    const sma34 = medianPrices.slice(-34).reduce((a, b) => a + b, 0) / 34;
+    return sma5 - sma34;
+}
+
+// 20. Parabolic SAR
+function calculateParabolicSAR(candles, step = 0.02, maxStep = 0.2) {
+    if (!candles || candles.length < 2) return { sar: candles[0]?.close || 0, trend: 1 };
+    let isUp = candles[1].close >= candles[0].close;
+    let sar = isUp ? candles[0].low : candles[0].high;
+    let ep = isUp ? candles[0].high : candles[0].low;
+    let af = step;
+
+    for (let i = 1; i < candles.length; i++) {
+        const c = candles[i];
+        sar = sar + af * (ep - sar);
+
+        if (isUp) {
+            if (c.low < sar) {
+                isUp = false;
+                sar = ep;
+                ep = c.low;
+                af = step;
+            } else {
+                if (c.high > ep) {
+                    ep = c.high;
+                    af = Math.min(af + step, maxStep);
+                }
+            }
+        } else {
+            if (c.high > sar) {
+                isUp = true;
+                sar = ep;
+                ep = c.high;
+                af = step;
+            } else {
+                if (c.low < ep) {
+                    ep = c.low;
+                    af = Math.min(af + step, maxStep);
+                }
+            }
+        }
+    }
+    return { sar, trend: isUp ? 1 : -1 };
+}
+
+// 21. On-Balance Volume (OBV)
+function calculateOBV(candles) {
+    if (!candles || candles.length === 0) return 0;
+    let obv = 0;
+    for (let i = 1; i < candles.length; i++) {
+        const diff = candles[i].close - candles[i - 1].close;
+        const vol = candles[i].volume || 0;
+        if (diff > 0) obv += vol;
+        else if (diff < 0) obv -= vol;
+    }
+    return obv;
+}
+
+// 22. Stochastic RSI
+function calculateStochRSI(candles, rsiPeriod = 14, stochPeriod = 14) {
+    if (!candles || candles.length < rsiPeriod + stochPeriod) return { stochRsi: 50, k: 50, d: 50 };
+    const rsiValues = [];
+    for (let i = rsiPeriod; i <= candles.length; i++) {
+        const sub = candles.slice(0, i);
+        rsiValues.push(calculateRSI(sub, rsiPeriod));
+    }
+    const slice = rsiValues.slice(-stochPeriod);
+    const minRsi = Math.min(...slice);
+    const maxRsi = Math.max(...slice);
+    const currRsi = rsiValues[rsiValues.length - 1];
+    if (maxRsi === minRsi) return { stochRsi: 50, k: 50, d: 50 };
+    const stochRsi = ((currRsi - minRsi) / (maxRsi - minRsi)) * 100;
+    return { stochRsi, k: stochRsi, d: stochRsi };
+}
+
+// 23. Chaikin Money Flow (CMF)
+function calculateCMF(candles, period = 20) {
+    if (!candles || candles.length < period) return 0;
+    const slice = candles.slice(-period);
+    let mfVolSum = 0;
+    let volSum = 0;
+
+    slice.forEach(c => {
+        const range = c.high - c.low;
+        const vol = c.volume || 1;
+        const mfMultiplier = range > 0 ? ((c.close - c.low) - (c.high - c.close)) / range : 0;
+        mfVolSum += mfMultiplier * vol;
+        volSum += vol;
+    });
+    return volSum > 0 ? mfVolSum / volSum : 0;
+}
+
+// 24. Linear Regression Forecast
+function calculateLinearRegression(candles, period = 14) {
+    if (!candles || candles.length < period) return candles[candles.length - 1]?.close || 0;
+    const slice = candles.slice(-period);
+    let sumX = 0;
+    let sumY = 0;
+    let sumXY = 0;
+    let sumXX = 0;
+
+    for (let i = 0; i < period; i++) {
+        const x = i;
+        const y = slice[i].close;
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumXX += x * x;
+    }
+
+    const slope = (period * sumXY - sumX * sumY) / (period * sumXX - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / period;
+    return intercept + slope * period;
+}
+
+// 25. Volume Oscillator
+function calculateVolumeOscillator(candles, shortPeriod = 5, longPeriod = 10) {
+    if (!candles || candles.length < longPeriod) return 0;
+    const volumes = candles.map(c => c.volume || 0);
+    const shortSma = volumes.slice(-shortPeriod).reduce((a, b) => a + b, 0) / shortPeriod;
+    const longSma = volumes.slice(-longPeriod).reduce((a, b) => a + b, 0) / longPeriod;
+    return longSma > 0 ? ((shortSma - longSma) / longSma) * 100 : 0;
+}
+
+// 26. Momentum
+function calculateMomentum(candles, period = 10) {
+    if (!candles || candles.length <= period) return 0;
+    const current = candles[candles.length - 1].close;
+    const prev = candles[candles.length - 1 - period].close;
+    return current - prev;
+}
+
+// 27. Price Rate of Change (ROC)
+function calculateROC(candles, period = 10) {
+    if (!candles || candles.length <= period) return 0;
+    const current = candles[candles.length - 1].close;
+    const prev = candles[candles.length - 1 - period].close;
+    return prev > 0 ? ((current - prev) / prev) * 100 : 0;
+}
+
 // Bind indicators to globalThis so new Function(...) contexts can access them globally
 globalThis.calculateSMA = calculateSMA;
 globalThis.calculateEMA = calculateEMA;
+globalThis.calculateWMA = calculateWMA;
+globalThis.calculateDEMA = calculateDEMA;
+globalThis.calculateTEMA = calculateTEMA;
 globalThis.calculateRSI = calculateRSI;
 globalThis.calculateMACD = calculateMACD;
 globalThis.calculateBollingerBands = calculateBollingerBands;
 globalThis.calculateVWAP = calculateVWAP;
 globalThis.calculateATR = calculateATR;
+globalThis.calculateTR = calculateTR;
+globalThis.calculateADX = calculateADX;
+globalThis.calculateSupertrend = calculateSupertrend;
+globalThis.calculateWilliamsR = calculateWilliamsR;
+globalThis.calculateAroon = calculateAroon;
+globalThis.calculateCCI = calculateCCI;
+globalThis.calculateStochastic = calculateStochastic;
+globalThis.calculateMFI = calculateMFI;
+globalThis.calculateIchimoku = calculateIchimoku;
+globalThis.calculateAwesomeOscillator = calculateAwesomeOscillator;
+globalThis.calculateParabolicSAR = calculateParabolicSAR;
+globalThis.calculateOBV = calculateOBV;
+globalThis.calculateStochRSI = calculateStochRSI;
+globalThis.calculateCMF = calculateCMF;
+globalThis.calculateLinearRegression = calculateLinearRegression;
+globalThis.calculateVolumeOscillator = calculateVolumeOscillator;
+globalThis.calculateMomentum = calculateMomentum;
+globalThis.calculateROC = calculateROC;
 
 // Robust custom scanner function compiler
 function compileCustomScannerFunction(functionBody) {
@@ -512,10 +885,30 @@ function compileCustomScannerFunction(functionBody) {
         'calculateRSI',
         'calculateEMA',
         'calculateSMA',
+        'calculateWMA',
+        'calculateDEMA',
+        'calculateTEMA',
         'calculateVWAP',
         'calculateMACD',
         'calculateBollingerBands',
         'calculateATR',
+        'calculateADX',
+        'calculateSupertrend',
+        'calculateWilliamsR',
+        'calculateAroon',
+        'calculateCCI',
+        'calculateStochastic',
+        'calculateMFI',
+        'calculateIchimoku',
+        'calculateAwesomeOscillator',
+        'calculateParabolicSAR',
+        'calculateOBV',
+        'calculateStochRSI',
+        'calculateCMF',
+        'calculateLinearRegression',
+        'calculateVolumeOscillator',
+        'calculateMomentum',
+        'calculateROC',
         functionBody
     );
     return function(tick, candles, token) {
@@ -526,10 +919,30 @@ function compileCustomScannerFunction(functionBody) {
             calculateRSI,
             calculateEMA,
             calculateSMA,
+            calculateWMA,
+            calculateDEMA,
+            calculateTEMA,
             calculateVWAP,
             calculateMACD,
             calculateBollingerBands,
-            calculateATR
+            calculateATR,
+            calculateADX,
+            calculateSupertrend,
+            calculateWilliamsR,
+            calculateAroon,
+            calculateCCI,
+            calculateStochastic,
+            calculateMFI,
+            calculateIchimoku,
+            calculateAwesomeOscillator,
+            calculateParabolicSAR,
+            calculateOBV,
+            calculateStochRSI,
+            calculateCMF,
+            calculateLinearRegression,
+            calculateVolumeOscillator,
+            calculateMomentum,
+            calculateROC
         );
     };
 }
