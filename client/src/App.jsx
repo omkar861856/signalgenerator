@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil
+  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -157,6 +157,9 @@ function AppContent() {
   const setView = useCallback((nextView) => {
     navigate('/' + nextView);
   }, [navigate]);
+
+  // Theme Mode State ('light' vs 'dark')
+  const [theme, setTheme] = useState(() => localStorage.getItem('app_theme') || 'light');
 
   // Scanner Alert Subscriptions State
   const [subscribedAlerts, setSubscribedAlerts] = useState(() => {
@@ -3012,7 +3015,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
   }
 
   return (
-    <div className="flex min-h-screen w-full overflow-x-hidden relative font-sans text-slate-100 bg-[#0b0f19]">
+    <div className={`flex min-h-screen w-full overflow-x-hidden relative font-sans transition-colors duration-200 ${
+      theme === 'light' ? 'theme-light bg-slate-50 text-slate-900' : 'theme-dark bg-[#0b0f19] text-slate-100'
+    }`}>
       
       {/* Background gradients */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,58,237,0.1),transparent_50%)] pointer-events-none" />
@@ -3190,6 +3195,26 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             </span>
             <span>{systemAutomationEnabled ? 'APP CONTROL: ON' : 'APP CONTROL: OFF'}</span>
           </button>
+
+          {/* Theme Switcher Toggle (Light vs Dark) */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const nextTheme = theme === 'dark' ? 'light' : 'dark';
+              setTheme(nextTheme);
+              localStorage.setItem('app_theme', nextTheme);
+            }}
+            className={`px-3 py-1.5 rounded-lg border font-semibold text-xs flex items-center gap-1.5 h-auto transition-all cursor-pointer ${
+              theme === 'light' 
+                ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100 shadow-sm' 
+                : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20'
+            }`}
+            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+          >
+            {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-indigo-600" />}
+            <span className="hidden sm:inline">{theme === 'dark' ? 'Light Mode ☀️' : 'Dark Mode 🌙'}</span>
+          </Button>
 
           {/* Notification Alerts Icon */}
           <div className="relative">

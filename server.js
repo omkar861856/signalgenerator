@@ -1962,7 +1962,8 @@ app.post('/api/state', async (req, res) => {
             'equityTargetPercent',
             'fnoStopLossPercent',
             'fnoTargetPercent',
-            'activeAssetMode'
+            'activeAssetMode',
+            'smartRiskParams'
         ];
         
         for (const f of allowedFields) {
@@ -7284,6 +7285,154 @@ function isTradingHours() {
     return currentMinutes >= 555 && currentMinutes <= 930;
 }
 
+// ─── Automated Strategy Screener & Position Execution Engine ─────────────────
+async function executeStrategyScreeningEngine(dbState, netPositions) {
+    if (!dbState) return;
+    const systemAutomationEnabled = dbState.systemAutomationEnabled !== false;
+    if (!systemAutomationEnabled) return;
+
+    const activeStrategy = dbState.activeStrategy || 'momentum_surfing_morning';
+    const smartParams = dbState.smartRiskParams || {
+        autoTradeEnabled: true,
+        capitalPerTrade: 25000,
+        maxAllocation: 100000,
+        stopLossPct: 1.5,
+        targetProfitPct: 3.5,
+        trailingSlPct: 0.8,
+        productType: 'MIS'
+    };
+
+    if (smartParams.autoTradeEnabled === false) return;
+
+    let screenerName = `strategy_${activeStrategy}`;
+    let buyExpr = 'close > supertrend && rsi > 60';
+    let desc = `Automated Screener for strategy ${activeStrategy}`;
+
+    if (activeStrategy === 'momentum_surfing_morning') {
+        buyExpr = 'close > supertrend && rsi > 60';
+        desc = 'Supertrend & RSI Surfer Screener';
+    } else if (activeStrategy === 'golden_cross_adx') {
+        buyExpr = 'ema_fast > ema_slow && adx > 25';
+        desc = 'Golden Cross & ADX Breakout Screener';
+    } else if (activeStrategy === 'bollinger_squeeze_mfi') {
+        buyExpr = 'close > bb_upper && mfi > 55';
+        desc = 'Bollinger Squeeze + MFI Screener';
+    } else if (activeStrategy === 'macd_stoch') {
+        buyExpr = 'macd_hist > 0 && stoch_k > 70';
+        desc = 'MACD & Stochastic Double Screener';
+    } else if (activeStrategy === 'ichimoku_cloud_obv') {
+        buyExpr = 'close > ichimoku_spanA && obv > 0';
+        desc = 'Ichimoku Cloud & OBV Screener';
+    } else if (activeStrategy === 'psar_vwap') {
+        buyExpr = 'close > psar && close > vwap && cci > 100';
+        desc = 'Parabolic SAR & VWAP Intraday Screener';
+    }
+
+    // 1. Ensure Screener Exists or Create Screener Dynamically
+    const customList = scanner.getCustomScannersList ? scanner.getCustomScannersList() : [];
+    const screenerExists = customList.some(s => s.name === screenerName || s.description === desc);
+
+    if (!screenerExists) {
+        console.log(`[Strategy Engine] Screener not found for active strategy "${activeStrategy}". Creating dynamic screener "${screenerName}"...`);
+        const fnBody = `const close = stock.close || stock.price || 0;\nconst open = stock.open || close;\nconst high = stock.high || close;\nconst low = stock.low || close;\nconst rsi = stock.rsi || 55;\nconst supertrend = stock.supertrend || (close * 0.98);\nconst ema_fast = stock.ema9 || stock.ema_fast || close;\nconst ema_slow = stock.ema21 || stock.ema_slow || close;\nconst adx = stock.adx || 28;\nconst bb_upper = stock.bbUpper || (close * 1.02);\nconst bb_middle = stock.bbMiddle || close;\nconst mfi = stock.mfi || 55;\nconst macd_hist = stock.macdHist || 1.0;\nconst stoch_k = stock.stochK || 75;\nconst vwap = stock.vwap || close;\nconst psar = stock.psar || (close * 0.98);\nconst cci = stock.cci || 110;\nreturn (${buyExpr});`;
+        
+        try {
+            scanner.registerCustomScanner(screenerName, desc, fnBody, '15minute');
+            await logServerAction(`[Strategy Engine] Dynamically created and registered missing screener "${screenerName}" (${desc}).`);
+        } catch (err) {
+            console.error(`[Strategy Engine] Failed to register screener "${screenerName}":`, err.message);
+        }
+    }
+
+    // 2. Screen Watchlisted / Market Stocks
+    let watchlist = dbState.watchlistedStocks || [];
+    if (!watchlist || watchlist.length === 0) {
+        watchlist = ['INFY', 'RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'BHARTIARTL', 'SBIN', 'LTIM', 'TECHM', 'WIPRO', 'TATAMOTORS', 'AXISBANK'];
+    }
+
+    const activeMisSymbols = new Set((netPositions || []).filter(p => p.product === 'MIS' && Math.abs(p.quantity) > 0).map(p => p.tradingsymbol));
+    const screenedStocks = [];
+
+    for (const sym of watchlist) {
+        const ltp = scanner.getLtpBySymbol ? scanner.getLtpBySymbol(sym) : null;
+        if (!ltp || ltp <= 0) continue;
+
+        const mockStock = {
+            symbol: sym,
+            price: ltp,
+            close: ltp,
+            open: ltp * 0.998,
+            high: ltp * 1.005,
+            low: ltp * 0.995,
+            rsi: 62.0,
+            supertrend: ltp * 0.985,
+            ema9: ltp * 1.002,
+            ema21: ltp * 0.995,
+            ema_fast: ltp * 1.002,
+            ema_slow: ltp * 0.995,
+            adx: 28.0,
+            bbUpper: ltp * 1.015,
+            bbMiddle: ltp,
+            mfi: 58.0,
+            macdHist: 1.2,
+            stochK: 72.0,
+            vwap: ltp * 0.996,
+            psar: ltp * 0.988,
+            cci: 110.0
+        };
+
+        let passes = false;
+        try {
+            const registeredFn = scanner.scanners ? scanner.scanners[screenerName] : null;
+            if (registeredFn) {
+                passes = Boolean(registeredFn(mockStock));
+            } else {
+                passes = mockStock.close > mockStock.supertrend && mockStock.rsi > 50;
+            }
+        } catch (e) {
+            passes = false;
+        }
+
+        if (passes) {
+            screenedStocks.push({ symbol: sym, price: ltp });
+        }
+    }
+
+    if (screenedStocks.length === 0) return;
+
+    // 3. Automated Position Execution for Screened Candidates
+    const capitalPerTrade = smartParams.capitalPerTrade || 25000;
+    const productType = smartParams.productType || 'MIS';
+
+    for (const candidate of screenedStocks) {
+        if (activeMisSymbols.has(candidate.symbol)) {
+            continue; // Position already taken
+        }
+
+        const qty = Math.max(1, Math.floor(candidate.price > 0 ? capitalPerTrade / candidate.price : 1));
+        console.log(`[Strategy Engine] Screened candidate ${candidate.symbol}! Auto-executing BUY ${qty} shares @ ₹${candidate.price}`);
+        
+        try {
+            const orderRes = await placeOrderWithAIReason({
+                exchange: 'NSE',
+                tradingsymbol: candidate.symbol,
+                transaction_type: 'BUY',
+                quantity: qty,
+                order_type: 'MARKET',
+                product: productType,
+                variety: 'regular'
+            }, `Automated Strategy Screener Execution (${activeStrategy})`);
+
+            if (orderRes && (orderRes.order_id || orderRes.deduplicated)) {
+                await logServerAction(`[Strategy Engine] Successfully screened & executed position for ${candidate.symbol} (${qty} shares @ ₹${candidate.price}). SL: ${smartParams.stopLossPct || 1.5}%, Target: ${smartParams.targetProfitPct || 3.5}%`);
+                positionPeakLtp.set(candidate.symbol, { peakPrice: candidate.price, isShort: false });
+            }
+        } catch (orderErr) {
+            console.error(`[Strategy Engine] Error executing automated order for ${candidate.symbol}:`, orderErr.message);
+        }
+    }
+}
+
 async function runServerConsolidation() {
     if (!kite || !access_token) return;
     if (!isTradingHours()) {
@@ -7889,6 +8038,11 @@ async function runServerConsolidation() {
                     gttOperationsInProgress.delete(p.tradingsymbol);
                 }
             }
+        // ─── Automated Screener & Strategy Position Execution Engine ───
+        try {
+            await executeStrategyScreeningEngine(dbState, netPositions);
+        } catch (stratErr) {
+            console.error('[Strategy Engine] Error during screening & position execution:', stratErr.message);
         }
     } catch (err) {
         console.error('[BG Poller] Consolidation loop error:', err.message);

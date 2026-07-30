@@ -28,7 +28,8 @@ const AppStateSchema = new mongoose.Schema({
     equityTargetPercent: { type: Number, default: 2 },
     fnoStopLossPercent: { type: Number, default: 15 },
     fnoTargetPercent: { type: Number, default: 30 },
-    activeAssetMode: { type: String, default: 'equity' }
+    activeAssetMode: { type: String, default: 'equity' },
+    smartRiskParams: { type: mongoose.Schema.Types.Mixed, default: { autoTradeEnabled: true, capitalPerTrade: 25000, maxAllocation: 100000, stopLossPct: 1.5, targetProfitPct: 3.5, trailingSlPct: 0.8, productType: 'MIS' } }
 }, { minimize: false, timestamps: true, bufferCommands: false });
 
 const AppState = mongoose.model('AppState', AppStateSchema);

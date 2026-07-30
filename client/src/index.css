@@ -303,3 +303,60 @@ button, input, select, textarea {
   clear: both !important;
   display: table !important;
 }
+
+/* ─── Light Mode Theme Overrides ────────────────────────────────────────────── */
+.theme-light {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.theme-light body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.theme-light .glass-panel,
+.theme-light .glass-panel-heavy {
+  background: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.04) !important;
+  color: #0f172a !important;
+}
+
+.theme-light input,
+.theme-light select,
+.theme-light textarea {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.theme-light input::placeholder,
+.theme-light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.theme-light .text-slate-200,
+.theme-light .text-slate-300,
+.theme-light .text-slate-400 {
+  color: #334155 !important;
+}
+
+.theme-light .text-white {
+  color: #0f172a !important;
+}
+
+.theme-light .bg-black\/35,
+.theme-light .bg-black\/40,
+.theme-light .bg-slate-950\/70,
+.theme-light [class*="bg-[#0b0f19]"],
+.theme-light [class*="bg-[#0f1524]"] {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .border-white\/5,
+.theme-light .border-white\/10 {
+  border-color: #e2e8f0 !important;
+}
