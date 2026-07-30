@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Flame, ZoomIn, ZoomOut, Maximize2, Play, Pause, RefreshCw, 
-  Search, ShieldAlert, CheckCircle2, ChevronRight, Activity, TrendingUp
+  Search, AlertTriangle, CheckCircle2, ChevronRight, Activity, TrendingUp
 } from 'lucide-react';
 
 export default function FlowMap({ 
@@ -841,7 +841,7 @@ export default function FlowMap({
 
       {searchError && (
         <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4.5 w-4.5" />
+          <AlertTriangle className="h-4.5 w-4.5" />
           {searchError}
         </div>
       )}
@@ -859,7 +859,7 @@ export default function FlowMap({
               <div className="absolute inset-0 bg-[#0f1422]/90 backdrop-blur-md z-10 flex flex-col items-center justify-center p-8 text-center">
                 <div className="max-w-md flex flex-col items-center gap-5">
                   <div className="h-16 w-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-lg shadow-amber-500/5">
-                    <ShieldAlert className="h-8 w-8 animate-pulse" />
+                    <AlertTriangle className="h-8 w-8 animate-pulse" />
                   </div>
                   <div>
                     <h3 className="font-display font-bold text-lg text-white mb-2">

@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 
+// Disable Mongoose command buffering so queries fail fast when DB is disconnected
+mongoose.set('bufferCommands', false);
+
 const MONGO_URI = process.env.MONGO_URI;
 
 
@@ -26,7 +29,7 @@ const AppStateSchema = new mongoose.Schema({
     fnoStopLossPercent: { type: Number, default: 15 },
     fnoTargetPercent: { type: Number, default: 30 },
     activeAssetMode: { type: String, default: 'equity' }
-}, { minimize: false, timestamps: true });
+}, { minimize: false, timestamps: true, bufferCommands: false });
 
 const AppState = mongoose.model('AppState', AppStateSchema);
 
@@ -41,7 +44,7 @@ const HistoricalCandleSchema = new mongoose.Schema({
     close: { type: Number, required: true },
     volume: { type: Number, default: 0 },
     oi: { type: Number, default: 0 }
-}, { collection: 'candles', timestamps: true });
+}, { collection: 'candles', timestamps: true, bufferCommands: false });
 
 HistoricalCandleSchema.index({ symbol: 1, interval: 1, timestamp: 1 }, { unique: true });
 HistoricalCandleSchema.index({ timestamp: 1 });
@@ -68,7 +71,8 @@ async function connectDB(retries = 15, delayMs = 3000) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             await mongoose.connect(MONGO_URI, {
-                serverSelectionTimeoutMS: 5000
+                serverSelectionTimeoutMS: 5000,
+                bufferCommands: false
             });
             console.log('[MongoDB] Connected successfully to database.');
             
@@ -97,7 +101,7 @@ async function connectDB(retries = 15, delayMs = 3000) {
 const KiteDocSchema = new mongoose.Schema({
     title: { type: String, required: true, unique: true },
     content: { type: String, required: true }
-}, { timestamps: true });
+}, { timestamps: true, bufferCommands: false });
 
 const KiteDoc = mongoose.model('KiteDoc', KiteDocSchema);
 
@@ -114,7 +118,7 @@ const InstrumentSchema = new mongoose.Schema({
     instrument_type: { type: String },
     segment: { type: String },
     exchange: { type: String }
-}, { timestamps: true });
+}, { timestamps: true, bufferCommands: false });
 
 InstrumentSchema.index({ tradingsymbol: 1 });
 InstrumentSchema.index({ exchange: 1, tradingsymbol: 1 });

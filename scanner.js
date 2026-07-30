@@ -1507,7 +1507,9 @@ function syncSubscriptions(tokens) {
 }
 
 function getLtpBySymbol(symbol) {
-    let token = symbolToTokenMap[symbol] || symbolToTokenMap[`NSE:${symbol}`] || symbolToTokenMap[`BSE:${symbol}`];
+    let clean = symbol ? symbol.trim().toUpperCase() : '';
+    let symbolOnly = clean.includes(':') ? clean.split(':')[1] : clean;
+    let token = symbolToTokenMap[clean] || symbolToTokenMap[symbolOnly] || symbolToTokenMap[`NFO:${symbolOnly}`] || symbolToTokenMap[`NSE:${symbolOnly}`] || symbolToTokenMap[`BSE:${symbolOnly}`] || symbolToTokenMap[`MCX:${symbolOnly}`];
     if (token && quoteCache[token]) {
         return quoteCache[token].ltp;
     }
@@ -1515,7 +1517,16 @@ function getLtpBySymbol(symbol) {
 }
 
 function getTokenBySymbol(symbol) {
-    return symbolToTokenMap[symbol] || symbolToTokenMap[`NSE:${symbol}`] || symbolToTokenMap[`BSE:${symbol}`] || null;
+    if (!symbol) return null;
+    let clean = symbol.trim().toUpperCase();
+    let symbolOnly = clean.includes(':') ? clean.split(':')[1] : clean;
+    return symbolToTokenMap[clean] || 
+           symbolToTokenMap[symbolOnly] || 
+           symbolToTokenMap[`NFO:${symbolOnly}`] || 
+           symbolToTokenMap[`NSE:${symbolOnly}`] || 
+           symbolToTokenMap[`BSE:${symbolOnly}`] || 
+           symbolToTokenMap[`MCX:${symbolOnly}`] || 
+           null;
 }
 
 module.exports = {

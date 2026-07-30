@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { 
-  TrendingUp, TrendingDown, Shield, ShieldAlert, Zap, Settings, Play, Check, X, 
+  TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil
@@ -3389,7 +3389,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             
             {/* Top Stat Bar */}
             {appConfig.hasAccessToken && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 
                 {/* Available Cash Card */}
                 <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
@@ -3500,51 +3500,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </div>
                 </Card>
 
-                {/* API Request Metrics Card */}
-                <Card className="glass-panel border-0 ring-0 p-4 flex flex-col gap-2.5 h-auto">
-                  <div className="flex items-center justify-between text-slate-400 border-b border-white/5 pb-1">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">API Health Meter</span>
-                    <span className="text-[9px] font-mono text-slate-500">Total: {apiStats.totalCalls} calls</span>
-                  </div>
-                  
-                  <div className="flex flex-col gap-2">
-                    {(() => {
-                      const categories = apiStats.callsPerSecond?.categories || {
-                        quote: { currentRate: 0, limit: 1, label: 'Quote (1 r/s)' },
-                        historical: { currentRate: 0, limit: 3, label: 'Historical (3 r/s)' },
-                        order: { currentRate: 0, limit: 10, label: 'Order Placement (10 r/s)' },
-                        other: { currentRate: 0, limit: 10, label: 'Other Endpoints (10 r/s)' }
-                      };
-                      
-                      return Object.entries(categories).map(([key, cat]) => {
-                        const rate = cat.currentRate || 0;
-                        const limit = cat.limit || 1;
-                        const pct = Math.min(100, (rate / limit) * 100);
-                        let barColor = 'bg-indigo-500 shadow-indigo-500/10';
-                        if (pct >= 90) barColor = 'bg-rose-500 shadow-rose-500/20';
-                        else if (pct >= 50) barColor = 'bg-amber-500 shadow-amber-500/20';
-                        else barColor = 'bg-emerald-500 shadow-emerald-500/20';
-                        
-                        return (
-                          <div key={key} className="flex flex-col gap-0.5">
-                            <div className="flex justify-between text-[9px] font-medium">
-                              <span className="text-slate-400">{cat.label || key}</span>
-                              <span className={`font-mono font-semibold ${rate >= limit ? 'text-rose-400' : 'text-slate-300'}`}>
-                                {rate}/{limit} r/s
-                              </span>
-                            </div>
-                            <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full ${barColor} transition-all duration-300 rounded-full`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </Card>
+
 
               </div>
             )}
@@ -5325,6 +5281,55 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 Refresh IPs
               </Button>
             </div>
+
+            {/* API Request Metrics Card (Admin Panel) */}
+            <Card className="glass-panel border-0 ring-0 p-4 flex flex-col gap-2.5 h-auto bg-[#0f1524]/60 backdrop-blur-md border-slate-800">
+              <div className="flex items-center justify-between text-slate-400 border-b border-white/5 pb-1">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Activity className="h-3.5 w-3.5 text-indigo-400" />
+                  API Health Meter
+                </span>
+                <span className="text-[9px] font-mono text-slate-500">Total: {apiStats.totalCalls} calls</span>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                {(() => {
+                  const categories = apiStats.callsPerSecond?.categories || {
+                    quote: { currentRate: 0, limit: 1, label: 'Quote (1 r/s)' },
+                    historical: { currentRate: 0, limit: 3, label: 'Historical (3 r/s)' },
+                    order: { currentRate: 0, limit: 10, label: 'Order Placement (10 r/s)' },
+                    other: { currentRate: 0, limit: 10, label: 'Other Endpoints (10 r/s)' }
+                  };
+                  
+                  return Object.entries(categories).map(([key, cat]) => {
+                    const rate = cat.currentRate || 0;
+                    const limit = cat.limit || 1;
+                    const pct = Math.min(100, (rate / limit) * 100);
+                    let barColor = 'bg-indigo-500 shadow-indigo-500/10';
+                    if (pct >= 90) barColor = 'bg-rose-500 shadow-rose-500/20';
+                    else if (pct >= 50) barColor = 'bg-amber-500 shadow-amber-500/20';
+                    else barColor = 'bg-emerald-500 shadow-emerald-500/20';
+                    
+                    return (
+                      <div key={key} className="flex flex-col gap-1 bg-black/30 p-2.5 rounded-xl border border-white/5">
+                        <div className="flex justify-between text-[10px] font-medium">
+                          <span className="text-slate-300">{cat.label || key}</span>
+                          <span className={`font-mono font-semibold ${rate >= limit ? 'text-rose-400' : 'text-slate-300'}`}>
+                            {rate}/{limit} r/s
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full ${barColor} transition-all duration-300 rounded-full`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </Card>
 
             {/* DATABASE SYNC MANAGER & ESTIMATED TIME TO STORE ALL DATA CARD */}
             <div className="glass-panel p-5 border-slate-800 bg-[#0f1524]/60 backdrop-blur-md rounded-xl flex flex-col gap-4">
@@ -8405,6 +8410,8 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
   const bbMiddleSeriesRef = useRef(null);
   const bbLowerSeriesRef = useRef(null);
   const markersApiRef = useRef(null);
+  const buyPriceLineRef = useRef(null);
+  const sellPriceLineRef = useRef(null);
   const [noData, setNoData] = useState(false);
   const savePendingRef = useRef(null);
   const lastSaveTimeRef = useRef(0);
@@ -8413,7 +8420,7 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
   const triggerSaveToDb = useCallback((candleToSave) => {
     if (!instrumentToken || !candleToSave) return;
     const now = Date.now();
-    const cleanSymbol = symbol ? symbol.toUpperCase() : 'INFY';
+    const cleanSymbol = symbol ? symbol.toUpperCase().replace(/^(NSE|BSE|MCX|NCDEX|NFO|CDS):/, '') : 'INFY';
     
     let kiteInterval = '15minute';
     if (interval === '1') kiteInterval = 'minute';
@@ -8469,8 +8476,8 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
     else if (interval === '60') kiteInterval = '60minute';
     else if (interval === 'D') kiteInterval = 'day';
 
-    // Clean symbol (strip exchange prefix)
-    const cleanSymbol = symbol ? symbol.toUpperCase().replace(/^(NSE|BSE|MCX|NCDEX):/, '') : 'INFY';
+    // Clean symbol (strip exchange prefix, supporting NFO & CDS)
+    const cleanSymbol = symbol ? symbol.toUpperCase().replace(/^(NSE|BSE|MCX|NCDEX|NFO|CDS):/, '') : 'INFY';
 
     let active = true;
     let chartInstance = null;
@@ -8596,29 +8603,6 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
         candlestickSeries.setData(data);
         chart.timeScale().fitContent();
 
-        // Add horizontal price lines for entry (taken price) and exit (sold price)
-        if (buyPrice && buyPrice > 0) {
-          candlestickSeries.createPriceLine({
-            price: buyPrice,
-            color: '#3b82f6', // blue
-            lineWidth: 2,
-            lineStyle: 2, // dashed
-            axisLabelVisible: true,
-            title: `Taken: ₹${buyPrice.toFixed(2)}`,
-          });
-        }
-
-        if (sellPrice && sellPrice > 0) {
-          candlestickSeries.createPriceLine({
-            price: sellPrice,
-            color: '#ef4444', // red
-            lineWidth: 2,
-            lineStyle: 2, // dashed
-            axisLabelVisible: true,
-            title: `Sold: ₹${sellPrice.toFixed(2)}`,
-          });
-        }
-
         // Calculate and add EMA 9 overlay if checked
         if (showEMA9) {
           const ema9Data = calculateEMA(data, 9);
@@ -8722,6 +8706,8 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
       }
       candlestickSeriesRef.current = null;
       markersApiRef.current = null;
+      buyPriceLineRef.current = null;
+      sellPriceLineRef.current = null;
       ema9SeriesRef.current = null;
       ema21SeriesRef.current = null;
       ema9DataRef.current = [];
@@ -8733,7 +8719,53 @@ const TradingViewWidget = React.memo(({ symbol, interval, quote, showEMA9, showE
         clearTimeout(savePendingRef.current);
       }
     };
-  }, [symbol, interval, showEMA9, showEMA21, showBB, buyPrice, sellPrice]);
+  }, [symbol, interval, showEMA9, showEMA21, showBB]);
+
+  // Dynamic Taken (buy) and Sold (sell) horizontal price lines update effect
+  useEffect(() => {
+    if (!candlestickSeriesRef.current) return;
+    const series = candlestickSeriesRef.current;
+
+    // Remove existing price lines cleanly before re-creating
+    if (buyPriceLineRef.current) {
+      try { series.removePriceLine(buyPriceLineRef.current); } catch (e) {}
+      buyPriceLineRef.current = null;
+    }
+    if (sellPriceLineRef.current) {
+      try { series.removePriceLine(sellPriceLineRef.current); } catch (e) {}
+      sellPriceLineRef.current = null;
+    }
+
+    if (buyPrice && buyPrice > 0) {
+      try {
+        buyPriceLineRef.current = series.createPriceLine({
+          price: buyPrice,
+          color: '#3b82f6', // blue
+          lineWidth: 2,
+          lineStyle: 2, // dashed
+          axisLabelVisible: true,
+          title: `Taken: ₹${buyPrice.toFixed(2)}`,
+        });
+      } catch (e) {
+        console.warn('[TradingViewWidget] Failed to draw Taken price line:', e.message);
+      }
+    }
+
+    if (sellPrice && sellPrice > 0) {
+      try {
+        sellPriceLineRef.current = series.createPriceLine({
+          price: sellPrice,
+          color: '#ef4444', // red
+          lineWidth: 2,
+          lineStyle: 2, // dashed
+          axisLabelVisible: true,
+          title: `Sold: ₹${sellPrice.toFixed(2)}`,
+        });
+      } catch (e) {
+        console.warn('[TradingViewWidget] Failed to draw Sold price line:', e.message);
+      }
+    }
+  }, [buyPrice, sellPrice]);
 
   useEffect(() => {
     if (!markersApiRef.current) return;
@@ -8940,7 +8972,7 @@ function TradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subscri
   const [searchError, setSearchError] = useState('');
   const [mode, setMode] = useState('open'); // 'open' | 'all'
   const [columns, setColumns] = useState(2); // Default to 2 columns (Double Row) for one-chart per stock card layout
-  const [timeRemaining, setTimeRemaining] = useState(60);
+  const [timeRemaining, setTimeRemaining] = useState(5);
 
   const fetchPositions = async () => {
     try {
@@ -8965,7 +8997,7 @@ function TradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subscri
       setTimeRemaining(prev => {
         if (prev <= 1) {
           fetchPositions();
-          return 60;
+          return 5;
         }
         return prev - 1;
       });
@@ -8977,7 +9009,7 @@ function TradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subscri
   const handleManualRefresh = () => {
     setLoading(true);
     fetchPositions();
-    setTimeRemaining(60);
+    setTimeRemaining(5);
   };
 
   const handleAddCustomSymbol = async (e) => {
@@ -9373,7 +9405,7 @@ function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subs
   const [searchError, setSearchError] = useState('');
   const [mode, setMode] = useState('open'); // 'open' | 'all'
   const [columns, setColumns] = useState(2);
-  const [timeRemaining, setTimeRemaining] = useState(60);
+  const [timeRemaining, setTimeRemaining] = useState(5);
 
   // F&O Strategy configuration states
   const [strategyPreset, setStrategyPreset] = useState('Bull Call Spread');
@@ -9406,7 +9438,7 @@ function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subs
       setTimeRemaining(prev => {
         if (prev <= 1) {
           fetchPositions();
-          return 60;
+          return 5;
         }
         return prev - 1;
       });
@@ -9418,7 +9450,7 @@ function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subs
   const handleManualRefresh = () => {
     setLoading(true);
     fetchPositions();
-    setTimeRemaining(60);
+    setTimeRemaining(5);
   };
 
   const handleDeployStrategy = async () => {
@@ -9858,109 +9890,6 @@ function FnOTradingViewMatrix({ liveQuotes = {}, wsStatus = 'disconnected', subs
             );
           })}
         </div>
-      )}
-
-      {/* Edit Scanner Modal */}
-      {editingScanner && (
-        <Dialog open={!!editingScanner} onOpenChange={(open) => !open && setEditingScanner(null)}>
-          <DialogContent className="bg-slate-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-indigo-400">
-                <Pencil className="w-5 h-5 text-indigo-400" />
-                Edit Custom Scanner: {editingScanner.name}
-              </DialogTitle>
-              <DialogDescription className="text-slate-400 text-xs">
-                Modify the scanner title, description, timeframe, or update the Javascript logic for live evaluations.
-              </DialogDescription>
-            </DialogHeader>
-
-            {editScannerError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{editScannerError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveEditScanner} className="space-y-4 py-2">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Scanner Name</label>
-                <input
-                  type="text"
-                  value={editScannerName}
-                  onChange={(e) => setEditScannerName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Timeframe</label>
-                <select
-                  value={editScannerTf}
-                  onChange={(e) => setEditScannerTf(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="1min">1 Min (Intraday)</option>
-                  <option value="5min">5 Min (Intraday)</option>
-                  <option value="15min">15 Min (Intraday)</option>
-                  <option value="hour">1 Hour</option>
-                  <option value="day">Daily</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Description</label>
-                <textarea
-                  value={editScannerDesc}
-                  onChange={(e) => setEditScannerDesc(e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300">JavaScript Code (`functionBody`)</label>
-                  <span className="text-[10px] text-slate-400 font-mono">returns boolean</span>
-                </div>
-                <div className="bg-slate-950 p-2.5 border border-white/10 rounded-xl font-mono text-[10px] text-slate-400 space-y-1">
-                  <div className="text-slate-400 font-semibold">// Available Parameters:</div>
-                  <div className="text-slate-500">• tick: tick.ltp (price), tick.change (%), tick.volume</div>
-                  <div className="text-slate-500">• candles: candles[i].open, high, low, close, volume</div>
-                  <div className="text-slate-400 font-semibold mt-1">// Available Helpers:</div>
-                  <div className="text-slate-500">• calculateEMA(candles, period) | calculateSMA(candles, period)</div>
-                  <div className="text-slate-500">• calculateRSI(candles, period) | calculateVWAP(candles) | calculateMACD(candles)</div>
-                </div>
-                <textarea
-                  value={editScannerCode}
-                  onChange={(e) => setEditScannerCode(e.target.value)}
-                  rows={7}
-                  className="w-full px-3 py-2 bg-slate-950 border border-white/10 rounded-xl font-mono text-xs text-emerald-400 focus:outline-none focus:border-indigo-500"
-                  required
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setEditingScanner(null)}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-semibold transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={editScannerSaving}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  {editScannerSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  <span>Save Changes</span>
-                </button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
       )}
     </div>
   );
