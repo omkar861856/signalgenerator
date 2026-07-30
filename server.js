@@ -8038,6 +8038,8 @@ async function runServerConsolidation() {
                     gttOperationsInProgress.delete(p.tradingsymbol);
                 }
             }
+        }
+
         // ─── Automated Screener & Strategy Position Execution Engine ───
         try {
             await executeStrategyScreeningEngine(dbState, netPositions);
