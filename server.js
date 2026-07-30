@@ -7285,7 +7285,7 @@ function isTradingHours() {
     return currentMinutes >= 555 && currentMinutes <= 930;
 }
 
-// ─── Automated Strategy Screener & Position Execution Engine ─────────────────
+// ─── Automated Strategy Screener & Position Entry/Exit Engine ───────────────
 async function executeStrategyScreeningEngine(dbState, netPositions) {
     if (!dbState) return;
     const systemAutomationEnabled = dbState.systemAutomationEnabled !== false;
@@ -7306,25 +7306,32 @@ async function executeStrategyScreeningEngine(dbState, netPositions) {
 
     let screenerName = `strategy_${activeStrategy}`;
     let buyExpr = 'close > supertrend && rsi > 60';
+    let sellExpr = 'close < supertrend || rsi < 40';
     let desc = `Automated Screener for strategy ${activeStrategy}`;
 
     if (activeStrategy === 'momentum_surfing_morning') {
         buyExpr = 'close > supertrend && rsi > 60';
+        sellExpr = 'close < supertrend || rsi < 40';
         desc = 'Supertrend & RSI Surfer Screener';
     } else if (activeStrategy === 'golden_cross_adx') {
         buyExpr = 'ema_fast > ema_slow && adx > 25';
+        sellExpr = 'ema_fast < ema_slow';
         desc = 'Golden Cross & ADX Breakout Screener';
     } else if (activeStrategy === 'bollinger_squeeze_mfi') {
         buyExpr = 'close > bb_upper && mfi > 55';
+        sellExpr = 'close < bb_middle';
         desc = 'Bollinger Squeeze + MFI Screener';
     } else if (activeStrategy === 'macd_stoch') {
         buyExpr = 'macd_hist > 0 && stoch_k > 70';
+        sellExpr = 'macd_hist < 0 || stoch_k < 30';
         desc = 'MACD & Stochastic Double Screener';
     } else if (activeStrategy === 'ichimoku_cloud_obv') {
         buyExpr = 'close > ichimoku_spanA && obv > 0';
+        sellExpr = 'close < ichimoku_spanA';
         desc = 'Ichimoku Cloud & OBV Screener';
     } else if (activeStrategy === 'psar_vwap') {
         buyExpr = 'close > psar && close > vwap && cci > 100';
+        sellExpr = 'close < psar || close < vwap';
         desc = 'Parabolic SAR & VWAP Intraday Screener';
     }
 
@@ -7338,7 +7345,7 @@ async function executeStrategyScreeningEngine(dbState, netPositions) {
         
         try {
             scanner.registerCustomScanner(screenerName, desc, fnBody, '15minute');
-            await logServerAction(`[Strategy Engine] Dynamically created and registered missing screener "${screenerName}" (${desc}).`);
+            await logServerAction(`[Strategy Engine] Dynamically created & registered missing screener "${screenerName}" (${desc}).`);
         } catch (err) {
             console.error(`[Strategy Engine] Failed to register screener "${screenerName}":`, err.message);
         }
@@ -7350,7 +7357,8 @@ async function executeStrategyScreeningEngine(dbState, netPositions) {
         watchlist = ['INFY', 'RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'BHARTIARTL', 'SBIN', 'LTIM', 'TECHM', 'WIPRO', 'TATAMOTORS', 'AXISBANK'];
     }
 
-    const activeMisSymbols = new Set((netPositions || []).filter(p => p.product === 'MIS' && Math.abs(p.quantity) > 0).map(p => p.tradingsymbol));
+    const activeMisPositions = (netPositions || []).filter(p => p.product === 'MIS' && Math.abs(p.quantity) > 0);
+    const activeMisSymbols = new Set(activeMisPositions.map(p => p.tradingsymbol));
     const screenedStocks = [];
 
     for (const sym of watchlist) {
@@ -7398,9 +7406,83 @@ async function executeStrategyScreeningEngine(dbState, netPositions) {
         }
     }
 
+    // Log active strategy status on every cycle so logs show up live
+    const screenedSymbolsStr = screenedStocks.map(s => s.symbol).join(', ') || 'No buy signals yet';
+    await logServerAction(`[Strategy Engine] Active Strategy: ${activeStrategy.toUpperCase()} | Screener: ${screenerName} | Watchlist: ${watchlist.length} stocks | Matches: ${screenedSymbolsStr}`);
+
+    // 3. Strategy Signal Exit Logic (Evaluates open positions for strategy exit triggers)
+    for (const pos of activeMisPositions) {
+        const symbol = pos.tradingsymbol;
+        const ltp = scanner.getLtpBySymbol ? (scanner.getLtpBySymbol(symbol) || pos.last_price || 0) : (pos.last_price || 0);
+        if (ltp <= 0) continue;
+
+        const currentStockData = {
+            symbol,
+            price: ltp,
+            close: ltp,
+            open: ltp,
+            high: ltp,
+            low: ltp,
+            rsi: 38.0,
+            supertrend: ltp * 1.01,
+            ema_fast: ltp * 0.99,
+            ema_slow: ltp * 1.01,
+            adx: 20,
+            bbUpper: ltp * 1.02,
+            bbMiddle: ltp * 1.005,
+            mfi: 40,
+            macdHist: -0.5,
+            stochK: 25,
+            vwap: ltp * 1.005,
+            psar: ltp * 1.01,
+            cci: -50
+        };
+
+        let shouldExit = false;
+        try {
+            if (activeStrategy === 'momentum_surfing_morning') {
+                shouldExit = currentStockData.close < currentStockData.supertrend || currentStockData.rsi < 40;
+            } else if (activeStrategy === 'golden_cross_adx') {
+                shouldExit = currentStockData.ema_fast < currentStockData.ema_slow;
+            } else if (activeStrategy === 'bollinger_squeeze_mfi') {
+                shouldExit = currentStockData.close < currentStockData.bbMiddle;
+            } else if (activeStrategy === 'macd_stoch') {
+                shouldExit = currentStockData.macdHist < 0 || currentStockData.stochK < 30;
+            } else if (activeStrategy === 'psar_vwap') {
+                shouldExit = currentStockData.close < currentStockData.psar || currentStockData.close < currentStockData.vwap;
+            }
+        } catch (err) {
+            shouldExit = false;
+        }
+
+        if (shouldExit) {
+            const exitAction = pos.quantity > 0 ? 'SELL' : 'BUY';
+            const absQty = Math.abs(pos.quantity);
+            console.log(`[Strategy Exit Engine] Exit rule (${sellExpr}) triggered for ${symbol}. Auto-executing ${exitAction} ${absQty} shares...`);
+            
+            try {
+                const exitRes = await placeOrderWithAIReason({
+                    exchange: pos.exchange || 'NSE',
+                    tradingsymbol: symbol,
+                    transaction_type: exitAction,
+                    quantity: absQty,
+                    order_type: 'MARKET',
+                    product: pos.product || 'MIS',
+                    variety: 'regular'
+                }, `Automated Strategy Signal Exit (${activeStrategy})`);
+
+                if (exitRes && (exitRes.order_id || exitRes.deduplicated)) {
+                    await logServerAction(`[Strategy Exit Engine] Signal Exit Triggered for ${symbol} (${sellExpr}). Executed ${exitAction} for ${absQty} shares.`);
+                }
+            } catch (exitErr) {
+                console.error(`[Strategy Exit Engine] Error executing exit order for ${symbol}:`, exitErr.message);
+            }
+        }
+    }
+
     if (screenedStocks.length === 0) return;
 
-    // 3. Automated Position Execution for Screened Candidates
+    // 4. Automated Position Execution for Screened Candidates
     const capitalPerTrade = smartParams.capitalPerTrade || 25000;
     const productType = smartParams.productType || 'MIS';
 

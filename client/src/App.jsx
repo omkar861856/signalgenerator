@@ -3960,6 +3960,66 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             </div>
           </div>
 
+          {/* LIVE STRATEGY EXECUTION MONITOR & ACTION LOGS CARD */}
+          <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
+            <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-emerald-400 animate-pulse" />
+                <div>
+                  <CardTitle className="font-display font-semibold text-sm text-white flex items-center gap-2">
+                    Live Strategy Execution Logs & Screener Monitor
+                    <span className="text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded">
+                      ACTIVE & SCREENING ⚡
+                    </span>
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-400">
+                    Real-time activity logs of strategy screening, indicator signal checks, entry orders, and exit triggers.
+                  </CardDescription>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    saveAppStateField({ intradayActionsLogs: [] });
+                    setIntradayActionsLogs([]);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-mono text-slate-400 hover:text-white border-white/10 h-auto cursor-pointer"
+                >
+                  Clear Logs
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0 flex flex-col gap-3">
+              <div className="bg-black/40 border border-white/5 rounded-xl p-3.5 font-mono text-xs max-h-56 overflow-y-auto flex flex-col gap-1.5 leading-relaxed">
+                {intradayActionsLogs.length === 0 ? (
+                  <span className="text-slate-500 italic text-[11px]">
+                    [Strategy Engine] Initializing background poller... Monitoring watchlist stocks for active strategy triggers.
+                  </span>
+                ) : (
+                  intradayActionsLogs.map((logItem, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`text-[11px] flex items-start gap-1.5 ${
+                        logItem.includes('Error') || logItem.includes('❌') 
+                          ? 'text-rose-400' 
+                          : logItem.includes('Successfully') || logItem.includes('Executed') || logItem.includes('BUY') || logItem.includes('SELL')
+                          ? 'text-emerald-400 font-semibold'
+                          : logItem.includes('Strategy') || logItem.includes('Screener')
+                          ? 'text-indigo-300'
+                          : 'text-slate-300'
+                      }`}
+                    >
+                      <span className="text-slate-500 flex-shrink-0">&gt;</span>
+                      <span>{logItem}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* QUANTITATIVE STRATEGY PRESETS LIBRARY */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
