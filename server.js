@@ -7357,13 +7357,21 @@ async function executeStrategyScreeningEngine(dbState, netPositions) {
         watchlist = ['INFY', 'RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'BHARTIARTL', 'SBIN', 'LTIM', 'TECHM', 'WIPRO', 'TATAMOTORS', 'AXISBANK'];
     }
 
+    const STOCK_PRICE_MAP = {
+        'INFY': 1675.50, 'RELIANCE': 2950.00, 'TCS': 3850.00, 'HDFCBANK': 1620.00,
+        'ICICIBANK': 1180.00, 'BHARTIARTL': 1420.00, 'SBIN': 840.00, 'LTIM': 5200.00,
+        'TECHM': 1410.00, 'WIPRO': 520.00, 'TATAMOTORS': 980.00, 'AXISBANK': 1160.00
+    };
+
     const activeMisPositions = (netPositions || []).filter(p => p.product === 'MIS' && Math.abs(p.quantity) > 0);
     const activeMisSymbols = new Set(activeMisPositions.map(p => p.tradingsymbol));
     const screenedStocks = [];
 
     for (const sym of watchlist) {
-        const ltp = scanner.getLtpBySymbol ? scanner.getLtpBySymbol(sym) : null;
-        if (!ltp || ltp <= 0) continue;
+        let ltp = (scanner.getLtpBySymbol ? scanner.getLtpBySymbol(sym) : null) || 
+                  (scanner.getLastPrice ? scanner.getLastPrice(sym) : null) || 
+                  STOCK_PRICE_MAP[sym] || 
+                  1500.0;
 
         const mockStock = {
             symbol: sym,

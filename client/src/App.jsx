@@ -453,6 +453,47 @@ function AppContent() {
   const [builderLoadingText, setBuilderLoadingText] = useState('');
   const [builderStatus, setBuilderStatus] = useState('');
 
+  // Guided Dropdown Strategy Builder State
+  const [entryConditions, setEntryConditions] = useState([
+    { indicator1: 'close', operator: '>', targetType: 'indicator', indicator2: 'supertrend', numericValue: 60, connector: 'AND' },
+    { indicator1: 'rsi', operator: '>', targetType: 'numeric', indicator2: 'supertrend', numericValue: 60, connector: 'AND' }
+  ]);
+
+  const [exitConditions, setExitConditions] = useState([
+    { indicator1: 'close', operator: '<', targetType: 'indicator', indicator2: 'supertrend', numericValue: 40, connector: 'OR' },
+    { indicator1: 'rsi', operator: '<', targetType: 'numeric', indicator2: 'supertrend', numericValue: 40, connector: 'OR' }
+  ]);
+
+  const STRATEGY_INDICATORS_LIST = [
+    { value: 'close', label: 'Price (Close)' },
+    { value: 'rsi', label: 'RSI (14)' },
+    { value: 'supertrend', label: 'Supertrend (10, 3)' },
+    { value: 'ema_fast', label: 'EMA Fast (9 / 20)' },
+    { value: 'ema_slow', label: 'EMA Slow (21 / 50)' },
+    { value: 'adx', label: 'ADX (14)' },
+    { value: 'bb_upper', label: 'Bollinger Upper' },
+    { value: 'bb_middle', label: 'Bollinger Middle' },
+    { value: 'mfi', label: 'Money Flow Index' },
+    { value: 'macd_hist', label: 'MACD Histogram' },
+    { value: 'stoch_k', label: 'Stochastic %K' },
+    { value: 'vwap', label: 'VWAP' },
+    { value: 'psar', label: 'Parabolic SAR' },
+    { value: 'cci', label: 'CCI (20)' },
+    { value: 'obv', label: 'OBV (Volume)' }
+  ];
+
+  const compileConditionsToString = (conditions) => {
+    if (!conditions || conditions.length === 0) return '';
+    return conditions.map((c, i) => {
+      const targetStr = c.targetType === 'indicator' ? c.indicator2 : c.numericValue;
+      const ruleStr = `${c.indicator1} ${c.operator} ${targetStr}`;
+      if (i < conditions.length - 1) {
+        return `${ruleStr} ${c.connector === 'OR' ? '||' : '&&'}`;
+      }
+      return ruleStr;
+    }).join(' ');
+  };
+
   // Backtest Simulator State
   const [backtestSymbol, setBacktestSymbol] = useState('NSE:RELIANCE');
   const [backtestInterval, setBacktestInterval] = useState('day');
@@ -2730,13 +2771,16 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     setBuilderLoadingText('Active');
 
     try {
+      const compiledEntry = compileConditionsToString(entryConditions) || builderEntry.trim() || 'close > supertrend && rsi > 60';
+      const compiledExit = compileConditionsToString(exitConditions) || builderExit.trim() || 'close < supertrend || rsi < 40';
+
       const payload = {
         name: builderName.trim(),
-        indicators: builderIndicators.trim(),
+        indicators: STRATEGY_INDICATORS_LIST.map(i => i.label).join(', '),
         slPercent: parseFloat(builderSL),
         targetPercent: parseFloat(builderTarget),
-        entryRules: builderEntry.trim(),
-        exitRules: builderExit.trim()
+        entryRules: compiledEntry,
+        exitRules: compiledExit
       };
 
       const res = await fetch('/api/build-strategy', {
@@ -4444,60 +4488,250 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       />
                     </div>
 
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <label className="text-slate-400 font-semibold">Technical Indicators</label>
-                      <input 
-                        type="text" 
-                        value={builderIndicators}
-                        onChange={(e) => setBuilderIndicators(e.target.value)}
-                        placeholder="e.g. EMA 9, EMA 21, RSI"
-                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500/50"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Stop Loss (%)</label>
-                        <input 
-                          type="number" 
-                          step="0.05"
-                          value={builderSL}
-                          onChange={(e) => setBuilderSL(parseFloat(e.target.value) || 0)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500/50"
-                        />
+                    {/* GUIDED ENTRY RULES DROPDOWN BUILDER */}
+                    <div className="flex flex-col gap-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-300 font-bold flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                          Entry Conditions (Select Available Indicators)
+                        </label>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEntryConditions([...entryConditions, { indicator1: 'rsi', operator: '>', targetType: 'numeric', indicator2: 'supertrend', numericValue: 60, connector: 'AND' }])}
+                          className="px-2 py-0.5 text-[10px] h-auto border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 cursor-pointer"
+                        >
+                          + Add Rule
+                        </Button>
                       </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Target Profit (%)</label>
-                        <input 
-                          type="number" 
-                          step="0.05"
-                          value={builderTarget}
-                          onChange={(e) => setBuilderTarget(parseFloat(e.target.value) || 0)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500/50"
-                        />
+
+                      <div className="flex flex-col gap-2">
+                        {entryConditions.map((cond, idx) => (
+                          <div key={idx} className="bg-black/35 border border-white/5 rounded-xl p-2.5 flex flex-col md:flex-row items-stretch md:items-center gap-2">
+                            <select
+                              value={cond.indicator1}
+                              onChange={(e) => {
+                                const next = [...entryConditions];
+                                next[idx].indicator1 = e.target.value;
+                                setEntryConditions(next);
+                              }}
+                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
+                            >
+                              {STRATEGY_INDICATORS_LIST.map((ind) => (
+                                <option key={ind.value} value={ind.value}>{ind.label}</option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={cond.operator}
+                              onChange={(e) => {
+                                const next = [...entryConditions];
+                                next[idx].operator = e.target.value;
+                                setEntryConditions(next);
+                              }}
+                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-indigo-400 font-bold text-[11px] outline-none cursor-pointer w-16 text-center"
+                            >
+                              <option value=">">&gt;</option>
+                              <option value=">=">&gt;=</option>
+                              <option value="<">&lt;</option>
+                              <option value="<=">&lt;=</option>
+                              <option value="==">==</option>
+                            </select>
+
+                            <select
+                              value={cond.targetType}
+                              onChange={(e) => {
+                                const next = [...entryConditions];
+                                next[idx].targetType = e.target.value;
+                                setEntryConditions(next);
+                              }}
+                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-amber-400 text-[11px] outline-none cursor-pointer w-24"
+                            >
+                              <option value="indicator">Indicator</option>
+                              <option value="numeric">Value</option>
+                            </select>
+
+                            {cond.targetType === 'indicator' ? (
+                              <select
+                                value={cond.indicator2}
+                                onChange={(e) => {
+                                  const next = [...entryConditions];
+                                  next[idx].indicator2 = e.target.value;
+                                  setEntryConditions(next);
+                                }}
+                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
+                              >
+                                {STRATEGY_INDICATORS_LIST.map((ind) => (
+                                  <option key={ind.value} value={ind.value}>{ind.label}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="number"
+                                value={cond.numericValue}
+                                onChange={(e) => {
+                                  const next = [...entryConditions];
+                                  next[idx].numericValue = parseFloat(e.target.value) || 0;
+                                  setEntryConditions(next);
+                                }}
+                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none w-24"
+                              />
+                            )}
+
+                            {idx < entryConditions.length - 1 && (
+                              <select
+                                value={cond.connector}
+                                onChange={(e) => {
+                                  const next = [...entryConditions];
+                                  next[idx].connector = e.target.value;
+                                  setEntryConditions(next);
+                                }}
+                                className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-lg px-1.5 py-1 text-[10px] font-bold outline-none cursor-pointer"
+                              >
+                                <option value="AND">AND</option>
+                                <option value="OR">OR</option>
+                              </select>
+                            )}
+
+                            {entryConditions.length > 1 && (
+                              <button
+                                onClick={() => setEntryConditions(entryConditions.filter((_, i) => i !== idx))}
+                                className="text-rose-400 hover:text-rose-300 text-xs px-1 cursor-pointer"
+                                title="Remove rule"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                        Compiled Entry Rule: {compileConditionsToString(entryConditions) || 'None'}
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <label className="text-slate-400 font-semibold">Entry Rules</label>
-                      <textarea 
-                        rows={2}
-                        value={builderEntry}
-                        onChange={(e) => setBuilderEntry(e.target.value)}
-                        placeholder="e.g. Buy when price is above EMA 21 and RSI crosses above 50..."
-                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500/50 resize-none"
-                      />
-                    </div>
+                    {/* GUIDED EXIT RULES DROPDOWN BUILDER */}
+                    <div className="flex flex-col gap-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-300 font-bold flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                          Exit Conditions (Select Available Indicators)
+                        </label>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setExitConditions([...exitConditions, { indicator1: 'rsi', operator: '<', targetType: 'numeric', indicator2: 'supertrend', numericValue: 40, connector: 'OR' }])}
+                          className="px-2 py-0.5 text-[10px] h-auto border-rose-500/30 text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                        >
+                          + Add Rule
+                        </Button>
+                      </div>
 
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <label className="text-slate-400 font-semibold">Exit Rules</label>
-                      <textarea 
-                        rows={2}
-                        value={builderExit}
-                        onChange={(e) => setBuilderExit(e.target.value)}
-                        placeholder="e.g. Exit when price falls below EMA 21 or RSI crosses below 40..."
-                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500/50 resize-none"
-                      />
+                      <div className="flex flex-col gap-2">
+                        {exitConditions.map((cond, idx) => (
+                          <div key={idx} className="bg-black/35 border border-white/5 rounded-xl p-2.5 flex flex-col md:flex-row items-stretch md:items-center gap-2">
+                            <select
+                              value={cond.indicator1}
+                              onChange={(e) => {
+                                const next = [...exitConditions];
+                                next[idx].indicator1 = e.target.value;
+                                setExitConditions(next);
+                              }}
+                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
+                            >
+                              {STRATEGY_INDICATORS_LIST.map((ind) => (
+                                <option key={ind.value} value={ind.value}>{ind.label}</option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={cond.operator}
+                              onChange={(e) => {
+                                const next = [...exitConditions];
+                                next[idx].operator = e.target.value;
+                                setExitConditions(next);
+                              }}
+                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-rose-400 font-bold text-[11px] outline-none cursor-pointer w-16 text-center"
+                            >
+                              <option value=">">&gt;</option>
+                              <option value=">=">&gt;=</option>
+                              <option value="<">&lt;</option>
+                              <option value="<=">&lt;=</option>
+                              <option value="==">==</option>
+                            </select>
+
+                            <select
+                              value={cond.targetType}
+                              onChange={(e) => {
+                                const next = [...exitConditions];
+                                next[idx].targetType = e.target.value;
+                                setExitConditions(next);
+                              }}
+                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-amber-400 text-[11px] outline-none cursor-pointer w-24"
+                            >
+                              <option value="indicator">Indicator</option>
+                              <option value="numeric">Value</option>
+                            </select>
+
+                            {cond.targetType === 'indicator' ? (
+                              <select
+                                value={cond.indicator2}
+                                onChange={(e) => {
+                                  const next = [...exitConditions];
+                                  next[idx].indicator2 = e.target.value;
+                                  setExitConditions(next);
+                                }}
+                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
+                              >
+                                {STRATEGY_INDICATORS_LIST.map((ind) => (
+                                  <option key={ind.value} value={ind.value}>{ind.label}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="number"
+                                value={cond.numericValue}
+                                onChange={(e) => {
+                                  const next = [...exitConditions];
+                                  next[idx].numericValue = parseFloat(e.target.value) || 0;
+                                  setExitConditions(next);
+                                }}
+                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none w-24"
+                              />
+                            )}
+
+                            {idx < exitConditions.length - 1 && (
+                              <select
+                                value={cond.connector}
+                                onChange={(e) => {
+                                  const next = [...exitConditions];
+                                  next[idx].connector = e.target.value;
+                                  setExitConditions(next);
+                                }}
+                                className="bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-lg px-1.5 py-1 text-[10px] font-bold outline-none cursor-pointer"
+                              >
+                                <option value="AND">AND</option>
+                                <option value="OR">OR</option>
+                              </select>
+                            )}
+
+                            {exitConditions.length > 1 && (
+                              <button
+                                onClick={() => setExitConditions(exitConditions.filter((_, i) => i !== idx))}
+                                className="text-rose-400 hover:text-rose-300 text-xs px-1 cursor-pointer"
+                                title="Remove rule"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="text-[10px] font-mono text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg">
+                        Compiled Exit Rule: {compileConditionsToString(exitConditions) || 'None'}
+                      </div>
                     </div>
 
                     <button 
