@@ -3504,135 +3504,164 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
       {/* CORE LAYOUT BODY */}
       <main className="flex-1 w-full max-w-[1600px] mx-auto px-6 py-6 pb-24 md:pb-6 flex flex-col gap-6">
 
-        {/* Lock Overlay Banner for Logged Out Layout */}
-        {!appConfig.hasAccessToken && (
-          <div className="glass-panel-heavy p-6 flex flex-col md:flex-row items-center justify-between border-rose-500/20 bg-rose-950/10 gap-4">
-            <div className="flex items-center gap-4">
-              <div className="h-12 w-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 flex-shrink-0">
-                <Lock className="h-6 w-6" />
+        {/* STRICT AUTHENTICATION SECURITY GATEKEEPER (WHEN UNAUTHENTICATED) */}
+        {/* STRICT AUTHENTICATION SECURITY GATEKEEPER (WHEN UNAUTHENTICATED) */}
+        {!appConfig.hasAccessToken ? (
+          <div className="min-h-[75vh] flex flex-col items-center justify-center p-4 md:p-8 text-center my-auto">
+            <div className="glass-panel p-8 md:p-12 max-w-2xl w-full border-rose-500/30 bg-[#0f111a]/95 backdrop-blur-2xl rounded-3xl shadow-2xl space-y-6 relative overflow-hidden">
+              {/* Ambient Background Glows */}
+              <div className="absolute -top-24 -left-24 w-64 h-64 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+              {/* Lock Shield Badge */}
+              <div className="mx-auto h-20 w-20 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-xl shadow-rose-500/10">
+                <Lock className="h-10 w-10 animate-bounce" />
               </div>
-              <div>
-                <h3 className="font-display font-semibold text-white">Authentication Required</h3>
-                <p className="text-sm text-slate-400">
-                  {appConfig.hasKiteKey 
-                    ? "Click 'Connect Zerodha' to authorize the chatbot to sync positions, calculate margins, and execute strategy decisions."
-                    : "Zerodha API credentials are missing in the .env configuration. The application is running in locked simulation mode."
-                  }
+
+              {/* Title & Security Notice */}
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold font-display text-white tracking-tight">
+                  Broker Authentication Required
+                </h2>
+                <p className="text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
+                  This trading terminal is locked under strict security rules. No Option Chain Studio, strategy engines, screeners, portfolio analytics, or API services can be accessed without a valid Zerodha broker authorization.
                 </p>
               </div>
-            </div>
-            {appConfig.hasKiteKey && (
-              <button 
-                onClick={handleLogin}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
-              >
-                Connect Zerodha account
-              </button>
-            )}
-          </div>
-        )}
 
+              {/* Access Status Banner */}
+              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-white/10 font-mono text-xs text-slate-400 flex items-center justify-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping"></span>
+                <span>Terminal Status: <strong className="text-rose-400">UNAUTHENTICATED (LOCKED)</strong></span>
+              </div>
 
+              {/* ONLY ACCESSIBLE REDIRECT URLS & LOGIN ACTIONS */}
+              <div className="pt-4 border-t border-white/10 space-y-4">
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button
+                    onClick={handleLogin}
+                    className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-sm transition-all shadow-xl shadow-indigo-600/30 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Connect Zerodha Broker (Redirect to Login)
+                  </button>
+                  <a
+                    href="/api/login"
+                    className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-300 font-mono font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 text-indigo-400" />
+                    Direct Login URL: /api/login
+                  </a>
+                </div>
 
-        
-      {/* Custom Alert Modal */}
-      {alertConfig.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#0f0f13] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl flex flex-col items-center text-center">
-            <div className="h-12 w-12 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center mb-4 text-indigo-400">
-              <Info className="h-6 w-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">{alertConfig.title}</h3>
-            <p className="text-sm text-slate-300 mb-6">{alertConfig.message}</p>
-            <button 
-              onClick={() => setAlertConfig({ ...alertConfig, isOpen: false })}
-              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all"
-            >
-              Okay
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-        {/* VIEW 1: DASHBOARD VIEW                                                    */}
-        {/* ========================================================================= */}
-        {view === 'dashboard' && (
-          <div className="flex flex-col gap-6">
-            
-            {/* Top Stat Bar */}
-            {appConfig.hasAccessToken && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
-                {/* Available Cash Card */}
-                <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
-                  <div className="flex items-center justify-between text-slate-400 font-medium">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Allocated Cash (5x Leverage)</span>
-                      {reallocationAutoEnabled && lastReallocationTime && (
-                        (() => {
-                          const elapsed = Date.now() - lastReallocationTime;
-                          const left = Math.max(0, 15 * 60 * 1000 - elapsed);
-                          const m = Math.floor(left / 60000);
-                          const s = Math.floor((left % 60000) / 1000);
-                          return (
-                            <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-semibold animate-pulse">
-                              Realloc: {m}m {s}s
-                            </span>
-                          );
-                        })()
-                      )}
-                    </div>
-                    <Zap className="h-4 w-4 text-amber-400" />
-                  </div>
-                  <h3 className="text-lg font-display font-bold text-white mt-1">
-                    ₹{formatCurrency((margins?.equity?.net || 0) * (selectedMarginPercentage / 100) * 5)}
-                  </h3>
-                  <div className="flex justify-between items-center mt-1">
-                    <p className="text-[9px] text-slate-400 font-mono">
-                      Based on {(margins?.equity?.net || 0) > 0 ? `₹${formatCurrency(margins?.equity?.net)}` : '₹0.00'} × {selectedMarginPercentage}% allocation
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                      <input 
-                        type="checkbox"
-                        id="reallocation-logic-toggle"
-                        checked={reallocationAutoEnabled}
-                        onChange={toggleReallocationLogic}
-                        className="h-3 w-3 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
-                      />
-                      <label htmlFor="reallocation-logic-toggle" className="text-[9px] font-medium text-slate-300 cursor-pointer select-none">
-                        Smart Reallocation
-                        {(() => {
-                          if (reallocationAutoEnabled && lastReallocationTime) {
-                            const elapsed = Date.now() - lastReallocationTime;
-                            const left = Math.max(0, 15 * 60 * 1000 - elapsed);
-                            const m = Math.floor(left / 60000);
-                            const s = Math.floor((left % 60000) / 1000);
-                            return <span className="text-amber-400 font-mono ml-1">({m}m {s}s)</span>;
-                          }
-                          return null;
-                        })()}
-                      </label>
-                      <div className="relative group z-50">
-                        <Info className="h-3 w-3 text-slate-400 hover:text-slate-200 cursor-pointer" />
-                        <div className="absolute bottom-full mb-2 -translate-x-1/2 left-1/2 hidden group-hover:block w-64 p-3 bg-slate-950/95 border border-white/10 rounded-xl text-[10px] text-slate-300 leading-normal shadow-2xl backdrop-blur-md text-left z-[9999]">
-                          <div className="font-semibold text-white mb-1 text-[11px]">Smart Reallocation Logic:</div>
-                          <ul className="list-disc pl-3 flex flex-col gap-1 text-[10px]">
-                            <li><span className="text-indigo-400 font-medium">Trigger:</span> Runs every 15 mins.</li>
-                            <li><span className="text-indigo-400 font-medium">Condition:</span> Open MIS position is in profit by ≥ 0.5%.</li>
-                            <li><span className="text-indigo-400 font-medium">Action:</span> Takes 20% of free available margin and pyramids (adds to) the winning positions.</li>
-                          </ul>
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-950"></div>
-                        </div>
+                {/* Developer Manual Token Setup Collapsible */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => setShowToken(!showToken)}
+                    className="text-xs text-slate-500 hover:text-slate-300 font-mono underline transition-colors cursor-pointer"
+                  >
+                    {showToken ? 'Hide Developer Token Input' : 'Developer / Manual Access Token Setup'}
+                  </button>
+                  {showToken && (
+                    <div className="mt-3 p-4 rounded-xl bg-slate-950 border border-white/10 space-y-3 text-left">
+                      <label className="text-[11px] font-mono text-slate-400 block font-bold">Manual Access Token Override:</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Paste Zerodha Access Token..."
+                          value={accessTokenInput}
+                          onChange={(e) => setAccessTokenInput(e.target.value)}
+                          className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none"
+                        />
+                        <button
+                          onClick={handleSaveAccessToken}
+                          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold font-mono cursor-pointer"
+                        >
+                          Save Token
+                        </button>
                       </div>
                     </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Custom Alert Modal */}
+            {alertConfig.isOpen && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-[#0f0f13] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl flex flex-col items-center text-center">
+                  <div className="h-12 w-12 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center mb-4 text-indigo-400">
+                    <Info className="h-6 w-6" />
                   </div>
-                </Card>
+                  <h3 className="text-lg font-bold text-white mb-2">{alertConfig.title}</h3>
+                  <p className="text-sm text-slate-300 mb-6">{alertConfig.message}</p>
+                  <button 
+                    onClick={() => setAlertConfig({ ...alertConfig, isOpen: false })}
+                    className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all"
+                  >
+                    Okay
+                  </button>
+                </div>
+              </div>
+            )}
 
-                {/* Net P&L Card */}
-                <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
-                  <div className="flex items-center justify-between text-slate-400 font-medium">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Net Realtime P&L</span>
+            {/* ========================================================================= */}
+            {/* VIEW 1: DASHBOARD VIEW                                                    */}
+            {/* ========================================================================= */}
+            {view === 'dashboard' && (
+              <div className="flex flex-col gap-6">
+                
+                {/* Top Stat Bar */}
+                {appConfig.hasAccessToken && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    
+                    {/* Available Cash Card */}
+                    <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
+                      <div className="flex items-center justify-between text-slate-400 font-medium">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Allocated Cash (5x Leverage)</span>
+                          {reallocationAutoEnabled && lastReallocationTime && (
+                            (() => {
+                              const elapsed = Date.now() - lastReallocationTime;
+                              const left = Math.max(0, 15 * 60 * 1000 - elapsed);
+                              const m = Math.floor(left / 60000);
+                              const s = Math.floor((left % 60000) / 1000);
+                              return (
+                                <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-semibold animate-pulse">
+                                  Realloc: {m}m {s}s
+                                </span>
+                              );
+                            })()
+                          )}
+                        </div>
+                        <Zap className="h-4 w-4 text-amber-400" />
+                      </div>
+                      <h3 className="text-lg font-display font-bold text-white mt-1">
+                        ₹{formatCurrency((margins?.equity?.net || 0) * (selectedMarginPercentage / 100) * 5)}
+                      </h3>
+                      <div className="flex justify-between items-center mt-1">
+                        <p className="text-[9px] text-slate-400 font-mono">
+                          Based on {(margins?.equity?.net || 0) > 0 ? `₹${formatCurrency(margins?.equity?.net)}` : '₹0.00'} × {selectedMarginPercentage}% allocation
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <input 
+                            type="checkbox"
+                            id="reallocation-logic-toggle"
+                            checked={reallocationAutoEnabled}
+                            onChange={toggleReallocationLogic}
+                            className="h-3 w-3 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
+                          />
+                          <label htmlFor="reallocation-logic-toggle" className="text-[9px] font-medium text-slate-300 cursor-pointer select-none">
+                            Smart Reallocation
+                          </label>
+                        </div>
+                      </div>
+                    </Card>
+
+                    {/* Net Realtime PnL Card */}
+                    <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
+                      <div className="flex items-center justify-between text-slate-400 font-medium">
                     <TrendingUp className={`h-4 w-4 ${(positionsPnL + portfolioPnL - totalCharges) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
                   <h3 className={`text-lg font-display font-bold mt-1 ${
@@ -8953,6 +8982,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           </div>
         )}
 
+        </>
+      )}
       </main>
 
       {/* FOOTER */}
