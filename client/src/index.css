@@ -339,6 +339,13 @@ button, input, select, textarea {
 .theme-light [class*="bg-[#121826]"],
 .theme-light [class*="bg-[#0b0f1a]"],
 .theme-light [class*="bg-[#0f1422]"],
+.theme-light [class*="bg-[#0f111a]"],
+.theme-light [class*="bg-[#0f0f13]"],
+.theme-light [class*="bg-[#070a12]"],
+.theme-light [class*="bg-[#0f1015]"],
+.theme-light [class*="bg-amber-950"],
+.theme-light [class*="bg-purple-950"],
+.theme-light [class*="bg-rose-950"],
 .theme-light [class*="bg-slate-950"],
 .theme-light [class*="bg-slate-900"],
 .theme-light [class*="bg-slate-800"],
@@ -351,6 +358,13 @@ button, input, select, textarea {
 .theme-light [class*="bg-white/[0.05]"] {
   background-color: #ffffff !important;
   color: #0f172a !important;
+}
+
+.theme-light [class*="border-amber-500"],
+.theme-light [class*="border-purple-500"],
+.theme-light [class*="border-rose-500"],
+.theme-light [class*="border-indigo-500"] {
+  border-color: #cbd5e1 !important;
 }
 
 .theme-light [role="dialog"],

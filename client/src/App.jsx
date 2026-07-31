@@ -161,6 +161,18 @@ function AppContent() {
   // Theme Mode State ('light' vs 'dark')
   const [theme, setTheme] = useState(() => localStorage.getItem('app_theme') || 'light');
 
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (theme === 'light') {
+        document.documentElement.classList.add('theme-light');
+        document.documentElement.classList.remove('dark', 'theme-dark');
+      } else {
+        document.documentElement.classList.add('dark', 'theme-dark');
+        document.documentElement.classList.remove('theme-light');
+      }
+    }
+  }, [theme]);
+
   // Scanner Alert Subscriptions State
   const [subscribedAlerts, setSubscribedAlerts] = useState(() => {
     try {
@@ -187,9 +199,39 @@ function AppContent() {
   // Configuration & Token State
   const [appConfig, setAppConfig] = useState({ hasKiteKey: false, hasAccessToken: false });
   const [accessToken, setAccessToken] = useState('');
+  const [accessTokenInput, setAccessTokenInput] = useState('');
+  const [copiedCallbackUrl, setCopiedCallbackUrl] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [marketTime, setMarketTime] = useState('');
+
+  const handleCopyCallbackUrl = () => {
+    const callbackUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/auth/callback` : 'http://localhost:3005/api/auth/callback';
+    navigator.clipboard.writeText(callbackUrl).then(() => {
+      setCopiedCallbackUrl(true);
+      setTimeout(() => setCopiedCallbackUrl(false), 2000);
+    });
+  };
+
+  const handleSaveAccessToken = async () => {
+    if (!accessTokenInput.trim()) return;
+    try {
+      const res = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: accessTokenInput.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAlertConfig({ isOpen: true, title: 'Authentication Success', message: 'Access token manually saved and authenticated successfully!' });
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        setAlertConfig({ isOpen: true, title: 'Authentication Error', message: data.error || 'Failed to save access token' });
+      }
+    } catch (err) {
+      setAlertConfig({ isOpen: true, title: 'Authentication Exception', message: err.message });
+    }
+  };
 
   // App State (from MongoDB /api/state)
   const [selectedMarginPercentage, setSelectedMarginPercentage] = useState(100);
@@ -3532,6 +3574,47 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               <div className="p-3.5 rounded-xl bg-slate-900/90 border border-white/10 font-mono text-xs text-slate-400 flex items-center justify-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping"></span>
                 <span>Terminal Status: <strong className="text-rose-400">UNAUTHENTICATED (LOCKED)</strong></span>
+              </div>
+
+              {/* ZERODHA DEVELOPER OAUTH CALLBACK & REDIRECT URLS */}
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-white/10 space-y-3 text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <span className="text-xs font-bold text-white font-display flex items-center gap-1.5">
+                    <Globe className="h-4 w-4 text-indigo-400" />
+                    Broker OAuth Callback &amp; Redirect URLs
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                    Zerodha App Config
+                  </span>
+                </div>
+                <div className="space-y-2 text-xs font-mono">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950 border border-white/5">
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Zerodha App Redirect / Callback URL</span>
+                      <span className="text-emerald-300 font-bold text-xs">{typeof window !== 'undefined' ? `${window.location.origin}/api/auth/callback` : 'http://localhost:3005/api/auth/callback'}</span>
+                    </div>
+                    <button
+                      onClick={handleCopyCallbackUrl}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      {copiedCallbackUrl ? <CopyCheck className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-indigo-400" />}
+                      <span>{copiedCallbackUrl ? 'Copied!' : 'Copy Callback URL'}</span>
+                    </button>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-white/5 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Login Trigger URL</span>
+                      <span className="text-indigo-300 font-bold text-xs">{typeof window !== 'undefined' ? `${window.location.origin}/api/login` : 'http://localhost:3005/api/login'}</span>
+                    </div>
+                    <a
+                      href="/api/login"
+                      className="px-3 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-[11px] font-sans font-semibold flex items-center gap-1 transition-all"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Launch Login
+                    </a>
+                  </div>
+                </div>
               </div>
 
               {/* ONLY ACCESSIBLE REDIRECT URLS & LOGIN ACTIONS */}
