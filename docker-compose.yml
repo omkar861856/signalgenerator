@@ -126,7 +126,12 @@ services:
       - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ORG_NAME=Main Org.
       - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_LIVE_ALLOWED_ORIGINS=*
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_SECURITY_COOKIE_SITESAME=none
+      - GF_PANELS_DISABLE_SANITIZE_HTML=true
       - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
 

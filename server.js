@@ -8778,6 +8778,9 @@ const grafanaProxyInstance = createProxyMiddleware({
     changeOrigin: true,
     ws: true,
     logLevel: 'silent',
+    onProxyReqWs: (proxyReq, req, socket, options, head) => {
+        proxyReq.setHeader('Origin', `http://${grafanaHost}:3000`);
+    }
 });
 httpServer.on('upgrade', (req, socket, head) => {
     if (req.url && req.url.startsWith('/grafana/')) {
