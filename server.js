@@ -2316,6 +2316,16 @@ const STRIKE_STEPS = {
     'FINNIFTY': 50
 };
 
+function getCorrectExpiryForSymbol(symbol, availableExpiries) {
+    const isIndex = ['NIFTY', 'BANKNIFTY', 'FINNIFTY'].includes(symbol.toUpperCase());
+    if (isIndex) {
+        return availableExpiries[0]; // Nearest weekly for index options
+    }
+    // For stock options: Always return the monthly expiry date (e.g. 27-AUG-2026)
+    const monthly = availableExpiries.find(e => e.type === 'Monthly') || availableExpiries[availableExpiries.length - 1];
+    return monthly || availableExpiries[0];
+}
+
 function formatKiteTradingsymbol(symbol, expiryDateStr, strike, optionType) {
     const symUpper = symbol.toUpperCase();
     const isIndex = ['NIFTY', 'BANKNIFTY', 'FINNIFTY'].includes(symUpper);
@@ -2347,13 +2357,15 @@ app.post('/api/fno/ai-intraday-options-buy', requireAuth, async (req, res) => {
     try {
         const { screener = 'Top Gainers & Increasing OI', deltaTarget = 0.50 } = req.body;
         const availableExpiries = generateDynamicExpiries();
-        const activeExpiry = availableExpiries[0];
 
         const poolSymbols = ['AXISBANK', 'RELIANCE', 'TATAMOTORS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'TCS', 'BHARTIARTL', 'NIFTY', 'BANKNIFTY'];
         const shuffled = [...poolSymbols].sort(() => 0.5 - Math.random());
         const selectedCandidates = shuffled.slice(0, 3);
 
         const signals = await Promise.all(selectedCandidates.map(async (sym) => {
+            const symbolExpiryObj = getCorrectExpiryForSymbol(sym, availableExpiries);
+            const activeExpiryDate = symbolExpiryObj.date;
+
             let ltp = scanner.getLtpBySymbol(sym);
             if (!ltp || ltp <= 0) {
                 if (sym === 'NIFTY') ltp = 24383.60;
@@ -2396,7 +2408,7 @@ app.post('/api/fno/ai-intraday-options-buy', requireAuth, async (req, res) => {
             const totalQty = lotSize * 1;
             const totalMargin = parseFloat((estPremium * totalQty).toFixed(2));
 
-            const { displaySymbol, kiteSymbol } = formatKiteTradingsymbol(sym, activeExpiry.date, targetStrike, optionType);
+            const { displaySymbol, kiteSymbol } = formatKiteTradingsymbol(sym, activeExpiryDate, targetStrike, optionType);
 
             let brokerPushStatus = 'GTT Trigger Formatted (Simulation Mode)';
 
@@ -2470,7 +2482,8 @@ app.post('/api/fno/ai-intraday-options-buy', requireAuth, async (req, res) => {
                 strike: targetStrike,
                 contractSymbol: displaySymbol,
                 kiteSymbol,
-                expiry: activeExpiry.date,
+                expiry: activeExpiryDate,
+                expiryType: symbolExpiryObj.type,
                 lotSize,
                 totalQty,
                 totalMargin,
@@ -2488,7 +2501,7 @@ app.post('/api/fno/ai-intraday-options-buy', requireAuth, async (req, res) => {
             success: true,
             isTestMode: isGlobalTestMode,
             screenerUsed: screener,
-            expiry: activeExpiry.date,
+            expiry: availableExpiries[0].date,
             signals
         });
     } catch (err) {

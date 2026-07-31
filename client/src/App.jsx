@@ -7666,7 +7666,16 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     <div key={idx} className="p-4 rounded-xl border border-white/10 bg-slate-900/80 space-y-2 flex flex-col justify-between">
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="font-bold text-sm text-white font-mono">{sig.contractSymbol}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-sm text-white font-mono">{sig.contractSymbol}</span>
+                            {sig.expiryType && (
+                              <span className={`text-[9px] px-1 py-0.2 rounded border font-mono font-bold ${
+                                sig.expiryType === 'Monthly' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-teal-500/20 text-teal-300 border-teal-500/30'
+                              }`}>
+                                {sig.expiryType} ({sig.expiry})
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
                             Score: {sig.confidenceScore}%
                           </span>
