@@ -8811,31 +8811,20 @@ app.get('*', (req, res, next) => {
     res.setHeader('Expires', '0');
 
     const indexPath = path.join(__dirname, 'public', 'index.html');
+    if (!fs.existsSync(indexPath)) {
+        console.log('[Server] ⚠️ public/index.html is missing on disk. Auto-triggering npm run build:client...');
+        try {
+            require('child_process').execSync('npm run build:client', { cwd: __dirname, stdio: 'inherit' });
+        } catch (err) {
+            console.error('[Server] Client auto-build error:', err.message);
+        }
+    }
+
     if (fs.existsSync(indexPath)) {
         return res.sendFile(indexPath);
     }
 
-    res.status(200).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>AI Trading Terminal - Initializing</title>
-          <meta http-equiv="refresh" content="3">
-          <style>
-            body { background: #0f111a; color: #fff; font-family: monospace; display: flex; height: 100vh; align-items: center; justify-content: center; text-align: center; margin: 0; }
-            .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; max-width: 500px; }
-            h2 { color: #6366f1; }
-            p { color: #94a3b8; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <h2>Terminal Client Initializing...</h2>
-            <p>The static bundle is being prepared. Reloading in 3 seconds...</p>
-          </div>
-        </body>
-        </html>
-    `);
+    res.status(500).send('Error: Client bundle could not be loaded. Please ensure npm run build:client completes successfully.');
 });
 
 hybridServer.listen(PORT, '0.0.0.0', () => {
