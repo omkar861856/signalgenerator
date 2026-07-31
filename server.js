@@ -2504,9 +2504,84 @@ app.post('/api/fno/ai-intraday-options-buy', requireAuth, async (req, res) => {
             expiry: availableExpiries[0].date,
             signals
         });
+// =========================================================================
+// AUTOMATED SERVER AUTO-DEPLOYMENT ENGINE (POLLER, WEBHOOK & API)
+// =========================================================================
+const { exec } = require('child_process');
+
+let lastAutoPullTime = new Date().toISOString();
+let lastCommitHash = 'unknown';
+
+try {
+    lastCommitHash = require('child_process').execSync('git rev-parse --short HEAD 2>/dev/null').toString().trim();
+} catch (e) {}
+
+const runGitPullAndBuild = () => {
+    return new Promise((resolve) => {
+        exec('git fetch origin main && git pull origin main && npm run build:client', { cwd: __dirname }, (err, stdout, stderr) => {
+            lastAutoPullTime = new Date().toISOString();
+            if (err) {
+                console.error('[Auto-Deployer] Git pull error:', err.message);
+                return resolve({ success: false, error: err.message, stderr });
+            }
+            try {
+                lastCommitHash = require('child_process').execSync('git rev-parse --short HEAD 2>/dev/null').toString().trim();
+            } catch (e) {}
+            console.log(`[Auto-Deployer] ✅ Git pull & client build successful! Commit: ${lastCommitHash}`);
+            resolve({ success: true, commit: lastCommitHash, output: stdout });
+        });
+    });
+};
+
+// Background Git Auto-Pull Poller (Every 60 seconds)
+setInterval(() => {
+    exec('git fetch origin main 2>/dev/null && git rev-parse HEAD && git rev-parse origin/main', { cwd: __dirname }, async (err, stdout) => {
+        if (!err && stdout) {
+            const lines = stdout.trim().split('\n').filter(Boolean);
+            if (lines.length >= 2) {
+                const localHash = lines[0].trim();
+                const remoteHash = lines[1].trim();
+                if (localHash !== remoteHash && remoteHash.length >= 7) {
+                    console.log(`[Auto-Deployer] 🚀 Remote commit detected (${remoteHash.slice(0, 7)}). Auto-pulling & deploying...`);
+                    await runGitPullAndBuild();
+                }
+            }
+        }
+    });
+}, 60000);
+
+app.get('/api/admin/git-status', (req, res) => {
+    try {
+        let commit = lastCommitHash;
+        try {
+            commit = require('child_process').execSync('git rev-parse --short HEAD 2>/dev/null').toString().trim();
+        } catch (e) {}
+        res.json({
+            success: true,
+            commit,
+            branch: 'origin/main',
+            lastPullTime: lastAutoPullTime,
+            autoPollingActive: true,
+            pollingIntervalSeconds: 60
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+app.post('/api/admin/git-pull', async (req, res) => {
+    try {
+        const result = await runGitPullAndBuild();
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/webhooks/github-deploy', async (req, res) => {
+    console.log('[Auto-Deployer Webhook] GitHub Push event received. Triggering deploy...');
+    const result = await runGitPullAndBuild();
+    res.json({ success: true, message: 'Deployment triggered via webhook', result });
 });
 
 app.get('/api/fno/option-chain', requireAuth, (req, res) => {

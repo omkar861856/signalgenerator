@@ -5767,6 +5767,56 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         {/* ========================================================================= */}
         {view === 'admin' && (
           <div className="flex flex-col gap-6">
+
+            {/* AUTO-DEPLOYMENT & GIT SYNC CONTROLLER CARD */}
+            <div className="glass-panel p-4 border-indigo-500/20 bg-indigo-950/20 backdrop-blur-md rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                  <RefreshCcw className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white font-display flex items-center gap-2">
+                    Auto-Deployment &amp; Remote Git Sync
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Monitors <code className="text-indigo-300 font-mono">origin/main</code> every 60s. Auto-pulls &amp; deploys instantly on every push.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                <div className="flex flex-col items-end text-xs font-mono">
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Auto-Update ACTIVE
+                  </span>
+                  <span className="text-[10px] text-slate-400">Branch: origin/main</span>
+                </div>
+
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    showAlert('Triggering remote git pull & client rebuild...', 'Auto-Deployer');
+                    try {
+                      const res = await fetch('/api/admin/git-pull', { method: 'POST' });
+                      const data = await res.json();
+                      if (data.success) {
+                        showAlert(`Successfully deployed commit ${data.commit || 'latest'}! Reloading...`, 'Deploy Success');
+                        setTimeout(() => window.location.reload(), 1500);
+                      } else {
+                        showAlert(data.error || 'Deployment failed', 'Deploy Error');
+                      }
+                    } catch (e) {
+                      showAlert(e.message, 'Deploy Exception');
+                    }
+                  }}
+                  className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs px-4 py-2 rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  Deploy Latest Code Now
+                </Button>
+              </div>
+            </div>
             {/* IP Addresses Row */}
             <div className="glass-panel p-3.5 flex flex-wrap items-center justify-between border-slate-800 bg-[#0f1524]/40 backdrop-blur-md rounded-xl gap-4">
               <div className="flex items-center gap-4 flex-wrap">
