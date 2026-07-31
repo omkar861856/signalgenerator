@@ -5826,6 +5826,125 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         {view === 'admin' && (
           <div className="flex flex-col gap-6">
 
+            {/* SEBI & ZERODHA REGULATORY BULLETIN: CLOSING AUCTION SESSION (CAS) & EXTENDED F&O TIMINGS (EFFECTIVE AUG 3, 2026) */}
+            <div className="glass-panel p-6 border-amber-500/30 bg-amber-950/20 backdrop-blur-xl rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
+              {/* Header Badge */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-amber-500/20 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                    <AlertTriangle className="h-6 w-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+                        Official Zerodha &amp; SEBI Regulatory Bulletin
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">Effective: August 3, 2026</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-white font-display tracking-tight mt-0.5">
+                      Everything You Need to Know About Closing Auction Session (CAS) &amp; Extended F&amp;O Hours
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-amber-500/20 text-xs font-mono text-amber-300 flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-amber-400" />
+                  <span>F&amp;O Market Close: <strong className="text-emerald-400 font-bold">3:40 PM IST</strong></span>
+                </div>
+              </div>
+
+              {/* Timetable Comparison Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+                {/* Category I: F&O Listed Stocks */}
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                      <Layers className="h-4 w-4 text-amber-400" />
+                      F&amp;O Listed Stocks (Category I)
+                    </span>
+                    <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">CAS Applicable</span>
+                  </div>
+                  <ul className="space-y-2 text-slate-300 text-[11px]">
+                    <li className="flex justify-between"><span>Continuous Trading Halt:</span> <strong className="text-rose-400">3:15 PM</strong></li>
+                    <li className="flex justify-between"><span>CAS Auction Window:</span> <strong className="text-indigo-400">3:15 PM - 3:35 PM</strong></li>
+                    <li className="flex justify-between"><span>Equilibrium Close:</span> <strong className="text-emerald-400">3:35 PM</strong></li>
+                    <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:10 PM</strong></li>
+                    <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Price Band: ±3% of 3:00 - 3:15 PM VWAP Reference Price.</li>
+                  </ul>
+                </div>
+
+                {/* Category II: Non-F&O Stocks */}
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                      <Sliders className="h-4 w-4 text-indigo-400" />
+                      All Other Stocks (Category II)
+                    </span>
+                    <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">No CAS</span>
+                  </div>
+                  <ul className="space-y-2 text-slate-300 text-[11px]">
+                    <li className="flex justify-between"><span>Continuous Trading Close:</span> <strong className="text-emerald-400">3:30 PM</strong></li>
+                    <li className="flex justify-between"><span>Closing Price Method:</span> <strong className="text-slate-300">15-Min VWAP</strong></li>
+                    <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:25 PM</strong></li>
+                    <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Regular continuous trading runs till 3:30 PM as usual.</li>
+                  </ul>
+                </div>
+
+                {/* Derivatives: Index & Stock F&O */}
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/20 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <span className="font-bold text-emerald-300 flex items-center gap-1.5">
+                      <Zap className="h-4 w-4 text-emerald-400" />
+                      Index &amp; Stock F&amp;O Contracts
+                    </span>
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">Extended Hours</span>
+                  </div>
+                  <ul className="space-y-2 text-slate-300 text-[11px]">
+                    <li className="flex justify-between"><span>Continuous Trading Close:</span> <strong className="text-emerald-300 font-bold">3:40 PM (+10m)</strong></li>
+                    <li className="flex justify-between"><span>Expiry Settlement:</span> <strong className="text-indigo-300">CAS Stock Close</strong></li>
+                    <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:25 PM</strong></li>
+                    <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Futures &amp; Options trade continuously until 3:40 PM IST.</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* 5-Stage CAS Timeline Workflow */}
+              <div className="space-y-3 pt-2 border-t border-white/10">
+                <h4 className="text-xs font-bold text-white font-display uppercase tracking-wider flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-amber-400" />
+                  Closing Auction Session (CAS) 5-Stage Timetable Workflow
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 font-mono text-xs">
+                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                    <span className="text-[10px] text-amber-400 font-bold block">1. 3:00 - 3:15 PM</span>
+                    <span className="text-[11px] text-white font-bold block">VWAP Reference</span>
+                    <span className="text-[10px] text-slate-400 block">15-min VWAP calculates indicative Reference Price.</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                    <span className="text-[10px] text-indigo-400 font-bold block">2. 3:15 - 3:20 PM</span>
+                    <span className="text-[11px] text-white font-bold block">Transition &amp; Band</span>
+                    <span className="text-[10px] text-slate-400 block">CTS stops. ±3% price band applied. SL &amp; Icebergs cancelled.</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                    <span className="text-[10px] text-emerald-400 font-bold block">3. 3:20 - 3:25 PM</span>
+                    <span className="text-[11px] text-white font-bold block">Order Entry I</span>
+                    <span className="text-[10px] text-slate-400 block">Market + Limit orders entered. Indicative price broadcast.</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                    <span className="text-[10px] text-purple-400 font-bold block">4. 3:25 - 3:30 PM</span>
+                    <span className="text-[11px] text-white font-bold block">Order Entry II</span>
+                    <span className="text-[10px] text-slate-400 block">Limit orders only. Random close between 3:28 - 3:30 PM.</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/30 space-y-1">
+                    <span className="text-[10px] text-emerald-300 font-bold block">5. 3:30 - 3:35 PM</span>
+                    <span className="text-[11px] text-white font-bold block">Equilibrium Close</span>
+                    <span className="text-[10px] text-slate-400 block">Order matching algorithm executes official closing price.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* LOGGED IN SESSIONS & LOCATIONS TRACKER CARD */}
             <div className="glass-panel p-5 border-emerald-500/20 bg-emerald-950/10 backdrop-blur-md rounded-2xl flex flex-col gap-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-white/10 pb-3">

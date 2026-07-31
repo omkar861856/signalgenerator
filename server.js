@@ -4173,15 +4173,85 @@ setInterval(() => {
     const minutes = istDate.getMinutes();
     const currentMinutes = hours * 60 + minutes;
     
-    // Run at or after 3:30 PM IST (15:30 = 930 minutes)
-    if (currentMinutes >= 930) {
+    // Run at or after 3:40 PM IST for extended F&O market closing (15:40 = 940 minutes)
+    if (currentMinutes >= 940) {
         const todayDateStr = istDate.toLocaleDateString("en-US");
         if (historicalSyncStatus.lastSyncDate !== todayDateStr && historicalSyncStatus.status !== 'running') {
-            console.log(`[Historical Sync] Auto-triggering daily sync for ${todayDateStr}...`);
+            console.log(`[Historical Sync] Auto-triggering daily sync for ${todayDateStr} (Post 3:40 PM F&O Close)...`);
             runHistoricalSync().catch(err => console.error('[Historical Sync] Auto-trigger error:', err));
         }
     }
 }, 300000); // 5 minutes
+
+// ─── Zerodha Closing Auction Session (CAS) & Extended F&O Timings Endpoints ─────
+app.get('/api/fno/cas-status', (req, res) => {
+    res.json({
+        success: true,
+        effectiveDate: 'August 3, 2026',
+        timings: {
+            fnoStocksContinuousHalt: '15:15 IST (3:15 PM)',
+            fnoStocksCasWindow: '15:15 - 15:35 IST (3:15 PM - 3:35 PM)',
+            nonFnoStocksClose: '15:30 IST (3:30 PM)',
+            fnoContractsClose: '15:40 IST (3:40 PM)',
+            misAutoSquareOffCasStocks: '15:10 IST (3:10 PM)',
+            misAutoSquareOffFnoContracts: '15:25 IST (3:25 PM)',
+            misAutoSquareOffNonCasStocks: '15:25 IST (3:25 PM)'
+        },
+        priceBand: '±3% of 3:00 - 3:15 PM VWAP Reference Price'
+    });
+});
+
+app.post('/api/fno/cas-equilibrium-calculator', (req, res) => {
+    try {
+        const { refPrice = 1000, buyOrders = [], sellOrders = [] } = req.body || {};
+        
+        // Default sample market depth if none provided
+        const bids = buyOrders.length > 0 ? buyOrders : [
+            { price: 1010, qty: 500 },
+            { price: 1008, qty: 300 },
+            { price: 1005, qty: 400 },
+            { price: 1002, qty: 200 },
+            { price: 1000, qty: 100 }
+        ];
+
+        const asks = sellOrders.length > 0 ? sellOrders : [
+            { price: 1000, qty: 200 },
+            { price: 1002, qty: 300 },
+            { price: 1005, qty: 400 },
+            { price: 1008, qty: 250 },
+            { price: 1010, qty: 150 }
+        ];
+
+        const prices = Array.from(new Set([...bids.map(b => b.price), ...asks.map(a => a.price)])).sort((a, b) => a - b);
+        
+        let maxVolume = 0;
+        let equilibriumPrice = refPrice;
+
+        const table = prices.map(price => {
+            const cumBuy = bids.filter(b => b.price >= price).reduce((sum, b) => sum + b.qty, 0);
+            const cumSell = asks.filter(a => a.price <= price).reduce((sum, a) => sum + a.qty, 0);
+            const execVol = Math.min(cumBuy, cumSell);
+            const imbalance = Math.abs(cumBuy - cumSell);
+
+            if (execVol > maxVolume) {
+                maxVolume = execVol;
+                equilibriumPrice = price;
+            }
+            return { price, cumBuy, cumSell, execVol, imbalance };
+        });
+
+        res.json({
+            success: true,
+            refPrice,
+            equilibriumPrice,
+            maxExecutableVolume: maxVolume,
+            priceBand: { min: refPrice * 0.97, max: refPrice * 1.03 },
+            depthTable: table
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 app.post('/api/ws-stream/connect', requireAuth, (req, res) => {
