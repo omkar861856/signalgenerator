@@ -2504,6 +2504,10 @@ app.post('/api/fno/ai-intraday-options-buy', requireAuth, async (req, res) => {
             expiry: availableExpiries[0].date,
             signals
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // =========================================================================
 // AUTOMATED SERVER AUTO-DEPLOYMENT ENGINE (POLLER, WEBHOOK & API)
 // =========================================================================

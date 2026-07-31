@@ -2,7 +2,7 @@
 FROM node:20-alpine AS build
 
 # Install build dependencies if needed
-RUN apk add --no-cache python3 make g++ curl
+RUN apk add --no-cache python3 make g++ curl git
 
 WORKDIR /usr/src/app
 
