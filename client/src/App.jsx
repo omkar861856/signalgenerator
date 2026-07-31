@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon
+  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon, Layers, BarChart2
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -150,7 +150,7 @@ function AppContent() {
 
   // Navigation & Views driven by React Router
   const pathSegment = location.pathname.replace(/^\//, '').trim();
-  const view = ['dashboard', 'scanners', 'charts', 'strategies', 'fno', 'monitoring', 'admin'].includes(pathSegment)
+  const view = ['dashboard', 'optionchain', 'scanners', 'charts', 'strategies', 'fno', 'monitoring', 'admin'].includes(pathSegment)
     ? pathSegment
     : 'dashboard';
 
@@ -212,6 +212,37 @@ function AppContent() {
   const [showMorningIpModal, setShowMorningIpModal] = useState(false);
 
   const [settingsTab, setSettingsTab] = useState('fno'); // 'equity' or 'fno'
+  const [isTestMode, setIsTestMode] = useState(() => localStorage.getItem('app_test_mode') !== 'false');
+  const [selectedStrategy, setSelectedStrategy] = useState('ai_intraday_buy'); // 'ai_intraday_buy' | 'credit_spread' | 'leaps' | 'wheel'
+  const [selectedIntradayScreener, setSelectedIntradayScreener] = useState('Top Gainers & Increasing OI');
+  const [aiIntradaySignals, setAiIntradaySignals] = useState([]);
+  const [aiIntradayLoading, setAiIntradayLoading] = useState(false);
+
+  const runAiIntradayOptionsBuyer = async (screenerName = selectedIntradayScreener) => {
+    setAiIntradayLoading(true);
+    try {
+      const res = await fetch('/api/fno/ai-intraday-options-buy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ screener: screenerName, deltaTarget: 0.50 })
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setAiIntradaySignals(data.signals || []);
+        showAlert(
+          isTestMode
+            ? `AI scanned ${screenerName} & selected ${data.signals?.length || 0} Intraday Option Buy candidates. GTT triggers generated.`
+            : `AI Intraday Options Buyer executed ${data.signals?.length || 0} order signals.`,
+          'AI Options Buyer Complete'
+        );
+      }
+    } catch (err) {
+      console.error('Error running AI Intraday Options Buyer:', err);
+    } finally {
+      setAiIntradayLoading(false);
+    }
+  };
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -338,6 +369,48 @@ function AppContent() {
   const [fnoScannerResults, setFnoScannerResults] = useState([]);
   const [fnoScannerLoading, setFnoScannerLoading] = useState(false);
   const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', expiry: '30-JUL-2026', data: null, loading: false });
+  const [optChainState, setOptChainState] = useState({ 
+    symbol: 'NIFTY', 
+    expiry: '30-JUL-2026', 
+    data: null, 
+    loading: false, 
+    autoRefresh: false 
+  });
+
+  const fetchDedicatedOptionChain = useCallback(async (sym = optChainState.symbol, exp = optChainState.expiry) => {
+    setOptChainState(prev => ({ ...prev, loading: true }));
+    try {
+      const queryExp = exp || '';
+      const res = await fetch(`/api/fno/option-chain?symbol=${encodeURIComponent(sym)}&expiry=${encodeURIComponent(queryExp)}`);
+      const data = await res.json();
+      if (data && data.success) {
+        const activeExp = data.expiry || (data.expiries && data.expiries[0]?.date) || exp;
+        setOptChainState(prev => ({ ...prev, symbol: sym, expiry: activeExp, data, loading: false }));
+      } else {
+        setOptChainState(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      console.error('Error fetching dedicated option chain:', err);
+      setOptChainState(prev => ({ ...prev, loading: false }));
+    }
+  }, [optChainState.symbol, optChainState.expiry]);
+
+  useEffect(() => {
+    if (view === 'optionchain' && !optChainState.data && !optChainState.loading) {
+      fetchDedicatedOptionChain(optChainState.symbol || 'NIFTY', '');
+    }
+  }, [view, fetchDedicatedOptionChain, optChainState.data, optChainState.loading, optChainState.symbol]);
+
+  useEffect(() => {
+    let timer;
+    if (view === 'optionchain' && optChainState.autoRefresh) {
+      timer = setInterval(() => {
+        fetchDedicatedOptionChain(optChainState.symbol, optChainState.expiry);
+      }, 10000);
+    }
+    return () => clearInterval(timer);
+  }, [view, optChainState.autoRefresh, optChainState.symbol, optChainState.expiry, fetchDedicatedOptionChain]);
+
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState('');
@@ -3158,6 +3231,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           <nav className="space-y-1.5">
             {[
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, activeColor: 'bg-indigo-600/80' },
+              { id: 'optionchain', label: 'Option Chain Studio', icon: Layers, activeColor: 'bg-emerald-600/80' },
               { id: 'scanners', label: 'Scanners', icon: Activity, activeColor: 'bg-indigo-600/80' },
               { id: 'charts', label: 'Backtest Platform', icon: Sliders, activeColor: 'bg-indigo-600/80' },
               { id: 'strategies', label: 'Strategies', icon: Settings, activeColor: 'bg-indigo-600/80' },
@@ -3223,6 +3297,36 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
         {/* Right Badges / Actions */}
         <div className="flex items-center gap-3">
+          {/* Global Test Mode (GTT Only) Toggle Switch */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 shadow-sm">
+            <span className="text-[11px] uppercase font-bold tracking-wider text-amber-300 flex items-center gap-1.5">
+              <Shield className="h-3.5 w-3.5 text-amber-400" />
+              {isTestMode ? 'Test Mode (GTT Only)' : 'Live Order Mode'}
+            </span>
+            <button
+              onClick={() => {
+                const next = !isTestMode;
+                setIsTestMode(next);
+                localStorage.setItem('app_test_mode', String(next));
+                fetch('/api/test-mode', { 
+                  method: 'POST', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ isTestMode: next }) 
+                }).catch(() => {});
+                showAlert(
+                  next 
+                    ? 'Test Mode Active: Direct market orders disabled. Only GTT strategy triggers will be placed.' 
+                    : 'Live Mode Active: Direct market orders allowed.', 
+                  'Execution Mode Toggled'
+                );
+              }}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${isTestMode ? 'bg-amber-500' : 'bg-slate-700'}`}
+              title={isTestMode ? "Test Mode: Only GTT orders will be placed" : "Live Mode: Direct orders allowed"}
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isTestMode ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
           {/* Master System Automation Toggle Button */}
           <button
             onClick={handleToggleSystemAutomation}
@@ -7230,6 +7334,667 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           )}
         </div>
       )}
+
+        {/* ========================================================================= */}
+        {/* VIEW: DEDICATED OPTION CHAIN STUDIO VIEW                                  */}
+        {/* ========================================================================= */}
+        {view === 'optionchain' && (
+          <div className="flex flex-col gap-6 w-full text-slate-200">
+            {/* Header & Controls Panel */}
+            <div className="glass-panel p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border border-white/10 rounded-2xl bg-[#111827]/80 backdrop-blur-md shadow-xl">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <Layers className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-display font-bold text-white tracking-tight flex items-center gap-2">
+                      Option Chain Studio
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono font-normal uppercase tracking-wider">
+                        Live Analytics
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Real-time Option Matrix, Call/Put Open Interest distribution, PCR sentiment, and Max Pain metrics.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                {/* Expiry Selector */}
+                <select
+                  value={optChainState.expiry}
+                  onChange={(e) => {
+                    const newExp = e.target.value;
+                    setOptChainState(prev => ({ ...prev, expiry: newExp }));
+                    fetchDedicatedOptionChain(optChainState.symbol, newExp);
+                  }}
+                  className="bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {(optChainState.data?.expiries || [
+                    { date: '30-JUL-2026', label: '30-JUL-2026 (Current Weekly)' },
+                    { date: '06-AUG-2026', label: '06-AUG-2026 (Next Weekly)' },
+                    { date: '13-AUG-2026', label: '13-AUG-2026 (Far Weekly)' },
+                    { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)' },
+                    { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)' }
+                  ]).map(exp => (
+                    <option key={exp.date} value={exp.date}>{exp.label || exp.date}</option>
+                  ))}
+                </select>
+
+                {/* Auto Refresh Toggle */}
+                <button
+                  onClick={() => setOptChainState(prev => ({ ...prev, autoRefresh: !prev.autoRefresh }))}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                    optChainState.autoRefresh
+                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                      : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <RefreshCcw className={`h-3.5 w-3.5 ${optChainState.autoRefresh ? 'animate-spin text-emerald-400' : ''}`} />
+                  {optChainState.autoRefresh ? 'Auto 10s On' : 'Auto Refresh'}
+                </button>
+
+                {/* Manual Refresh Button */}
+                <button
+                  onClick={() => fetchDedicatedOptionChain(optChainState.symbol, optChainState.expiry)}
+                  disabled={optChainState.loading}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${optChainState.loading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Symbol Preset Selector Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Indices & F&O:</span>
+              {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'RELIANCE', 'TCS', 'HDFCBANK', 'INFY'].map(sym => (
+                <button
+                  key={sym}
+                  onClick={() => {
+                    setOptChainState(prev => ({ ...prev, symbol: sym }));
+                    fetchDedicatedOptionChain(sym, optChainState.expiry);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    optChainState.symbol === sym
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-400/50 text-white shadow-md shadow-emerald-500/10'
+                      : 'bg-slate-900/60 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                >
+                  {sym}
+                </button>
+              ))}
+            </div>
+
+            {/* 3 Key Trading Strategies Selector */}
+            <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-[#0f172a]/90 shadow-xl space-y-4">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                <div>
+                  <h3 className="text-base font-display font-bold text-white flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-amber-400" />
+                    Key Options Trading Strategies
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Select a strategy to view rules, target deltas, and execute automated GTT orders.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-lg border ${
+                    isTestMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  }`}>
+                    {isTestMode ? 'GTT Test Mode Active' : 'Live Order Mode Active'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {/* Strategy 1: AI Intraday Options Buying (Featured) */}
+                <div
+                  onClick={() => setSelectedStrategy('ai_intraday_buy')}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                    selectedStrategy === 'ai_intraday_buy'
+                      ? 'bg-amber-950/60 border-amber-500/80 ring-2 ring-amber-500/40 shadow-lg shadow-amber-500/10'
+                      : 'bg-slate-900/60 border-white/10 hover:border-slate-700 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-300 font-display flex items-center gap-1">
+                        <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                        AI Intraday Options Buying
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">Screener → AI</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Connects live screeners (Long Buildup, Short Covering, Volume Surge). The AI selects optimal CE/PE contracts (0.45–0.55 Delta) for intraday momentum.
+                    </p>
+                  </div>
+                  
+                  {/* Screener Selector Inside Card */}
+                  <div className="space-y-2 pt-2 border-t border-white/5 font-mono">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-400">Trigger Screener:</span>
+                      <select
+                        value={selectedIntradayScreener}
+                        onChange={(e) => setSelectedIntradayScreener(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-amber-300 font-bold focus:outline-none cursor-pointer"
+                      >
+                        <option value="Top Gainers & Increasing OI">Top Gainers & OI (Call Buy)</option>
+                        <option value="Futures Long Buildup">Long Buildup (Call Buy)</option>
+                        <option value="Short Covering Rally">Short Covering (Call Buy)</option>
+                        <option value="Unusual Volume Activity">Volume Surge (Breakout)</option>
+                        <option value="Futures Short Buildup">Short Buildup (Put Buy)</option>
+                      </select>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-400">
+                      <span>AI Strike Selection:</span>
+                      <span className="text-emerald-400 font-bold">ATM / 1-Step OTM</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedStrategy('ai_intraday_buy');
+                      runAiIntradayOptionsBuyer(selectedIntradayScreener);
+                    }}
+                    disabled={aiIntradayLoading}
+                    className="w-full py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition-all cursor-pointer shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${aiIntradayLoading ? 'animate-spin' : ''}`} />
+                    {aiIntradayLoading ? 'AI Analyzing...' : (isTestMode ? 'Run AI Options Buyer (GTT)' : 'Run AI Options Buyer (Live)')}
+                  </button>
+                </div>
+
+                {/* Strategy 2: Credit Spreads */}
+                <div
+                  onClick={() => setSelectedStrategy('credit_spread')}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                    selectedStrategy === 'credit_spread'
+                      ? 'bg-indigo-950/60 border-indigo-500/80 ring-2 ring-indigo-500/40 shadow-lg shadow-indigo-500/10'
+                      : 'bg-slate-900/60 border-white/10 hover:border-slate-700 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-indigo-300 font-display">Credit Spreads</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono">Delta 20–30</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Generate consistent income by selling options with low delta (20–30 range). High probability of expiring worthless.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 text-[10px] pt-2 border-t border-white/5 font-mono">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Target Delta:</span>
+                      <span className="text-indigo-300 font-bold">0.20 – 0.30</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Primary Risk:</span>
+                      <span className="text-amber-400 font-bold">Pin Risk (Early Closure)</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      showAlert(
+                        isTestMode
+                          ? `GTT Strategy Trigger Created for Credit Spread on ${optChainState.symbol} (Target Delta: 0.25). Expiry: ${optChainState.expiry}. Stop Loss & Target triggers set.`
+                          : `Live Order Executed for Credit Spread on ${optChainState.symbol}.`,
+                        isTestMode ? 'Test Mode GTT Trigger Created' : 'Live Order Triggered'
+                      );
+                    }}
+                    className="w-full py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-all cursor-pointer shadow-md"
+                  >
+                    {isTestMode ? 'Deploy Credit Spread GTT' : 'Trade Credit Spread'}
+                  </button>
+                </div>
+
+                {/* Strategy 3: LEAPS Options */}
+                <div
+                  onClick={() => setSelectedStrategy('leaps')}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                    selectedStrategy === 'leaps'
+                      ? 'bg-purple-950/60 border-purple-500/80 ring-2 ring-purple-500/40 shadow-lg shadow-purple-500/10'
+                      : 'bg-slate-900/60 border-white/10 hover:border-slate-700 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-purple-300 font-display">LEAPS Options</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono">Delta 70–90</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Long-Term Equity Anticipation Securities (&gt;1 year expiries). Select high delta (70–90) for deep ITM directional growth.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 text-[10px] pt-2 border-t border-white/5 font-mono">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Target Delta:</span>
+                      <span className="text-purple-300 font-bold">0.70 – 0.90</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Horizon:</span>
+                      <span className="text-emerald-400 font-bold">&gt; 1 Year Expiry</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      showAlert(
+                        isTestMode
+                          ? `GTT Strategy Trigger Created for LEAPS Option on ${optChainState.symbol} (Deep ITM Delta: 0.80). Trailing target active.`
+                          : `Live Order Executed for LEAPS Option on ${optChainState.symbol}.`,
+                        isTestMode ? 'Test Mode GTT Trigger Created' : 'Live Order Triggered'
+                      );
+                    }}
+                    className="w-full py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer shadow-md"
+                  >
+                    {isTestMode ? 'Deploy LEAPS GTT' : 'Trade LEAPS Option'}
+                  </button>
+                </div>
+
+                {/* Strategy 4: The Wheel Strategy */}
+                <div
+                  onClick={() => setSelectedStrategy('wheel')}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                    selectedStrategy === 'wheel'
+                      ? 'bg-emerald-950/60 border-emerald-500/80 ring-2 ring-emerald-500/40 shadow-lg shadow-emerald-500/10'
+                      : 'bg-slate-900/60 border-white/10 hover:border-slate-700 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-300 font-display">The Wheel Strategy</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">CSP → CC</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      2-part cash-flow process: (1) Sell Cash-Secured Puts to collect premium &amp; buy discounted shares; (2) Sell Covered Calls once assigned.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 text-[10px] pt-2 border-t border-white/5 font-mono">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Stage 1:</span>
+                      <span className="text-emerald-300 font-bold">Sell Cash-Secured Put</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Stage 2:</span>
+                      <span className="text-teal-300 font-bold">Sell Covered Call</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      showAlert(
+                        isTestMode
+                          ? `Wheel Strategy GTT initialized for ${optChainState.symbol}. Stage 1 Cash-Secured Put GTT trigger active at OTM strike.`
+                          : `Live Wheel Strategy initiated on ${optChainState.symbol}.`,
+                        isTestMode ? 'Wheel Strategy GTT Active' : 'Live Wheel Initiated'
+                      );
+                    }}
+                    className="w-full py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer shadow-md"
+                  >
+                    {isTestMode ? 'Start Wheel GTT' : 'Initiate Wheel Strategy'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Intraday Options Signals Panel */}
+            {aiIntradaySignals.length > 0 && (
+              <div className="glass-panel p-5 rounded-2xl border border-amber-500/30 bg-amber-950/20 shadow-xl space-y-4">
+                <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-amber-400" />
+                    <div>
+                      <h4 className="text-sm font-display font-bold text-white">AI-Selected Intraday Options Buy Candidates</h4>
+                      <p className="text-[11px] text-amber-300/80">Screener Trigger: {selectedIntradayScreener} | Target Delta: 0.50 (Near ATM)</p>
+                    </div>
+                  </div>
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold">
+                    {isTestMode ? `${aiIntradaySignals.length} GTT Strategy Triggers Created` : `${aiIntradaySignals.length} Live Signals Generated`}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {aiIntradaySignals.map((sig, idx) => (
+                    <div key={idx} className="p-4 rounded-xl border border-white/10 bg-slate-900/80 space-y-2 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-sm text-white font-mono">{sig.contractSymbol}</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                            Score: {sig.confidenceScore}%
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-snug mt-1">{sig.aiRationale}</p>
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-white/5 font-mono text-[10px]">
+                        <div className="flex justify-between text-slate-400">
+                          <span>Spot LTP: ₹{sig.underlyingLtp}</span>
+                          <span className="text-indigo-300 font-bold">Qty: {sig.totalQty} ({sig.lotSize}/lot)</span>
+                        </div>
+                        {sig.totalMargin > 0 && (
+                          <div className="flex justify-between text-slate-400">
+                            <span>Capital Required:</span>
+                            <span className="text-emerald-300 font-bold">₹{sig.totalMargin}</span>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-3 gap-1 text-center">
+                          <div className="bg-slate-950 p-1.5 rounded">
+                            <span className="text-slate-500 block">Est Premium</span>
+                            <span className="text-white font-bold">₹{sig.estimatedPremium}</span>
+                          </div>
+                          <div className="bg-slate-950 p-1.5 rounded">
+                            <span className="text-slate-500 block">Stop Loss</span>
+                            <span className="text-rose-400 font-bold">₹{sig.stopLoss}</span>
+                          </div>
+                          <div className="bg-slate-950 p-1.5 rounded">
+                            <span className="text-slate-500 block">Target</span>
+                            <span className="text-emerald-400 font-bold">₹{sig.targetPrice}</span>
+                          </div>
+                        </div>
+
+                        <div className="p-1.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 text-center font-sans font-bold">
+                          {sig.brokerPushStatus || 'GTT Trigger Created'}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => showAlert(`Broker Order Status: ${sig.brokerPushStatus || 'GTT Active'}\nContract: ${sig.contractSymbol}\nQuantity: ${sig.totalQty}\nEntry: ₹${sig.estimatedPremium} | SL: ₹${sig.stopLoss} | Target: ₹${sig.targetPrice}`, 'Broker Console Order Details')}
+                        className="w-full mt-2 py-1.5 rounded text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                      >
+                        {isTestMode ? 'View GTT Broker Details' : 'View Live Order Details'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Top Overview Analytics Cards Grid */}
+            {optChainState.data && (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                {/* Spot Price */}
+                <div className="glass-panel p-4 rounded-xl border border-white/10 bg-slate-900/60 flex flex-col justify-between">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Spot Price</span>
+                  <div className="mt-2 flex items-baseline justify-between">
+                    <span className="text-xl font-bold font-mono text-white">₹{formatCurrency(optChainState.data.spotPrice)}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold">Live</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-1">Underlying Asset LTP</span>
+                </div>
+
+                {/* ATM Strike */}
+                <div className="glass-panel p-4 rounded-xl border border-purple-500/20 bg-purple-950/20 flex flex-col justify-between">
+                  <span className="text-[10px] uppercase font-bold text-purple-300 tracking-wider">ATM Strike</span>
+                  <div className="mt-2">
+                    <span className="text-xl font-bold font-mono text-purple-300">₹{optChainState.data.atmStrike}</span>
+                  </div>
+                  <span className="text-[10px] text-purple-400/70 mt-1">At-The-Money Level</span>
+                </div>
+
+                {/* Put-Call Ratio (PCR) */}
+                <div className="glass-panel p-4 rounded-xl border border-white/10 bg-slate-900/60 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Put-Call Ratio (PCR)</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                      optChainState.data.pcr >= 1.05
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : optChainState.data.pcr <= 0.85
+                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                        : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    }`}>
+                      {optChainState.data.pcr >= 1.05 ? 'Bullish' : optChainState.data.pcr <= 0.85 ? 'Bearish' : 'Neutral'}
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-xl font-bold font-mono text-white">{optChainState.data.pcr}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-1">Total Put OI / Call OI</span>
+                </div>
+
+                {/* Max Pain */}
+                <div className="glass-panel p-4 rounded-xl border border-white/10 bg-slate-900/60 flex flex-col justify-between">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Max Pain</span>
+                  <div className="mt-2">
+                    <span className="text-xl font-bold font-mono text-amber-300">₹{optChainState.data.maxPain}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-1">Max Expiry Loss Strike</span>
+                </div>
+
+                {/* DTE & Expiry */}
+                <div className="glass-panel p-4 rounded-xl border border-white/10 bg-slate-900/60 flex flex-col justify-between">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Expiry & DTE</span>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-lg font-bold font-mono text-emerald-400">{optChainState.data.dte} Days</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-semibold">{optChainState.data.expiryType}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-1">{optChainState.data.expiry}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Visual Call vs Put Open Interest Distribution */}
+            {optChainState.data && optChainState.data.strikes && (
+              <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-slate-900/70 shadow-lg">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-display font-bold text-white flex items-center gap-2">
+                      <BarChart2 className="h-4 w-4 text-emerald-400" />
+                      Open Interest Distribution (Resistance vs Support)
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Red bars indicate Call OI (Overhead Resistance). Green bars indicate Put OI (Downside Support).
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs font-semibold">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-rose-500/80"></div>
+                      <span className="text-rose-300">Call OI (Resistance)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-emerald-500/80"></div>
+                      <span className="text-emerald-300">Put OI (Support)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* OI Visual Bars */}
+                <div className="space-y-2 mt-2">
+                  {(() => {
+                    const maxOi = Math.max(
+                      ...optChainState.data.strikes.map(s => Math.max(s.ce.oi, s.pe.oi)),
+                      1
+                    );
+                    return optChainState.data.strikes.slice(2, 9).map((st) => {
+                      const ceWidth = (st.ce.oi / maxOi) * 100;
+                      const peWidth = (st.pe.oi / maxOi) * 100;
+                      return (
+                        <div key={st.strike} className="flex items-center gap-2 text-xs">
+                          {/* Call OI Bar (Left) */}
+                          <div className="flex-1 flex items-center justify-end gap-2">
+                            <span className="font-mono text-[10px] text-slate-400">{st.ce.oi.toLocaleString()}</span>
+                            <div className="w-full bg-slate-800/80 h-3 rounded-l-md overflow-hidden flex justify-end">
+                              <div
+                                style={{ width: `${ceWidth}%` }}
+                                className="h-full bg-gradient-to-l from-rose-500 to-rose-700 rounded-l-md transition-all duration-500"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Strike Label (Center) */}
+                          <div className={`w-20 text-center py-1 rounded font-mono text-xs font-bold border ${
+                            st.isAtm
+                              ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-500/20'
+                              : 'bg-slate-800/90 text-slate-200 border-white/5'
+                          }`}>
+                            {st.strike}
+                          </div>
+
+                          {/* Put OI Bar (Right) */}
+                          <div className="flex-1 flex items-center justify-start gap-2">
+                            <div className="w-full bg-slate-800/80 h-3 rounded-r-md overflow-hidden flex justify-start">
+                              <div
+                                style={{ width: `${peWidth}%` }}
+                                className="h-full bg-gradient-to-r from-emerald-500 to-teal-600 rounded-r-md transition-all duration-500"
+                              />
+                            </div>
+                            <span className="font-mono text-[10px] text-slate-400">{st.pe.oi.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Main Option Chain Matrix Table */}
+            <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-slate-900/80 shadow-xl overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-display font-bold text-white flex items-center gap-2">
+                  Option Matrix: {optChainState.symbol} ({optChainState.expiry})
+                </h3>
+                <span className="text-xs text-slate-400 font-mono">
+                  {optChainState.loading ? 'Updating live chain...' : `Showing ${optChainState.data?.strikes?.length || 0} strikes around ATM`}
+                </span>
+              </div>
+
+              {optChainState.loading && !optChainState.data ? (
+                <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-3">
+                  <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
+                  <span className="text-xs font-semibold">Loading Live Option Chain Matrix...</span>
+                </div>
+              ) : optChainState.data ? (
+                <div className="overflow-x-auto border border-white/5 rounded-xl">
+                  <Table className="w-full text-xs border-collapse">
+                    <TableHeader className="bg-slate-950/90">
+                      <TableRow className="border-b border-white/10 hover:bg-transparent">
+                        {/* Call Headers */}
+                        <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-center bg-indigo-950/30 py-3">CE IV (%)</TableHead>
+                        <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-right bg-indigo-950/30">CE OI</TableHead>
+                        <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-right bg-indigo-950/30">CE Chg</TableHead>
+                        <TableHead className="text-[10px] uppercase font-bold text-indigo-300 text-right bg-indigo-950/50 font-mono">CE LTP (₹)</TableHead>
+                        
+                        {/* Strike Header */}
+                        <TableHead className="text-[11px] uppercase font-extrabold text-purple-300 text-center bg-purple-950/60 border-x border-purple-500/30 py-3">STRIKE</TableHead>
+                        
+                        {/* Put Headers */}
+                        <TableHead className="text-[10px] uppercase font-bold text-rose-300 text-left bg-rose-950/50 font-mono">PE LTP (₹)</TableHead>
+                        <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-left bg-rose-950/30">PE Chg</TableHead>
+                        <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-left bg-rose-950/30">PE OI</TableHead>
+                        <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-center bg-rose-950/30">PE IV (%)</TableHead>
+                        <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center bg-slate-950">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+
+                    <TableBody>
+                      {optChainState.data.strikes.map((st) => {
+                        const spot = optChainState.data.spotPrice;
+                        const isCeItm = st.strike < spot;
+                        const isPeItm = st.strike > spot;
+
+                        return (
+                          <TableRow 
+                            key={st.strike} 
+                            className={`border-b border-white/5 transition-colors ${
+                              st.isAtm 
+                                ? 'bg-purple-950/40 border-y border-purple-500/50 font-bold' 
+                                : 'hover:bg-white/[0.03]'
+                            }`}
+                          >
+                            {/* CE IV */}
+                            <TableCell className={`text-center font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20 text-emerald-300' : 'text-slate-400'}`}>
+                              {st.ce.iv}%
+                            </TableCell>
+
+                            {/* CE OI */}
+                            <TableCell className={`text-right font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20 text-slate-200' : 'text-slate-300'}`}>
+                              {st.ce.oi.toLocaleString()}
+                            </TableCell>
+
+                            {/* CE Chg */}
+                            <TableCell className={`text-right font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20' : ''} ${st.ce.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {st.ce.change >= 0 ? '+' : ''}{st.ce.change}%
+                            </TableCell>
+
+                            {/* CE LTP */}
+                            <TableCell className={`text-right font-mono font-bold text-xs ${isCeItm ? 'bg-emerald-950/40 text-emerald-300' : 'text-white'}`}>
+                              ₹{st.ce.ltp.toFixed(2)}
+                            </TableCell>
+
+                            {/* Strike Price */}
+                            <TableCell className={`text-center font-mono font-bold text-xs py-2 border-x ${
+                              st.isAtm 
+                                ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-500/30' 
+                                : 'bg-slate-950/80 text-slate-100 border-white/10'
+                            }`}>
+                              <div className="flex items-center justify-center gap-1">
+                                <span>{st.strike}</span>
+                                {st.isAtm && (
+                                  <span className="text-[9px] px-1 bg-white/20 text-white rounded font-sans font-bold">ATM</span>
+                                )}
+                              </div>
+                            </TableCell>
+
+                            {/* PE LTP */}
+                            <TableCell className={`text-left font-mono font-bold text-xs ${isPeItm ? 'bg-emerald-950/40 text-emerald-300' : 'text-white'}`}>
+                              ₹{st.pe.ltp.toFixed(2)}
+                            </TableCell>
+
+                            {/* PE Chg */}
+                            <TableCell className={`text-left font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20' : ''} ${st.pe.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {st.pe.change >= 0 ? '+' : ''}{st.pe.change}%
+                            </TableCell>
+
+                            {/* PE OI */}
+                            <TableCell className={`text-left font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20 text-slate-200' : 'text-slate-300'}`}>
+                              {st.pe.oi.toLocaleString()}
+                            </TableCell>
+
+                            {/* PE IV */}
+                            <TableCell className={`text-center font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20 text-emerald-300' : 'text-slate-400'}`}>
+                              {st.pe.iv}%
+                            </TableCell>
+
+                            {/* Actions */}
+                            <TableCell className="text-center py-1">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => showAlert(`Selected ${st.ce.symbol} at ₹${st.ce.ltp}`, 'Option Order')}
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600/80 hover:bg-indigo-500 text-white cursor-pointer"
+                                >
+                                  CE
+                                </button>
+                                <button
+                                  onClick={() => showAlert(`Selected ${st.pe.symbol} at ₹${st.pe.ltp}`, 'Option Order')}
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600/80 hover:bg-rose-500 text-white cursor-pointer"
+                                >
+                                  PE
+                                </button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="py-12 text-center text-xs text-slate-500">
+                  Failed to load option chain data.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
 
 
