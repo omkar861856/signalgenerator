@@ -216,7 +216,7 @@ function AppContent() {
   const [selectedStrategy, setSelectedStrategy] = useState('ai_intraday_buy'); // 'ai_intraday_buy' | 'credit_spread' | 'leaps' | 'wheel'
   const [selectedIntradayScreener, setSelectedIntradayScreener] = useState('Top Gainers & Increasing OI');
   const [aiIntradaySignals, setAiIntradaySignals] = useState([]);
-  const [aiIntradayLoading, setAiIntradayLoading] = useState(false);
+  const [selectedAdminDemoStock, setSelectedAdminDemoStock] = useState('AXISBANK');
 
   const runAiIntradayOptionsBuyer = async (screenerName = selectedIntradayScreener) => {
     setAiIntradayLoading(true);
@@ -5753,6 +5753,157 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 })()}
               </div>
             </Card>
+
+            {/* F&O OPTIONS MASTER & LIVE DEMO REFERENCE CARD */}
+            <div className="glass-panel p-5 border-amber-500/30 bg-amber-950/20 backdrop-blur-md rounded-2xl flex flex-col gap-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white font-display flex items-center gap-2">
+                      F&amp;O Options Input Master &amp; Live Demo Reference
+                    </h4>
+                    <p className="text-xs text-amber-300/80">
+                      Complete structural demo breakdown for all stock options: Lot Sizes, Strike Steps, Expiries, Zerodha Tradingsymbols &amp; Margin Math.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  Interactive Demo Reference
+                </span>
+              </div>
+
+              {/* Interactive Demo Stock Selector Buttons */}
+              <div className="flex flex-wrap gap-2">
+                {['AXISBANK', 'RELIANCE', 'TATAMOTORS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'TCS', 'BHARTIARTL', 'NIFTY', 'BANKNIFTY'].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSelectedAdminDemoStock(s)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition-all cursor-pointer border ${
+                      selectedAdminDemoStock === s
+                        ? 'bg-gradient-to-r from-amber-600 to-yellow-600 border-amber-400 text-white shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/30'
+                        : 'bg-slate-900/80 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+
+              {/* Demo Stock Detailed Parameter Cards */}
+              {(() => {
+                const demoData = {
+                  'AXISBANK': { ltp: 1229.50, step: 20, lot: 625, expiry: '27-AUG-2026', type: 'Monthly', strike: 1220, opt: 'CE', estPrem: 21.35, sl: 17.10, target: 29.90 },
+                  'RELIANCE': { ltp: 1450.00, step: 20, lot: 250, expiry: '27-AUG-2026', type: 'Monthly', strike: 1460, opt: 'CE', estPrem: 14.30, sl: 11.45, target: 20.00 },
+                  'TATAMOTORS': { ltp: 1450.00, step: 10, lot: 1425, expiry: '27-AUG-2026', type: 'Monthly', strike: 1450, opt: 'CE', estPrem: 17.40, sl: 13.90, target: 24.35 },
+                  'HDFCBANK': { ltp: 1530.00, step: 20, lot: 550, expiry: '27-AUG-2026', type: 'Monthly', strike: 1540, opt: 'CE', estPrem: 15.25, sl: 12.20, target: 21.35 },
+                  'INFY': { ltp: 1130.10, step: 20, lot: 400, expiry: '27-AUG-2026', type: 'Monthly', strike: 1140, opt: 'CE', estPrem: 13.50, sl: 10.80, target: 18.90 },
+                  'ICICIBANK': { ltp: 1435.40, step: 20, lot: 700, expiry: '27-AUG-2026', type: 'Monthly', strike: 1440, opt: 'CE', estPrem: 16.80, sl: 13.45, target: 23.50 },
+                  'TCS': { ltp: 2365.60, step: 50, lot: 175, expiry: '27-AUG-2026', type: 'Monthly', strike: 2350, opt: 'CE', estPrem: 28.50, sl: 22.80, target: 39.90 },
+                  'BHARTIARTL': { ltp: 1450.00, step: 20, lot: 950, expiry: '27-AUG-2026', type: 'Monthly', strike: 1460, opt: 'CE', estPrem: 15.80, sl: 12.65, target: 22.10 },
+                  'NIFTY': { ltp: 24383.60, step: 50, lot: 25, expiry: '06-AUG-2026', type: 'Weekly', strike: 24400, opt: 'CE', estPrem: 145.20, sl: 116.15, target: 203.25 },
+                  'BANKNIFTY': { ltp: 45310.50, step: 100, lot: 15, expiry: '06-AUG-2026', type: 'Weekly', strike: 45300, opt: 'CE', estPrem: 550.65, sl: 440.50, target: 770.90 }
+                };
+                const cur = demoData[selectedAdminDemoStock] || demoData['AXISBANK'];
+                const monthTag = cur.expiry.split('-')[1] || 'AUG';
+                const yrTag = cur.expiry.split('-')[2]?.slice(-2) || '26';
+                const displaySym = `${selectedAdminDemoStock} ${monthTag} ${cur.strike} ${cur.opt}`;
+                const kiteSym = cur.type === 'Monthly' || !['NIFTY','BANKNIFTY'].includes(selectedAdminDemoStock)
+                  ? `${selectedAdminDemoStock}${yrTag}${monthTag}${cur.strike}${cur.opt}`
+                  : `${selectedAdminDemoStock}${yrTag}806${cur.strike}${cur.opt}`;
+                const totalMargin = (cur.estPrem * cur.lot).toFixed(2);
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div className="bg-slate-900/90 border border-white/10 p-3.5 rounded-xl space-y-1">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Underlying Spot &amp; Step</span>
+                        <div className="text-sm font-bold text-white font-mono">{selectedAdminDemoStock} @ ₹{cur.ltp}</div>
+                        <div className="text-[11px] text-amber-300 font-mono">Strike Step: ₹{cur.step}</div>
+                      </div>
+                      <div className="bg-slate-900/90 border border-white/10 p-3.5 rounded-xl space-y-1">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Lot Size &amp; Quantity</span>
+                        <div className="text-sm font-bold text-indigo-300 font-mono">{cur.lot} Qty / Lot</div>
+                        <div className="text-[11px] text-slate-400 font-mono">Total Order Qty: {cur.lot}</div>
+                      </div>
+                      <div className="bg-slate-900/90 border border-white/10 p-3.5 rounded-xl space-y-1">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Expiry Date &amp; Type</span>
+                        <div className="text-sm font-bold text-purple-300 font-mono">{cur.expiry}</div>
+                        <div className={`text-[11px] font-mono font-bold ${cur.type === 'Monthly' ? 'text-purple-400' : 'text-teal-400'}`}>
+                          {cur.type} Expiry Standard
+                        </div>
+                      </div>
+                      <div className="bg-slate-900/90 border border-white/10 p-3.5 rounded-xl space-y-1">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Capital Required</span>
+                        <div className="text-sm font-bold text-emerald-400 font-mono">₹{totalMargin}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">Premium: ₹{cur.estPrem}</div>
+                      </div>
+                    </div>
+
+                    {/* Triple Symbol Synchronization Card */}
+                    <div className="p-4 rounded-xl bg-slate-950/80 border border-white/10 space-y-3">
+                      <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                        <span className="text-xs font-bold text-white font-display">Symbol Formatting &amp; Zerodha API Mapping</span>
+                        <span className="text-[10px] font-mono text-emerald-400 font-bold">100% Synchronized</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                        <div className="p-3 rounded-lg bg-slate-900 border border-white/5 space-y-1">
+                          <span className="text-[10px] text-slate-500 uppercase block font-bold">Human UI Display Symbol</span>
+                          <span className="text-amber-300 font-bold text-sm">{displaySym}</span>
+                          <p className="text-[10px] text-slate-400 font-sans">Used in Zerodha Search bar, UI Watchlists, and Dashboard.</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-slate-900 border border-white/5 space-y-1">
+                          <span className="text-[10px] text-slate-500 uppercase block font-bold">Zerodha API Tradingsymbol</span>
+                          <span className="text-indigo-300 font-bold text-sm">{kiteSym}</span>
+                          <p className="text-[10px] text-slate-400 font-sans">Used for Zerodha Kite API execution (kite.placeGTT / placeOrder).</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Comparative Stock Demo Matrix */}
+                    <div className="overflow-x-auto rounded-xl border border-white/10 bg-slate-950/60 p-3 space-y-2">
+                      <span className="text-xs font-bold text-white font-display block">F&amp;O Stocks Demo Specifications Matrix</span>
+                      <table className="w-full text-left border-collapse font-mono text-[11px]">
+                        <thead>
+                          <tr className="border-b border-white/10 text-slate-400 text-[10px] uppercase">
+                            <th className="py-2 px-2">Stock</th>
+                            <th className="py-2 px-2">Spot LTP</th>
+                            <th className="py-2 px-2">Step</th>
+                            <th className="py-2 px-2">Lot Size</th>
+                            <th className="py-2 px-2">Expiry Rule</th>
+                            <th className="py-2 px-2">Sample CE Contract</th>
+                            <th className="py-2 px-2">Zerodha Tradingsymbol</th>
+                            <th className="py-2 px-2">Capital Needed</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 text-slate-300">
+                          {Object.entries(demoData).map(([sym, d]) => (
+                            <tr key={sym} className={selectedAdminDemoStock === sym ? 'bg-amber-500/10 font-bold text-amber-200' : 'hover:bg-white/5'}>
+                              <td className="py-2 px-2 text-white font-bold">{sym}</td>
+                              <td className="py-2 px-2">₹{d.ltp}</td>
+                              <td className="py-2 px-2">₹{d.step}</td>
+                              <td className="py-2 px-2">{d.lot}</td>
+                              <td className="py-2 px-2">
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] ${d.type === 'Monthly' ? 'bg-purple-500/20 text-purple-300' : 'bg-teal-500/20 text-teal-300'}`}>
+                                  {d.type} ({d.expiry})
+                                </span>
+                              </td>
+                              <td className="py-2 px-2 text-amber-300">{sym} {d.expiry.split('-')[1]} {d.strike} {d.opt}</td>
+                              <td className="py-2 px-2 text-indigo-300">
+                                {d.type === 'Monthly' || !['NIFTY','BANKNIFTY'].includes(sym) ? `${sym}26${d.expiry.split('-')[1]}${d.strike}${d.opt}` : `${sym}26806${d.strike}${d.opt}`}
+                              </td>
+                              <td className="py-2 px-2 text-emerald-400">₹{(d.estPrem * d.lot).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
 
             {/* DATABASE SYNC MANAGER & ESTIMATED TIME TO STORE ALL DATA CARD */}
             <div className="glass-panel p-5 border-slate-800 bg-[#0f1524]/60 backdrop-blur-md rounded-xl flex flex-col gap-4">
