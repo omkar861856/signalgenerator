@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { 
   TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
-  Copy, Trash2, LogOut, RefreshCw, AlertTriangle, Lock, Plus, Search, 
+  Copy, Trash2, LogOut, LogIn, ExternalLink, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon, Layers, BarChart2
 } from 'lucide-react';
