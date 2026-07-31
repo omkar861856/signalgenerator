@@ -1586,7 +1586,7 @@ app.get('/api/login', (req, res) => {
 });
 
 // ─── 6. Kite OAuth callback ───────────────────────────────────────────────────
-app.get('/api/callback', async (req, res) => {
+app.get(['/api/callback', '/api/auth/callback'], async (req, res) => {
     const { request_token, redirect_params } = req.query;
     if (!request_token) {
         return res.status(400).send('<h3>Missing request_token</h3><a href="/">Back</a>');
@@ -1632,12 +1632,13 @@ app.get('/api/callback', async (req, res) => {
 });
 
 // ─── Manual Access Token Endpoint ──────────────────────────────────────────────
-app.post('/api/set-token', (req, res) => {
-    const { token } = req.body || {};
-    if (!token || typeof token !== 'string' || !token.trim()) {
+app.post(['/api/token', '/api/set-token'], (req, res) => {
+    const { token, access_token: bodyToken } = req.body || {};
+    const inputToken = token || bodyToken;
+    if (!inputToken || typeof inputToken !== 'string' || !inputToken.trim()) {
         return res.status(400).json({ error: 'Access token is required' });
     }
-    const cleanToken = token.trim();
+    const cleanToken = inputToken.trim();
     access_token = cleanToken;
     if (kite) kite.setAccessToken(access_token);
     if (scanner.setKiteInstance) scanner.setKiteInstance(kite);
