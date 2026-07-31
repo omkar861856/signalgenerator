@@ -196,8 +196,21 @@ function AppContent() {
   const [toastNotification, setToastNotification] = useState(null);
 
 
+  // Browser-based Unique Session Identifier
+  const getBrowserSessionId = () => {
+    if (typeof localStorage === 'undefined') return 'sess_default';
+    let sid = localStorage.getItem('sg_browser_session_id');
+    if (!sid) {
+      sid = 'sess_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('sg_browser_session_id', sid);
+    }
+    return sid;
+  };
+
   // Configuration & Token State
   const [appConfig, setAppConfig] = useState({ hasKiteKey: false, hasAccessToken: false });
+  const [activeSessions, setActiveSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const [accessToken, setAccessToken] = useState('');
   const [accessTokenInput, setAccessTokenInput] = useState('');
   const [copiedCallbackUrl, setCopiedCallbackUrl] = useState(false);
@@ -1074,7 +1087,9 @@ function AppContent() {
   // Core API fetches
   const fetchConfig = async () => {
     try {
-      const response = await fetch('/api/config');
+      const response = await fetch('/api/config', {
+        headers: { 'x-browser-session-id': getBrowserSessionId() }
+      });
       const data = await response.json();
       setAppConfig(data);
       if (data.hasAccessToken) {
@@ -1087,13 +1102,55 @@ function AppContent() {
 
   const fetchToken = async () => {
     try {
-      const resp = await fetch('/api/token');
+      const resp = await fetch('/api/token', {
+        headers: { 'x-browser-session-id': getBrowserSessionId() }
+      });
       const data = await resp.json();
       if (data.access_token) {
         setAccessToken(data.access_token);
       }
     } catch (err) {
       console.error('Error fetching token:', err);
+    }
+  };
+
+  const fetchActiveSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      const res = await fetch('/api/admin/sessions', {
+        headers: { 'x-browser-session-id': getBrowserSessionId() }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActiveSessions(data.sessions || []);
+      }
+    } catch (err) {
+      console.error('Error fetching active sessions:', err);
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  const handleRevokeSession = async (targetSid) => {
+    try {
+      const res = await fetch('/api/admin/sessions/revoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-browser-session-id': getBrowserSessionId()
+        },
+        body: JSON.stringify({ sessionId: targetSid })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAlertConfig({ isOpen: true, title: 'Session Revoked', message: data.message });
+        fetchActiveSessions();
+        fetchConfig();
+      } else {
+        setAlertConfig({ isOpen: true, title: 'Revoke Error', message: data.error || 'Failed to revoke session' });
+      }
+    } catch (err) {
+      setAlertConfig({ isOpen: true, title: 'Revoke Exception', message: err.message });
     }
   };
 
@@ -5768,6 +5825,100 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         {/* ========================================================================= */}
         {view === 'admin' && (
           <div className="flex flex-col gap-6">
+
+            {/* LOGGED IN SESSIONS & LOCATIONS TRACKER CARD */}
+            <div className="glass-panel p-5 border-emerald-500/20 bg-emerald-950/10 backdrop-blur-md rounded-2xl flex flex-col gap-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <Shield className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white font-display flex items-center gap-2">
+                      Logged In Sessions &amp; Locations Tracker
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Per-browser session authentication security &amp; real-time IP device tracking.
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={fetchActiveSessions}
+                  disabled={sessionsLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-white/10 bg-slate-900 hover:bg-slate-800 text-slate-200 transition-all cursor-pointer"
+                >
+                  <RefreshCw className={`h-3 w-3 ${sessionsLoading ? 'animate-spin' : ''}`} />
+                  Refresh Sessions
+                </Button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="border-b border-white/10 text-[11px] font-mono text-slate-400 uppercase">
+                      <th className="py-2.5 px-3 font-bold">Session ID</th>
+                      <th className="py-2.5 px-3 font-bold">Client IP Location</th>
+                      <th className="py-2.5 px-3 font-bold">Device &amp; OS</th>
+                      <th className="py-2.5 px-3 font-bold">Login Timestamp</th>
+                      <th className="py-2.5 px-3 font-bold">Last Active</th>
+                      <th className="py-2.5 px-3 font-bold text-center">Status</th>
+                      <th className="py-2.5 px-3 font-bold text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 font-mono">
+                    {activeSessions.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" className="py-4 text-center text-slate-500 italic">
+                          Click "Refresh Sessions" to load active browser sessions.
+                        </td>
+                      </tr>
+                    ) : (
+                      activeSessions.map((sess) => (
+                        <tr key={sess.sessionId} className={sess.isCurrent ? 'bg-indigo-500/10' : 'hover:bg-white/[0.02]'}>
+                          <td className="py-3 px-3 font-bold text-white flex items-center gap-1.5">
+                            <span className="text-indigo-400">{sess.sessionId.slice(0, 14)}...</span>
+                            {sess.isCurrent && (
+                              <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">Current</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-slate-300 font-bold">{sess.ip}</td>
+                          <td className="py-3 px-3 text-slate-400">{sess.device}</td>
+                          <td className="py-3 px-3 text-slate-400">
+                            {sess.loginTime ? new Date(sess.loginTime).toLocaleTimeString('en-IN') : '—'}
+                          </td>
+                          <td className="py-3 px-3 text-slate-400">
+                            {sess.lastActive ? new Date(sess.lastActive).toLocaleTimeString('en-IN') : '—'}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {sess.isAuthenticated ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                                Authenticated
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                Locked
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              onClick={() => handleRevokeSession(sess.sessionId)}
+                              className="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-[11px] font-sans font-semibold transition-all cursor-pointer"
+                            >
+                              Revoke Session
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {/* AUTO-DEPLOYMENT & GIT SYNC CONTROLLER CARD */}
             <div className="glass-panel p-4 border-indigo-500/20 bg-indigo-950/20 backdrop-blur-md rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

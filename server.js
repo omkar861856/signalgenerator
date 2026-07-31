@@ -1126,15 +1126,104 @@ app.get(['/health', '/api/health'], (req, res) => {
     });
 });
 
+// =========================================================================
+// PER-BROWSER SESSION & LOCATION MANAGER
+// =========================================================================
+const browserSessions = new Map(); // sessionId -> { sessionId, ip, userAgent, device, loginTime, lastActive, accessToken }
+
+const parseDeviceType = (ua = '') => {
+    let os = 'Unknown OS';
+    if (ua.includes('Macintosh') || ua.includes('Mac OS X')) os = 'macOS';
+    else if (ua.includes('Windows')) os = 'Windows';
+    else if (ua.includes('Linux')) os = 'Linux';
+    else if (ua.includes('Android')) os = 'Android';
+    else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
+
+    let browser = 'Browser';
+    if (ua.includes('Chrome') && !ua.includes('Edg')) browser = 'Chrome';
+    else if (ua.includes('Edg')) browser = 'Edge';
+    else if (ua.includes('Firefox')) browser = 'Firefox';
+    else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+
+    return `${os} / ${browser}`;
+};
+
+const getBrowserSession = (req) => {
+    let sid = req.headers['x-browser-session-id'] || req.query.session_id;
+    if (!sid && req.headers.cookie) {
+        const match = req.headers.cookie.match(/sg_session_id=([^;]+)/);
+        if (match) sid = match[1];
+    }
+    if (!sid) {
+        sid = 'sess_' + Math.random().toString(36).substring(2, 15);
+    }
+
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.headers['x-real-ip'] || req.socket?.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Unknown Agent';
+
+    let session = browserSessions.get(sid);
+    if (!session) {
+        session = {
+            sessionId: sid,
+            ip,
+            userAgent,
+            device: parseDeviceType(userAgent),
+            loginTime: access_token ? new Date().toISOString() : null,
+            lastActive: new Date().toISOString(),
+            accessToken: access_token || null
+        };
+        browserSessions.set(sid, session);
+    } else {
+        session.lastActive = new Date().toISOString();
+        session.ip = ip;
+        session.userAgent = userAgent;
+        session.device = parseDeviceType(userAgent);
+        if (!session.accessToken && access_token) {
+            session.accessToken = access_token;
+            if (!session.loginTime) session.loginTime = new Date().toISOString();
+        }
+    }
+    return session;
+};
+
 // ─── 1. Status / config ───────────────────────────────────────────────────────
 app.get('/api/config', (req, res) => {
+    const session = getBrowserSession(req);
     res.json({
         hasKiteKey:      !!API_KEY,
         hasKiteSecret:   !!API_SECRET,
         hasOpenAiKey:    !!OPENAI_KEY,
-        hasAccessToken:  !!access_token,
+        hasAccessToken:  !!(session.accessToken || access_token),
+        sessionAuthenticated: !!session.accessToken,
+        sessionId:       session.sessionId,
         isSimulation:    false,
     });
+});
+
+app.get('/api/admin/sessions', (req, res) => {
+    const currentSession = getBrowserSession(req);
+    const sessionsList = Array.from(browserSessions.values()).map(s => ({
+        sessionId: s.sessionId,
+        ip: s.ip,
+        device: s.device,
+        userAgent: s.userAgent,
+        loginTime: s.loginTime,
+        lastActive: s.lastActive,
+        isAuthenticated: !!s.accessToken,
+        isCurrent: s.sessionId === currentSession.sessionId
+    }));
+    res.json({ success: true, sessions: sessionsList });
+});
+
+app.post('/api/admin/sessions/revoke', (req, res) => {
+    const { sessionId } = req.body || {};
+    if (sessionId && browserSessions.has(sessionId)) {
+        const s = browserSessions.get(sessionId);
+        s.accessToken = null;
+        browserSessions.delete(sessionId);
+        return res.json({ success: true, message: `Session ${sessionId} revoked successfully.` });
+    }
+    res.status(400).json({ error: 'Invalid or expired sessionId' });
 });
 
 // ─── 2. LAN IP (for Docker clients) ──────────────────────────────────────────
