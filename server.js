@@ -8811,8 +8811,19 @@ app.get('*', (req, res, next) => {
     res.setHeader('Expires', '0');
 
     const indexPath = path.join(__dirname, 'public', 'index.html');
+    const defaultPath = path.join(__dirname, 'public_default', 'index.html');
+
+    if (!fs.existsSync(indexPath) && fs.existsSync(defaultPath)) {
+        console.log('[Server] ⚠️ public/index.html is missing. Restoring from built container assets (public_default)...');
+        try {
+            require('child_process').execSync(`cp -r "${path.join(__dirname, 'public_default')}/." "${path.join(__dirname, 'public')}/"`, { stdio: 'inherit' });
+        } catch (e) {
+            console.error('[Server] Restore from public_default failed:', e.message);
+        }
+    }
+
     if (!fs.existsSync(indexPath)) {
-        console.log('[Server] ⚠️ public/index.html is missing on disk. Auto-triggering npm run build:client...');
+        console.log('[Server] ⚠️ public/index.html is missing. Attempting client build...');
         try {
             require('child_process').execSync('npm run build:client', { cwd: __dirname, stdio: 'inherit' });
         } catch (err) {
@@ -8824,7 +8835,25 @@ app.get('*', (req, res, next) => {
         return res.sendFile(indexPath);
     }
 
-    res.status(500).send('Error: Client bundle could not be loaded. Please ensure npm run build:client completes successfully.');
+    res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>AI Trading Terminal</title>
+          <meta http-equiv="refresh" content="2">
+          <style>
+            body { background: #0f111a; color: #fff; font-family: sans-serif; display: flex; height: 100vh; align-items: center; justify-content: center; text-align: center; margin: 0; }
+            .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; max-width: 480px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2 style="color:#6366f1;">Initializing AI Trading Terminal...</h2>
+            <p style="color:#94a3b8; font-size:14px;">Restoring static assets. Reloading in 2 seconds...</p>
+          </div>
+        </body>
+        </html>
+    `);
 });
 
 hybridServer.listen(PORT, '0.0.0.0', () => {

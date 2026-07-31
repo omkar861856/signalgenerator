@@ -28,6 +28,7 @@ COPY . .
 
 # Build the client application (outputs to /usr/src/app/public)
 RUN npm run build:client
+RUN cp -r public public_default
 
 # Remove development dependencies to keep the image slim
 RUN npm prune --production --legacy-peer-deps
