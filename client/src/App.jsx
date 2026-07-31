@@ -256,6 +256,7 @@ function AppContent() {
   const [settingsTab, setSettingsTab] = useState('fno'); // 'equity' or 'fno'
   const [isTestMode, setIsTestMode] = useState(() => localStorage.getItem('app_test_mode') !== 'false');
   const [selectedStrategy, setSelectedStrategy] = useState('ai_intraday_buy'); // 'ai_intraday_buy' | 'credit_spread' | 'leaps' | 'wheel'
+  const [selectedIntradayScreener, setSelectedIntradayScreener] = useState('Top Gainers & Increasing OI');
   const [aiIntradaySignals, setAiIntradaySignals] = useState([]);
   const [aiIntradayLoading, setAiIntradayLoading] = useState(false);
   const [selectedAdminDemoStock, setSelectedAdminDemoStock] = useState('AXISBANK');
