@@ -8730,7 +8730,33 @@ app.get('*', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    if (fs.existsSync(indexPath)) {
+        return res.sendFile(indexPath);
+    }
+
+    res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>AI Trading Terminal - Initializing</title>
+          <meta http-equiv="refresh" content="3">
+          <style>
+            body { background: #0f111a; color: #fff; font-family: monospace; display: flex; height: 100vh; align-items: center; justify-content: center; text-align: center; margin: 0; }
+            .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; max-width: 500px; }
+            h2 { color: #6366f1; }
+            p { color: #94a3b8; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>Terminal Client Initializing...</h2>
+            <p>The static bundle is being prepared. Reloading in 3 seconds...</p>
+          </div>
+        </body>
+        </html>
+    `);
 });
 
 hybridServer.listen(PORT, '0.0.0.0', () => {

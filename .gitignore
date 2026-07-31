@@ -8,7 +8,7 @@ scratch/*
 .DS_Store
 
 # Vite Client Build Outputs
-public/
+# public/ (Tracked for production deployment)
 
 # Rust Build Artifacts
 quant-engine/target/
