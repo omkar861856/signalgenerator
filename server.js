@@ -906,6 +906,15 @@ app.use(express.static(path.join(__dirname, 'public'), {
         }
     }
 }));
+app.use(express.static(path.join(__dirname, 'public_default'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        }
+    }
+}));
 
 // Global Historical Sync State (Declared before route handlers)
 var historicalSyncStatus = {
@@ -8813,47 +8822,15 @@ app.get('*', (req, res, next) => {
     const indexPath = path.join(__dirname, 'public', 'index.html');
     const defaultPath = path.join(__dirname, 'public_default', 'index.html');
 
-    if (!fs.existsSync(indexPath) && fs.existsSync(defaultPath)) {
-        console.log('[Server] ⚠️ public/index.html is missing. Restoring from built container assets (public_default)...');
-        try {
-            require('child_process').execSync(`cp -r "${path.join(__dirname, 'public_default')}/." "${path.join(__dirname, 'public')}/"`, { stdio: 'inherit' });
-        } catch (e) {
-            console.error('[Server] Restore from public_default failed:', e.message);
-        }
-    }
-
-    if (!fs.existsSync(indexPath)) {
-        console.log('[Server] ⚠️ public/index.html is missing. Attempting client build...');
-        try {
-            require('child_process').execSync('npm run build:client', { cwd: __dirname, stdio: 'inherit' });
-        } catch (err) {
-            console.error('[Server] Client auto-build error:', err.message);
-        }
-    }
-
     if (fs.existsSync(indexPath)) {
         return res.sendFile(indexPath);
     }
 
-    res.status(200).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>AI Trading Terminal</title>
-          <meta http-equiv="refresh" content="2">
-          <style>
-            body { background: #0f111a; color: #fff; font-family: sans-serif; display: flex; height: 100vh; align-items: center; justify-content: center; text-align: center; margin: 0; }
-            .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; max-width: 480px; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <h2 style="color:#6366f1;">Initializing AI Trading Terminal...</h2>
-            <p style="color:#94a3b8; font-size:14px;">Restoring static assets. Reloading in 2 seconds...</p>
-          </div>
-        </body>
-        </html>
-    `);
+    if (fs.existsSync(defaultPath)) {
+        return res.sendFile(defaultPath);
+    }
+
+    res.status(404).send('Application bundle not found.');
 });
 
 hybridServer.listen(PORT, '0.0.0.0', () => {
