@@ -425,9 +425,59 @@ function AppContent() {
   const [fnoScannerResults, setFnoScannerResults] = useState([]);
   const [fnoScannerLoading, setFnoScannerLoading] = useState(false);
   const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', expiry: '30-JUL-2026', data: null, loading: false });
+  const getFrontendDynamicExpiries = (symbol = 'NIFTY') => {
+    const cleanSym = (symbol || 'NIFTY').toUpperCase().split(':').pop().trim();
+    const today = new Date();
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const formatDate = (d) => `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+    const getLastDayOfMonth = (year, month, targetDayOfWeek = 4) => {
+      const lastDay = new Date(year, month + 1, 0);
+      let day = lastDay.getDay();
+      let diff = (day >= targetDayOfWeek) ? (day - targetDayOfWeek) : (day + 7 - targetDayOfWeek);
+      lastDay.setDate(lastDay.getDate() - diff);
+      return lastDay;
+    };
+    const isStock = !['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'NIFTY BANK', 'FIN NIFTY'].includes(cleanSym);
+    if (isStock) {
+      let curr = getLastDayOfMonth(today.getFullYear(), today.getMonth(), 4);
+      if (curr < today && today.getDate() > curr.getDate()) curr = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
+      let next = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
+      if (next <= curr) next = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
+      let far = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
+      if (far <= next) far = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 3, 4);
+      return [
+        { date: formatDate(curr), label: `${formatDate(curr)} (Current Monthly)` },
+        { date: formatDate(next), label: `${formatDate(next)} (Next Monthly)` },
+        { date: formatDate(far), label: `${formatDate(far)} (Far Monthly)` }
+      ];
+    }
+    let weeklyDay = 4;
+    if (cleanSym.includes('BANK')) weeklyDay = 3;
+    else if (cleanSym.includes('FIN')) weeklyDay = 2;
+    else if (cleanSym.includes('MID')) weeklyDay = 1;
+    let currWeekly = new Date(today);
+    let day = currWeekly.getDay();
+    let diff = weeklyDay - day;
+    if (diff < 0) diff += 7;
+    currWeekly.setDate(currWeekly.getDate() + diff);
+    let nextWeekly = new Date(currWeekly); nextWeekly.setDate(nextWeekly.getDate() + 7);
+    let farWeekly = new Date(currWeekly); farWeekly.setDate(farWeekly.getDate() + 14);
+    let currMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth(), 4);
+    if (currMonthly < currWeekly) currMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
+    let nextMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
+    if (nextMonthly <= currMonthly) nextMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
+    return [
+      { date: formatDate(currWeekly), label: `${formatDate(currWeekly)} (Current Weekly)` },
+      { date: formatDate(nextWeekly), label: `${formatDate(nextWeekly)} (Next Weekly)` },
+      { date: formatDate(farWeekly), label: `${formatDate(farWeekly)} (Far Weekly)` },
+      { date: formatDate(currMonthly), label: `${formatDate(currMonthly)} (Current Monthly)` },
+      { date: formatDate(nextMonthly), label: `${formatDate(nextMonthly)} (Next Monthly)` }
+    ];
+  };
+
   const [optChainState, setOptChainState] = useState({ 
     symbol: 'NIFTY', 
-    expiry: '30-JUL-2026', 
+    expiry: '', 
     data: null, 
     loading: false, 
     autoRefresh: false 
@@ -3248,9 +3298,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         />
       )}
 
-      {/* Collapsible Sidebar */}
+      {/* Collapsible Sidebar (Static & Non-Scrollable) */}
       <aside className={`flex flex-col border-r border-white/5 bg-[#0f1524]/95 backdrop-blur-md transition-all duration-300 flex-shrink-0
-        fixed md:sticky top-0 left-0 h-screen z-50
+        fixed md:sticky top-0 left-0 h-screen overflow-hidden select-none z-50 self-start
         ${isSidebarCollapsed ? 'w-20' : 'w-64'}
         ${isMobileMenuOpen ? 'translate-x-0 visible' : '-translate-x-full invisible md:visible md:translate-x-0'}
       `}>
@@ -3279,29 +3329,29 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             <div className="flex flex-col gap-2 items-center">
               <button
                 onClick={() => handleGlobalAssetModeChange('equity')}
-                title="Equity Mode"
-                className={`w-10 h-10 flex items-center justify-center font-bold text-[10px] rounded-xl transition-all cursor-pointer ${
+                className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   activeAssetMode === 'equity'
-                    ? 'bg-indigo-600 text-white shadow shadow-indigo-600/10'
-                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
+                title="Equity Mode"
               >
                 EQ
               </button>
               <button
                 onClick={() => handleGlobalAssetModeChange('fno')}
-                title="F&O Mode"
-                className={`w-10 h-10 flex items-center justify-center font-bold text-[10px] rounded-xl transition-all cursor-pointer ${
+                className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   activeAssetMode === 'fno'
-                    ? 'bg-purple-600 text-white shadow shadow-purple-600/10'
-                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                    ? 'bg-purple-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
+                title="F&O Mode"
               >
                 FO
               </button>
             </div>
           ) : (
-            <div className="flex bg-black/45 border border-white/5 p-0.5 rounded-xl">
+            <div className="flex bg-slate-900/80 p-1 rounded-xl border border-white/5">
               <button
                 onClick={() => handleGlobalAssetModeChange('equity')}
                 className={`flex-1 py-1.5 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer ${
@@ -3326,8 +3376,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           )}
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex-1 py-4 overflow-y-auto px-3">
+        {/* Navigation Tabs (Non-Scrollable Static Container) */}
+        <div className="flex-1 py-4 overflow-hidden px-3">
           <nav className="space-y-1.5">
             {[
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, activeColor: 'bg-indigo-600/80' },
@@ -7957,13 +8007,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   }}
                   className="bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none focus:border-emerald-500 cursor-pointer"
                 >
-                  {(optChainState.data?.expiries || [
-                    { date: '30-JUL-2026', label: '30-JUL-2026 (Current Weekly)' },
-                    { date: '06-AUG-2026', label: '06-AUG-2026 (Next Weekly)' },
-                    { date: '13-AUG-2026', label: '13-AUG-2026 (Far Weekly)' },
-                    { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)' },
-                    { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)' }
-                  ]).map(exp => (
+                  {(optChainState.data?.expiries || getFrontendDynamicExpiries(optChainState.symbol)).map(exp => (
                     <option key={exp.date} value={exp.date}>{exp.label || exp.date}</option>
                   ))}
                 </select>

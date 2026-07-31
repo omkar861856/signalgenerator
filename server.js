@@ -2296,7 +2296,8 @@ app.get('/api/fno/underlyings', requireAuth, (req, res) => {
     }
 });
 
-function generateDynamicExpiries() {
+function generateDynamicExpiries(symbol = 'NIFTY') {
+    const cleanSym = (symbol || 'NIFTY').toUpperCase().split(':').pop().trim();
     const today = new Date();
     const expiries = [];
 
@@ -2308,65 +2309,92 @@ function generateDynamicExpiries() {
         return `${dd}-${mmm}-${yyyy}`;
     };
 
-    const getLastThursdayOfMonth = (year, month) => {
+    const getLastDayOfMonth = (year, month, targetDayOfWeek = 4) => { // 4 = Thursday
         const lastDay = new Date(year, month + 1, 0);
         let day = lastDay.getDay();
-        let diff = (day >= 4) ? (day - 4) : (day + 3);
+        let diff = (day >= targetDayOfWeek) ? (day - targetDayOfWeek) : (day + 7 - targetDayOfWeek);
         lastDay.setDate(lastDay.getDate() - diff);
         return lastDay;
     };
-
-    // Current Weekly (nearest upcoming Thursday)
-    let currThu = new Date(today);
-    let day = currThu.getDay();
-    let diff = 4 - day;
-    if (diff <= 0) diff += 7;
-    currThu.setDate(currThu.getDate() + diff);
-
-    // Next Weekly
-    let nextThu = new Date(currThu);
-    nextThu.setDate(nextThu.getDate() + 7);
-
-    // Far Weekly
-    let farThu = new Date(currThu);
-    farThu.setDate(farThu.getDate() + 14);
-
-    // Current Monthly
-    let currMonthExpiry = getLastThursdayOfMonth(today.getFullYear(), today.getMonth());
-    if (currMonthExpiry < today) {
-        currMonthExpiry = getLastThursdayOfMonth(today.getFullYear(), today.getMonth() + 1);
-    }
-
-    // Next Monthly
-    let nextMonthExpiry = getLastThursdayOfMonth(today.getFullYear(), today.getMonth() + 1);
-    if (nextMonthExpiry <= currMonthExpiry) {
-        nextMonthExpiry = getLastThursdayOfMonth(today.getFullYear(), today.getMonth() + 2);
-    }
 
     const calcDte = (targetDate) => {
         const diffTime = targetDate.getTime() - today.getTime();
         return Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
     };
 
-    const addExpiry = (d, labelSuffix, type) => {
-        const dateStr = formatDate(d);
-        if (!expiries.some(e => e.date === dateStr)) {
-            expiries.push({
-                date: dateStr,
-                label: `${dateStr} (${labelSuffix})`,
-                type,
-                dte: calcDte(d)
-            });
+    const isStockOption = !['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'NIFTY BANK', 'FIN NIFTY'].includes(cleanSym);
+
+    // If stock option (e.g. RELIANCE, TATAMOTORS, HDFCBANK), return ONLY monthly expiries!
+    if (isStockOption) {
+        let currMonth = getLastDayOfMonth(today.getFullYear(), today.getMonth(), 4);
+        if (currMonth < today && today.getDate() > currMonth.getDate()) {
+            currMonth = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
         }
-    };
+        let nextMonth = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
+        if (nextMonth <= currMonth) {
+            nextMonth = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
+        }
+        let farMonth = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
+        if (farMonth <= nextMonth) {
+            farMonth = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 3, 4);
+        }
 
-    addExpiry(currThu, 'Current Weekly', 'Weekly');
-    addExpiry(nextThu, 'Next Weekly', 'Weekly');
-    addExpiry(farThu, 'Far Weekly', 'Weekly');
-    addExpiry(currMonthExpiry, 'Current Monthly', 'Monthly');
-    addExpiry(nextMonthExpiry, 'Next Monthly', 'Monthly');
+        return [
+            { date: formatDate(currMonth), label: `${formatDate(currMonth)} (Current Monthly)`, type: 'Monthly', dte: calcDte(currMonth) },
+            { date: formatDate(nextMonth), label: `${formatDate(nextMonth)} (Next Monthly)`, type: 'Monthly', dte: calcDte(nextMonth) },
+            { date: formatDate(farMonth), label: `${formatDate(farMonth)} (Far Monthly)`, type: 'Monthly', dte: calcDte(farMonth) }
+        ];
+    }
 
-    return expiries;
+    // Determine target weekly day of week for Index Options
+    // NIFTY: Thursday (4), BANKNIFTY: Wednesday (3), FINNIFTY: Tuesday (2), MIDCPNIFTY: Monday (1)
+    let weeklyDay = 4; // Thursday default for NIFTY
+    if (cleanSym.includes('BANK')) weeklyDay = 3;
+    else if (cleanSym.includes('FIN')) weeklyDay = 2;
+    else if (cleanSym.includes('MID')) weeklyDay = 1;
+
+    // Calculate nearest weekly expiry
+    let currWeekly = new Date(today);
+    let day = currWeekly.getDay();
+    let diff = weeklyDay - day;
+
+    // Check market close on expiry day (post 3:40 PM IST)
+    const istHours = new Date(today.getTime() + (5.5 * 3600 * 1000)).getUTCHours();
+    const istMins = new Date(today.getTime() + (5.5 * 3600 * 1000)).getUTCMinutes();
+    const isMarketClosedToday = (istHours * 60 + istMins) >= 940; // 15:40 IST
+
+    if (diff < 0 || (diff === 0 && isMarketClosedToday)) {
+        diff += 7;
+    }
+    currWeekly.setDate(currWeekly.getDate() + diff);
+
+    // Next Weekly (+7 days)
+    let nextWeekly = new Date(currWeekly);
+    nextWeekly.setDate(nextWeekly.getDate() + 7);
+
+    // Far Weekly (+14 days)
+    let farWeekly = new Date(currWeekly);
+    farWeekly.setDate(farWeekly.getDate() + 14);
+
+    // Monthly Expiries (Last Thursday for NIFTY/BANKNIFTY, Last Tuesday for FINNIFTY)
+    const monthlyDay = (cleanSym.includes('FIN')) ? 2 : 4;
+    let currMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth(), monthlyDay);
+    if (currMonthly < currWeekly) {
+        currMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, monthlyDay);
+    }
+    let nextMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, monthlyDay);
+    if (nextMonthly <= currMonthly) {
+        nextMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, monthlyDay);
+    }
+
+    const expMap = new Map();
+    expMap.set(formatDate(currWeekly), { date: formatDate(currWeekly), label: `${formatDate(currWeekly)} (Current Weekly)`, type: 'Weekly', dte: calcDte(currWeekly) });
+    expMap.set(formatDate(nextWeekly), { date: formatDate(nextWeekly), label: `${formatDate(nextWeekly)} (Next Weekly)`, type: 'Weekly', dte: calcDte(nextWeekly) });
+    expMap.set(formatDate(farWeekly), { date: formatDate(farWeekly), label: `${formatDate(farWeekly)} (Far Weekly)`, type: 'Weekly', dte: calcDte(farWeekly) });
+    expMap.set(formatDate(currMonthly), { date: formatDate(currMonthly), label: `${formatDate(currMonthly)} (Current Monthly)`, type: 'Monthly', dte: calcDte(currMonthly) });
+    expMap.set(formatDate(nextMonthly), { date: formatDate(nextMonthly), label: `${formatDate(nextMonthly)} (Next Monthly)`, type: 'Monthly', dte: calcDte(nextMonthly) });
+
+    return Array.from(expMap.values());
 }
 
 let isGlobalTestMode = true;
@@ -2689,11 +2717,12 @@ app.post('/api/webhooks/github-deploy', async (req, res) => {
 
 app.get('/api/fno/option-chain', requireAuth, (req, res) => {
     try {
-        const availableExpiries = generateDynamicExpiries();
-        const { symbol = 'NIFTY', expiry = availableExpiries[0].date } = req.query;
-        const cleanSym = symbol.toUpperCase().split(':').pop();
+        const { symbol = 'NIFTY', expiry } = req.query;
+        const cleanSym = symbol.toUpperCase().split(':').pop().trim();
+        const availableExpiries = generateDynamicExpiries(cleanSym);
+        const selectedExpiry = expiry || availableExpiries[0].date;
 
-        const matchedExpiry = availableExpiries.find(e => e.date === expiry || e.label.includes(expiry)) || availableExpiries[0];
+        const matchedExpiry = availableExpiries.find(e => e.date === selectedExpiry || e.label.includes(selectedExpiry)) || availableExpiries[0];
         
         let spotPrice = 22050.40;
         if (cleanSym === 'BANKNIFTY' || cleanSym === 'NIFTY BANK') spotPrice = 45310.50;
