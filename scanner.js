@@ -1391,6 +1391,7 @@ function getScannerResults(scannerName, indexName, forceMode = null) {
                     else if (tick.change >= 0 && oiChange < 0) buildup = 'Short Covering';
                     else buildup = 'Long Unwinding';
 
+                    const fnoSet = new Set(indexTokenLists['F&O Stocks'] || []);
                     results.push({
                         symbol: symbolClean,
                         fullName: tick.symbol,
@@ -1406,7 +1407,8 @@ function getScannerResults(scannerName, indexName, forceMode = null) {
                         iv: parseFloat((14.5 + (Math.abs(Math.cos(token)) * 11.5)).toFixed(1)),
                         expiry: indexName.includes('Nifty') || indexName.includes('Sensex') ? '30-JUL-2026' : '27-AUG-2026',
                         expiryType: indexName.includes('Nifty') || indexName.includes('Sensex') ? 'Weekly' : 'Monthly',
-                        scanMode: modeInfo.mode
+                        scanMode: modeInfo.mode,
+                        isFno: fnoSet.has(token) || indexName === 'F&O Stocks' || indexName === 'Nifty 50' || indexName === 'Bank Nifty' || indexName === 'Sensex'
                     });
                 }
             } catch (err) {

@@ -829,6 +829,14 @@ function wrapKiteMethods(kiteInstance) {
                     return result;
                 } catch (err) {
                     kiteCallsCounter.inc({ method, status: 'error' });
+                    if (access_token && !access_token.startsWith('mock_') && (err?.error_type === 'TokenException' || (err?.message && (err.message.includes('Invalid or expired connect session') || err.message.includes('Incorrect api_key or access_token'))))) {
+                        console.warn('[Kite] Session expired or invalid token. Clearing cached access token.');
+                        access_token = null;
+                        try { if (fs.existsSync(tokenCachePath)) fs.unlinkSync(tokenCachePath); } catch {}
+                        if (redisClient) {
+                            delCache('kite:session').catch(() => {});
+                        }
+                    }
                     throw err;
                 }
             };
@@ -1088,8 +1096,14 @@ async function getTickSizeForSymbol(tradingsymbol, exchange) {
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 function requireAuth(req, res, next) {
-    if (!API_KEY)      return res.status(401).json({ error: 'KITE_API_KEY not configured in .env' });
-    if (!access_token) return res.status(401).json({ error: 'Not authenticated. Click "Connect Zerodha".' });
+    if (!API_KEY) return res.status(401).json({ error: 'KITE_API_KEY not configured in .env' });
+    const session = getBrowserSession(req);
+    const token = session?.accessToken || req.headers['x-access-token'];
+    if (!token) {
+        return res.status(401).json({ error: 'Session unauthenticated. Please log in from this browser.' });
+    }
+    req.session = session;
+    req.accessToken = token;
     next();
 }
 
@@ -1100,7 +1114,7 @@ function handleKiteError(err, res, prefix = '[Kite API]') {
     const statusCode = err.status_code || (err.response && err.response.status) || 500;
     const message = err.message || (err.response && err.response.data && err.response.data.message) || 'Internal Server Error';
 
-    if (errorType === 'TokenException' || statusCode === 403 || message.includes('TokenException') || message.includes('Invalid token') || message.includes('token')) {
+    if (access_token && !access_token.startsWith('mock_') && (errorType === 'TokenException' || statusCode === 403 || message.includes('TokenException') || message.includes('Incorrect api_key or access_token') || message.includes('Invalid session'))) {
         access_token = null;
         try { fs.unlinkSync(tokenCachePath); } catch {}
         if (redisClient) {
@@ -1168,9 +1182,9 @@ const getBrowserSession = (req) => {
             ip,
             userAgent,
             device: parseDeviceType(userAgent),
-            loginTime: access_token ? new Date().toISOString() : null,
+            loginTime: null,
             lastActive: new Date().toISOString(),
-            accessToken: access_token || null
+            accessToken: null
         };
         browserSessions.set(sid, session);
     } else {
@@ -1178,10 +1192,6 @@ const getBrowserSession = (req) => {
         session.ip = ip;
         session.userAgent = userAgent;
         session.device = parseDeviceType(userAgent);
-        if (!session.accessToken && access_token) {
-            session.accessToken = access_token;
-            if (!session.loginTime) session.loginTime = new Date().toISOString();
-        }
     }
     return session;
 };
@@ -1189,11 +1199,12 @@ const getBrowserSession = (req) => {
 // ─── 1. Status / config ───────────────────────────────────────────────────────
 app.get('/api/config', (req, res) => {
     const session = getBrowserSession(req);
+    res.cookie('sg_session_id', session.sessionId, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
     res.json({
         hasKiteKey:      !!API_KEY,
         hasKiteSecret:   !!API_SECRET,
         hasOpenAiKey:    !!OPENAI_KEY,
-        hasAccessToken:  !!(session.accessToken || access_token),
+        hasAccessToken:  !!session.accessToken,
         sessionAuthenticated: !!session.accessToken,
         sessionId:       session.sessionId,
         isSimulation:    false,
@@ -1483,11 +1494,15 @@ app.get('/api/ngrok-url', async (req, res) => {
 });
 
 // ─── 4. Access token (for UI display) ────────────────────────────────────────
-app.get('/api/token', (req, res) => res.json({ access_token: access_token || null }));
+app.get('/api/token', (req, res) => {
+    const session = getBrowserSession(req);
+    res.json({ access_token: session?.accessToken || null });
+});
 app.get('/api/credentials', requireAuth, (req, res) => {
+    const session = getBrowserSession(req);
     res.json({
         api_key: API_KEY,
-        access_token: access_token || null
+        access_token: session?.accessToken || null
     });
 });
 
@@ -1681,15 +1696,19 @@ app.get(['/api/callback', '/api/auth/callback'], async (req, res) => {
         return res.status(400).send('<h3>Missing request_token</h3><a href="/">Back</a>');
     }
     try {
-        const session = await kite.generateSession(request_token, API_SECRET);
-        access_token = session.access_token;
+        const browserSess = getBrowserSession(req);
+        const kiteSession = await kite.generateSession(request_token, API_SECRET);
+        access_token = kiteSession.access_token;
+        browserSess.accessToken = access_token;
+        browserSess.loginTime = new Date().toISOString();
         kite.setAccessToken(access_token);
+        res.cookie('sg_session_id', browserSess.sessionId, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
         if (scanner.setKiteInstance) scanner.setKiteInstance(kite);
         try { fs.writeFileSync(tokenCachePath, JSON.stringify({ access_token }), 'utf8'); } catch {}
         if (redisClient) {
             setCache('kite:session', { access_token }).catch(err => console.error('[Redis] Failed to write session:', err.message));
         }
-        console.log('Kite session generated OK.');
+        console.log(`[Auth] Kite session generated and bound to browser session ${browserSess.sessionId}.`);
         startServerPolling();
 
         // Initialize scanner mappings and start backend stream
@@ -1716,18 +1735,50 @@ app.get(['/api/callback', '/api/auth/callback'], async (req, res) => {
         if (redisClient) {
             delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
         }
-        res.status(500).send(`<h3>Auth Failed</h3><p>${err.message}</p><a href="/">Back</a>`);
+        let errorDetails = err?.message || 'Authentication failed';
+        try {
+            const parsed = JSON.parse(errorDetails);
+            if (parsed?.message) errorDetails = parsed.message;
+        } catch {}
+        res.status(400).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Zerodha Authentication - Signal Generator</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+                    .card { background: #1e293b; padding: 2rem; border-radius: 12px; max-width: 440px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+                    h2 { color: #f43f5e; margin-top: 0; }
+                    p { color: #94a3b8; font-size: 14px; line-height: 1.5; }
+                    .btn { display: inline-block; margin-top: 1rem; padding: 0.75rem 1.5rem; background: #4f46e5; color: #fff; text-decoration: none; font-weight: bold; border-radius: 8px; transition: background 0.2s; }
+                    .btn:hover { background: #4338ca; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h2>Authentication Error</h2>
+                    <p>${errorDetails}</p>
+                    <p><small style="color: #64748b;">Request tokens are single-use and expire within 60 seconds. Refreshing the callback page invalidates the token.</small></p>
+                    <a href="/api/login" class="btn">🔑 Login via Zerodha Again</a>
+                </div>
+            </body>
+            </html>
+        `);
     }
 });
 
 // ─── Manual Access Token Endpoint ──────────────────────────────────────────────
 app.post(['/api/token', '/api/set-token'], (req, res) => {
+    const session = getBrowserSession(req);
     const { token, access_token: bodyToken } = req.body || {};
     const inputToken = token || bodyToken;
     if (!inputToken || typeof inputToken !== 'string' || !inputToken.trim()) {
         return res.status(400).json({ error: 'Access token is required' });
     }
     const cleanToken = inputToken.trim();
+    session.accessToken = cleanToken;
+    session.loginTime = new Date().toISOString();
     access_token = cleanToken;
     if (kite) kite.setAccessToken(access_token);
     if (scanner.setKiteInstance) scanner.setKiteInstance(kite);
@@ -1735,24 +1786,23 @@ app.post(['/api/token', '/api/set-token'], (req, res) => {
     if (redisClient) {
         setCache('kite:session', { access_token: cleanToken }).catch(err => console.error('[Redis] Failed to write session:', err.message));
     }
-    console.log('[Auth] Access token set manually.');
+    res.cookie('sg_session_id', session.sessionId, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
+    console.log(`[Auth] Access token set manually and bound to browser session ${session.sessionId}.`);
     startServerPolling();
     scanner.initializeMappings().then(() => {
         scanner.connectKiteStream(API_KEY, cleanToken);
     }).catch(err => console.error('[Scanner] Initialization failed:', err.message));
 
-    res.json({ success: true, message: 'Access token updated successfully.' });
+    res.json({ success: true, message: 'Access token updated and bound to current browser session.' });
 });
 
 // ─── 7. Logout ────────────────────────────────────────────────────────────────
 app.post('/api/logout', (req, res) => {
-    access_token = null;
-    if (kite) kite.setAccessToken(null);
-    try { if (fs.existsSync(tokenCachePath)) fs.unlinkSync(tokenCachePath); } catch {}
-    if (redisClient) {
-        delCache('kite:session').catch(err => console.error('[Redis] Failed to delete session:', err.message));
-    }
-    res.json({ success: true });
+    const session = getBrowserSession(req);
+    session.accessToken = null;
+    session.loginTime = null;
+    res.clearCookie('sg_session_id');
+    res.json({ success: true, message: 'Logged out successfully from this browser session.' });
 });
 
 // ─── Kite Market Quotes & Instruments Specification Endpoints ────────────────
@@ -5167,7 +5217,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
                         return { id: tc.id, name, result };
                     } catch (e) {
                         // Auto-invalidate on expired Kite session
-                        if (e.message?.includes('TokenException') || e.message?.includes('Invalid token') || e.message?.includes('token')) {
+                        if (access_token && !access_token.startsWith('mock_') && (e.message?.includes('TokenException') || e.message?.includes('Incorrect api_key or access_token') || e.message?.includes('Invalid session'))) {
                             access_token = null;
                             try { fs.unlinkSync(tokenCachePath); } catch {}
                             if (redisClient) {
@@ -8183,7 +8233,7 @@ async function runServerConsolidation() {
         } catch (posErr) {
             console.error('[BG Poller] Error fetching positions:', posErr.message);
             const msg = posErr.message || '';
-            if (msg.includes('TokenException') || msg.includes('403') || msg.includes('Invalid token') || msg.includes('token') || posErr.status_code === 403) {
+            if (access_token && !access_token.startsWith('mock_') && (posErr.error_type === 'TokenException' || msg.includes('TokenException') || msg.includes('Incorrect api_key or access_token') || posErr.status_code === 403)) {
                 console.log('[BG Poller] Session expired or invalid token. Clearing cached credentials.');
                 access_token = null;
                 try { fs.unlinkSync(tokenCachePath); } catch {}
@@ -8205,7 +8255,7 @@ async function runServerConsolidation() {
             } catch (gttErr) {
                 console.error('[BG Poller] Error fetching GTTs:', gttErr.message);
                 const msg = gttErr.message || '';
-                if (msg.includes('TokenException') || msg.includes('403') || msg.includes('Invalid token') || msg.includes('token') || gttErr.status_code === 403) {
+                if (access_token && !access_token.startsWith('mock_') && (gttErr.error_type === 'TokenException' || msg.includes('TokenException') || msg.includes('Incorrect api_key or access_token') || gttErr.status_code === 403)) {
                     console.log('[BG Poller] Session expired or invalid token. Clearing cached credentials.');
                     access_token = null;
                     try { fs.unlinkSync(tokenCachePath); } catch {}

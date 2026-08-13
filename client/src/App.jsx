@@ -379,6 +379,7 @@ function AppContent() {
   const [scannerResults, setScannerResults] = useState([]);
   const [scannerSortField, setScannerSortField] = useState(null); // 'change' | 'volume' | 'ltp'
   const [scannerSortDirection, setScannerSortDirection] = useState('desc'); // 'asc' | 'desc'
+  const [scannerFilterMode, setScannerFilterMode] = useState('all'); // 'all' | 'fno'
   
   // AI Custom & Dynamic Scanner States
   const [scannersList, setScannersList] = useState([
@@ -1843,9 +1844,11 @@ function AppContent() {
     if (!appConfig.hasAccessToken) return;
     try {
       const fetchJson = async (url) => {
-        const res = await fetch(url);
+        const res = await fetch(url, {
+          headers: { 'x-browser-session-id': getBrowserSessionId() }
+        });
         if (res.status === 401) {
-          setAppConfig(prev => ({ ...prev, hasAccessToken: false }));
+          fetchConfig();
           throw new Error('Unauthorized');
         }
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -1887,9 +1890,11 @@ function AppContent() {
 
     try {
       const fetchJson = async (url) => {
-        const res = await fetch(url);
+        const res = await fetch(url, {
+          headers: { 'x-browser-session-id': getBrowserSessionId() }
+        });
         if (res.status === 401) {
-          setAppConfig(prev => ({ ...prev, hasAccessToken: false }));
+          fetchConfig();
           throw new Error('Unauthorized');
         }
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -2234,9 +2239,17 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     }
   };
 
+  const getFilteredScannerResults = () => {
+    if (scannerFilterMode === 'fno') {
+      return scannerResults.filter(r => r.isFno || selectedScannerIndex === 'F&O Stocks');
+    }
+    return scannerResults;
+  };
+
   const getSortedScannerResults = () => {
-    if (!scannerSortField) return scannerResults;
-    return [...scannerResults].sort((a, b) => {
+    const filtered = getFilteredScannerResults();
+    if (!scannerSortField) return filtered;
+    return [...filtered].sort((a, b) => {
       let valA = a[scannerSortField];
       let valB = b[scannerSortField];
       if (valA === undefined || valA === null) valA = 0;
@@ -9241,11 +9254,39 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     </div>
                   </div>
 
-                  {/* Results Count & Last Scan Time */}
-                  <div className="flex justify-between items-center text-[11px] text-slate-400 mb-3 font-medium">
-                    <span>
-                      Scanner Results ({scannerResults.length})
-                    </span>
+                  {/* Results Count & Filter Toggle */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[11px] text-slate-400 mb-3 font-medium">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span>
+                        Scanner Results ({getFilteredScannerResults().length}{scannerFilterMode === 'fno' ? ` / ${scannerResults.length}` : ''})
+                      </span>
+                      {/* Filter Toggle: All vs Options Chain Enabled */}
+                      <div className="inline-flex p-0.5 rounded-lg bg-slate-900 border border-white/10 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setScannerFilterMode('all')}
+                          className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                            scannerFilterMode === 'all'
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setScannerFilterMode('fno')}
+                          className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                            scannerFilterMode === 'fno'
+                              ? 'bg-purple-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Zap className="w-3 h-3 text-amber-400" />
+                          Options Chain Enabled
+                        </button>
+                      </div>
+                    </div>
                     <span className="font-mono">
                       Last Scan: {new Date().toLocaleTimeString()}
                     </span>
@@ -9275,24 +9316,32 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                           >
                             Volume{scannerSortField === 'volume' ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
                           </th>
-                          <th className="py-2.5 font-bold uppercase tracking-wider text-right">Buy/Sell</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5 text-slate-200">
                         {scannerLoading && scannerResults.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-12 text-center text-slate-500 italic">Running real-time scan...</td>
+                            <td colSpan={4} className="py-12 text-center text-slate-500 italic">Running real-time scan...</td>
                           </tr>
-                        ) : scannerResults.length === 0 ? (
+                        ) : getSortedScannerResults().length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-12 text-center text-slate-500 font-medium">No instruments match this scanner condition currently.</td>
+                            <td colSpan={4} className="py-12 text-center text-slate-500 font-medium">
+                              {scannerFilterMode === 'fno'
+                                ? 'No Options Chain Enabled instruments match this scanner condition currently.'
+                                : 'No instruments match this scanner condition currently.'}
+                            </td>
                           </tr>
                         ) : (
                           getSortedScannerResults().map((row) => (
                             <tr key={row.fullName} className="hover:bg-white/[0.01] transition-colors">
                               <td className="py-3">
                                 <div className="flex flex-col">
-                                  <span className="font-semibold text-white">{row.symbol}</span>
+                                  <span className="font-semibold text-white flex items-center gap-1.5">
+                                    {row.symbol}
+                                    {(row.isFno || selectedScannerIndex === 'F&O Stocks') && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400">F&amp;O</span>
+                                    )}
+                                  </span>
                                   <span className="text-[8px] text-slate-500 font-mono mt-0.5">{row.fullName}</span>
                                 </div>
                               </td>
@@ -9307,7 +9356,6 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                               <td className="py-3 text-right font-mono text-slate-400">
                                 {row.volume ? row.volume.toLocaleString('en-IN') : '—'}
                               </td>
-                              
                             </tr>
                           ))
                         )}
@@ -9319,13 +9367,19 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   <div className="flex gap-2 justify-end mt-4 pt-3 border-t border-white/5">
                     <button 
                       onClick={() => {
-                        const copyText = scannerResults.map(r => `${r.symbol}\t₹${r.ltp}\t${r.change}%`).join('\n');
+                        const visibleResults = getSortedScannerResults();
+                        if (visibleResults.length === 0) {
+                          showAlert('No scanner results available to copy.');
+                          return;
+                        }
+                        const copyText = visibleResults.map(r => `${r.symbol}\t₹${r.ltp}\t${r.change}%`).join('\n');
                         navigator.clipboard.writeText(copyText);
-                        showAlert('Copied scanner results to clipboard!');
+                        showAlert(`Copied ${visibleResults.length} ${scannerFilterMode === 'fno' ? 'Options Chain Enabled' : ''} scanner results to clipboard!`);
                       }}
-                      className="px-4 py-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
+                      className="px-4 py-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5"
                     >
-                      Copy
+                      <Copy className="h-3.5 w-3.5 text-slate-400" />
+                      Copy ({getSortedScannerResults().length})
                     </button>
                     <button 
                       onClick={() => {
