@@ -423,6 +423,7 @@ function AppContent() {
   const [scannerSortField, setScannerSortField] = useState(null); // 'change' | 'volume' | 'ltp'
   const [scannerSortDirection, setScannerSortDirection] = useState('desc'); // 'asc' | 'desc'
   const [scannerFilterMode, setScannerFilterMode] = useState('all'); // 'all' | 'fno'
+  const [scannerResultTabMode, setScannerResultTabMode] = useState('live'); // 'live' | 'unique'
   
   // Daily Unique Scanner Stocks States
   const [dailyUniqueStocks, setDailyUniqueStocks] = useState([]);
@@ -2402,6 +2403,26 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         (item.fullName && item.fullName.toLowerCase().includes(dailySearchQuery.toLowerCase()));
       const matchesFno = !dailyFnoFilter || item.isFno;
       return matchesSearch && matchesFno;
+    });
+  };
+  const getUniqueStocksForCurrentScanner = (fnoOnly = scannerFilterMode === 'fno') => {
+    return dailyUniqueStocks.filter(item => {
+      const matchesScanner = !selectedScanner || selectedScanner === 'All' || 
+        (Array.isArray(item.scannersMatched) && item.scannersMatched.includes(selectedScanner));
+      const matchesFno = !fnoOnly || item.isFno;
+      return matchesScanner && matchesFno;
+    });
+  };
+
+  const getSortedUniqueStocksForCurrentScanner = () => {
+    const filtered = getUniqueStocksForCurrentScanner();
+    if (!scannerSortField) return filtered;
+    return [...filtered].sort((a, b) => {
+      let valA = a[scannerSortField];
+      let valB = b[scannerSortField];
+      if (valA === undefined || valA === null) valA = 0;
+      if (valB === undefined || valB === null) valB = 0;
+      return scannerSortDirection === 'asc' ? valA - valB : valB - valA;
     });
   };
 
@@ -9608,12 +9629,36 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     </div>
                   </div>
 
-                  {/* Results Count & Filter Toggle */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[11px] text-slate-400 mb-3 font-medium">
+                  {/* Tab Switcher: Live Matches vs Accumulated Unique Stocks */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[11px] text-slate-400 mb-3 font-medium border-b border-white/5 pb-3">
                     <div className="flex items-center gap-3 flex-wrap">
-                      <span>
-                        Scanner Results ({getFilteredScannerResults().length}{scannerFilterMode === 'fno' ? ` / ${scannerResults.length}` : ''})
-                      </span>
+                      <div className="flex bg-black/40 border border-white/10 p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setScannerResultTabMode('live')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                            scannerResultTabMode === 'live'
+                              ? 'bg-indigo-600 text-white shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Activity className="w-3.5 h-3.5" />
+                          <span>Live Matches ({getFilteredScannerResults().length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setScannerResultTabMode('unique')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                            scannerResultTabMode === 'unique'
+                              ? 'bg-purple-600 text-white shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Accumulated Unique ({getSortedUniqueStocksForCurrentScanner().length})</span>
+                        </button>
+                      </div>
+
                       {/* Filter Toggle: All vs Options Chain Enabled */}
                       <div className="inline-flex p-0.5 rounded-lg bg-slate-900 border border-white/10 text-xs">
                         <button
@@ -9641,7 +9686,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         </button>
                       </div>
                     </div>
-                    <span className="font-mono">
+                    <span className="font-mono text-slate-500 text-[10px]">
                       Last Scan: {new Date().toLocaleTimeString()}
                     </span>
                   </div>
@@ -9665,15 +9710,53 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                             Change %{scannerSortField === 'change' ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
                           </th>
                           <th 
-                            onClick={() => toggleScannerSort('volume')}
+                            onClick={() => toggleScannerSort(scannerResultTabMode === 'unique' ? 'lastSeenAt' : 'volume')}
                             className="py-2.5 font-bold uppercase tracking-wider text-right cursor-pointer hover:text-indigo-400 select-none transition-colors"
                           >
-                            Volume{scannerSortField === 'volume' ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                            {scannerResultTabMode === 'unique' ? 'Last Matched' : 'Volume'}
+                            {scannerSortField === (scannerResultTabMode === 'unique' ? 'lastSeenAt' : 'volume') ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
                           </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5 text-slate-200">
-                        {scannerLoading && scannerResults.length === 0 ? (
+                        {scannerResultTabMode === 'unique' ? (
+                          getSortedUniqueStocksForCurrentScanner().length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="py-12 text-center text-slate-500 font-medium">
+                                {scannerFilterMode === 'fno'
+                                  ? `No Options Chain Enabled unique stocks have matched '${selectedScanner}' yet in this session.`
+                                  : `No unique stocks have matched '${selectedScanner}' yet in this session.`}
+                              </td>
+                            </tr>
+                          ) : (
+                            getSortedUniqueStocksForCurrentScanner().map((row) => (
+                              <tr key={row.symbol} className="hover:bg-white/[0.01] transition-colors">
+                                <td className="py-3">
+                                  <div className="flex flex-col">
+                                    <span className="font-semibold text-white flex items-center gap-1.5">
+                                      {row.symbol}
+                                      {row.isFno && (
+                                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400">F&amp;O</span>
+                                      )}
+                                    </span>
+                                    <span className="text-[8px] text-slate-500 font-mono mt-0.5">{row.fullName}</span>
+                                  </div>
+                                </td>
+                                <td className="py-3 text-right font-mono font-bold text-white">
+                                  ₹{formatCurrency(row.ltp)}
+                                </td>
+                                <td className="py-3 text-right font-mono font-bold">
+                                  <span className={row.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                    ({row.change >= 0 ? '+' : ''}{row.change.toFixed(2)}%)
+                                  </span>
+                                </td>
+                                <td className="py-3 text-right font-mono text-[10px] text-slate-400">
+                                  {row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleTimeString() : '—'}
+                                </td>
+                              </tr>
+                            ))
+                          )
+                        ) : scannerLoading && scannerResults.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="py-12 text-center text-slate-500 italic">Running real-time scan...</td>
                           </tr>
@@ -9718,49 +9801,75 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </div>
 
                   {/* Table Bottom Actions */}
-                  <div className="flex gap-2 justify-end mt-4 pt-3 border-t border-white/5">
-                    <button 
-                      onClick={() => {
-                        const visibleResults = getSortedScannerResults();
-                        if (visibleResults.length === 0) {
-                          showAlert('No scanner results available to copy.');
-                          return;
-                        }
-                        const copyText = visibleResults.map(r => `${r.symbol}\t₹${r.ltp}\t${r.change}%`).join('\n');
-                        navigator.clipboard.writeText(copyText);
-                        showAlert(`Copied ${visibleResults.length} ${scannerFilterMode === 'fno' ? 'Options Chain Enabled' : ''} scanner results to clipboard!`);
-                      }}
-                      className="px-4 py-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5"
-                    >
-                      <Copy className="h-3.5 w-3.5 text-slate-400" />
-                      Copy ({getSortedScannerResults().length})
-                    </button>
-                    <button 
-                      onClick={() => {
-                        const isSubscribed = subscribedAlerts.includes(selectedScanner);
-                        if (isSubscribed) {
-                          setSubscribedAlerts(prev => prev.filter(s => s !== selectedScanner));
-                        } else {
-                          setSubscribedAlerts(prev => [...prev, selectedScanner]);
-                          const currentSymbols = scannerResults.map(r => r.symbol);
-                          prevScannerMatchesRef.current[selectedScanner] = currentSymbols;
-                        }
-                      }}
-                      className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer border flex items-center gap-1.5 h-auto ${
-                        subscribedAlerts.includes(selectedScanner)
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                          : 'bg-indigo-600 border-indigo-600 hover:bg-indigo-500 text-white'
-                      }`}
-                    >
-                      {subscribedAlerts.includes(selectedScanner) ? (
-                        <>
-                          <Check className="h-3.5 w-3.5" />
-                          Alerts Active
-                        </>
-                      ) : (
-                        'Set Alerts'
-                      )}
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-white/5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Quick Copy:
+                      </span>
+                      <button 
+                        onClick={() => {
+                          const fnoList = getUniqueStocksForCurrentScanner(true);
+                          if (fnoList.length === 0) {
+                            showAlert(`No Options Chain Enabled (F&O) unique stocks found for ${selectedScanner}.`);
+                            return;
+                          }
+                          const copyText = fnoList.map(r => r.symbol).join(', ');
+                          navigator.clipboard.writeText(copyText);
+                          showAlert(`Copied ${fnoList.length} Options Chain Enabled (F&O) unique stock symbols!`);
+                        }}
+                        className="px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1"
+                      >
+                        <Zap className="h-3.5 w-3.5 text-amber-400" />
+                        Copy F&amp;O Unique ({getUniqueStocksForCurrentScanner(true).length})
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => {
+                          const targetList = scannerResultTabMode === 'unique' 
+                            ? getSortedUniqueStocksForCurrentScanner()
+                            : getSortedScannerResults();
+                          if (targetList.length === 0) {
+                            showAlert('No stocks available to copy.');
+                            return;
+                          }
+                          const copyText = targetList.map(r => `${r.symbol}\t₹${r.ltp}\t${r.change}%`).join('\n');
+                          navigator.clipboard.writeText(copyText);
+                          showAlert(`Copied ${targetList.length} ${scannerResultTabMode === 'unique' ? 'accumulated unique' : 'live match'} stocks to clipboard!`);
+                        }}
+                        className="px-4 py-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Copy className="h-3.5 w-3.5 text-slate-400" />
+                        Copy {scannerResultTabMode === 'unique' ? 'Unique' : 'Live'} ({scannerResultTabMode === 'unique' ? getSortedUniqueStocksForCurrentScanner().length : getSortedScannerResults().length})
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const isSubscribed = subscribedAlerts.includes(selectedScanner);
+                          if (isSubscribed) {
+                            setSubscribedAlerts(prev => prev.filter(s => s !== selectedScanner));
+                          } else {
+                            setSubscribedAlerts(prev => [...prev, selectedScanner]);
+                            const currentSymbols = scannerResults.map(r => r.symbol);
+                            prevScannerMatchesRef.current[selectedScanner] = currentSymbols;
+                          }
+                        }}
+                        className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer border flex items-center gap-1.5 h-auto ${
+                          subscribedAlerts.includes(selectedScanner)
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                            : 'bg-indigo-600 border-indigo-600 hover:bg-indigo-500 text-white'
+                        }`}
+                      >
+                        {subscribedAlerts.includes(selectedScanner) ? (
+                          <>
+                            <Check className="h-3.5 w-3.5" />
+                            Alerts Active
+                          </>
+                        ) : (
+                          'Set Alerts'
+                        )}
+                      </button>
+                    </div>
                   </div>
                   </div>
                   )}
