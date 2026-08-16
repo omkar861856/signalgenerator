@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument, cleanupRedundantDBData } = require('./db');
+const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument, DailyUniqueScannerStock, cleanupRedundantDBData } = require('./db');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
@@ -2852,6 +2852,80 @@ app.get('/api/fno/option-chain', requireAuth, (req, res) => {
     }
 });
 
+// ─── 1st 15-Minute F&O Fibonacci Strategy Endpoints ───────────────────────────
+app.post('/api/fno/fibonacci-scan', async (req, res) => {
+    try {
+        const { targetDate, minBodyPercent } = req.body || {};
+        const scanResult = await scanner.scanFnoFirst15MinFibonacci({ targetDate, minBodyPercent });
+        res.json(scanResult);
+    } catch (err) {
+        console.error('[15m F&O Fib Scanner Error]:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/fno/fibonacci-daily-table', async (req, res) => {
+    try {
+        const { FnoDailyScan } = require('./db');
+        const targetDate = req.query.date || new Date().toISOString().split('T')[0];
+        
+        let dailyRecords = [];
+        if (FnoDailyScan) {
+            dailyRecords = await FnoDailyScan.find({ date: targetDate })
+                .sort({ symbol: 1 }) // Ascending order A to Z
+                .lean();
+        }
+
+        // If no records in DB for today yet, run auto scan
+        if (dailyRecords.length === 0) {
+            const scanRes = await scanner.scanFnoFirst15MinFibonacci({ targetDate });
+            dailyRecords = scanRes.results || [];
+        }
+
+        res.json({
+            success: true,
+            date: targetDate,
+            count: dailyRecords.length,
+            results: dailyRecords
+        });
+    } catch (err) {
+        console.error('[15m F&O Fib Daily Table Fetch Error]:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/fno/fibonacci-dates', async (req, res) => {
+    try {
+        const { FnoDailyScan } = require('./db');
+        let dates = [];
+        if (FnoDailyScan) {
+            dates = await FnoDailyScan.distinct('date');
+            dates.sort().reverse(); // Most recent dates first
+        }
+        if (dates.length === 0) {
+            dates = [new Date().toISOString().split('T')[0]];
+        }
+        res.json({ success: true, dates });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.delete('/api/fno/fibonacci-daily-table', async (req, res) => {
+    try {
+        const { FnoDailyScan } = require('./db');
+        const targetDate = req.query.date || req.body?.date || new Date().toISOString().split('T')[0];
+        let deletedCount = 0;
+        if (FnoDailyScan) {
+            const delRes = await FnoDailyScan.deleteMany({ date: targetDate });
+            deletedCount = delRes.deletedCount || 0;
+        }
+        res.json({ success: true, message: `Purged ${deletedCount} records for date ${targetDate}`, deletedCount });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // ─── 7c. REST GTT Routes ───────────────────────────────────────────────────────
 app.get('/api/gtt/triggers', requireAuth, async (req, res) => {
     let result = latestGttsResponseCached;
@@ -3873,6 +3947,160 @@ Do NOT include markdown backticks around the JSON. Return ONLY the raw JSON stri
     }
 });
 
+// In-Memory store for fast fallback & lookup of daily unique stocks
+const dailyUniqueStocksStore = new Map();
+
+function getTodayDateStr() {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+async function recordDailyUniqueScannerStocks(scannerName, resultsArray) {
+    if (!Array.isArray(resultsArray) || resultsArray.length === 0) return;
+    const dateStr = getTodayDateStr();
+    
+    if (!dailyUniqueStocksStore.has(dateStr)) {
+        dailyUniqueStocksStore.set(dateStr, new Map());
+    }
+    const dayMap = dailyUniqueStocksStore.get(dateStr);
+
+    for (const item of resultsArray) {
+        if (!item || !item.symbol) continue;
+        const sym = item.symbol.split(':').pop();
+        const existing = dayMap.get(sym);
+
+        const now = new Date();
+        if (existing) {
+            existing.ltp = item.ltp || existing.ltp;
+            existing.change = item.change !== undefined ? item.change : existing.change;
+            existing.volume = item.volume || existing.volume;
+            existing.isFno = item.isFno !== undefined ? item.isFno : existing.isFno;
+            if (scannerName && !existing.scannersMatched.includes(scannerName)) {
+                existing.scannersMatched.push(scannerName);
+            }
+            existing.lastSeenAt = now;
+        } else {
+            const newEntry = {
+                date: dateStr,
+                symbol: sym,
+                fullName: item.fullName || `NSE:${sym}`,
+                ltp: item.ltp || 0,
+                change: item.change || 0,
+                volume: item.volume || 0,
+                isFno: !!item.isFno,
+                scannersMatched: scannerName ? [scannerName] : [],
+                firstSeenAt: now,
+                lastSeenAt: now
+            };
+            dayMap.set(sym, newEntry);
+        }
+
+        // Async write to DB if connected
+        try {
+            if (DailyUniqueScannerStock && mongoose.connection.readyState === 1) {
+                DailyUniqueScannerStock.updateOne(
+                    { date: dateStr, symbol: sym },
+                    {
+                        $set: {
+                            fullName: item.fullName || `NSE:${sym}`,
+                            ltp: item.ltp || 0,
+                            change: item.change || 0,
+                            volume: item.volume || 0,
+                            isFno: !!item.isFno,
+                            lastSeenAt: now
+                        },
+                        $setOnInsert: {
+                            date: dateStr,
+                            symbol: sym,
+                            firstSeenAt: now
+                        },
+                        $addToSet: { scannersMatched: scannerName }
+                    },
+                    { upsert: true }
+                ).catch(() => {});
+            }
+        } catch (e) {
+            // Ignore DB errors
+        }
+    }
+}
+
+app.get('/api/scanners/daily-unique-stocks', async (req, res) => {
+    try {
+        const dateStr = req.query.date || getTodayDateStr();
+        const isFnoOnly = req.query.isFno === 'true';
+
+        let stocksList = [];
+        let availableDates = [];
+
+        // Try reading from MongoDB if connected
+        if (DailyUniqueScannerStock && mongoose.connection.readyState === 1) {
+            try {
+                availableDates = await DailyUniqueScannerStock.distinct('date');
+                const query = { date: dateStr };
+                if (isFnoOnly) query.isFno = true;
+
+                const docs = await DailyUniqueScannerStock.find(query).sort({ lastSeenAt: -1 }).lean();
+                stocksList = docs.map(d => ({
+                    symbol: d.symbol,
+                    fullName: d.fullName || `NSE:${d.symbol}`,
+                    ltp: d.ltp,
+                    change: d.change,
+                    volume: d.volume,
+                    isFno: d.isFno,
+                    scannersMatched: d.scannersMatched || [],
+                    firstSeenAt: d.firstSeenAt,
+                    lastSeenAt: d.lastSeenAt
+                }));
+            } catch (dbErr) {
+                // Fallback to in-memory store
+            }
+        }
+
+        // Fallback to in-memory store if stocksList empty or DB disconnected
+        if (stocksList.length === 0 && dailyUniqueStocksStore.has(dateStr)) {
+            const dayMap = dailyUniqueStocksStore.get(dateStr);
+            stocksList = Array.from(dayMap.values());
+            if (isFnoOnly) {
+                stocksList = stocksList.filter(s => s.isFno);
+            }
+            stocksList.sort((a, b) => new Date(b.lastSeenAt) - new Date(a.lastSeenAt));
+        }
+
+        const inMemoryDates = Array.from(dailyUniqueStocksStore.keys());
+        const allDates = Array.from(new Set([getTodayDateStr(), ...availableDates, ...inMemoryDates])).sort().reverse();
+
+        const totalCount = stocksList.length;
+        const fnoCount = stocksList.filter(s => s.isFno).length;
+
+        res.json({
+            success: true,
+            date: dateStr,
+            availableDates: allDates,
+            totalCount,
+            fnoCount,
+            stocks: stocksList
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/scanners/record-daily-stocks', (req, res) => {
+    try {
+        const { scannerName, results } = req.body;
+        if (Array.isArray(results) && results.length > 0) {
+            recordDailyUniqueScannerStocks(scannerName || 'Live Scanner', results);
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/scanners/results', (req, res) => {
     const { scanner: scannerName, index, mode } = req.query;
     if (!scannerName || !index) {
@@ -3881,6 +4109,9 @@ app.get('/api/scanners/results', (req, res) => {
 
     try {
         const scanOutput = scanner.getScannerResults(scannerName, index, mode);
+        if (scanOutput && Array.isArray(scanOutput.results) && scanOutput.results.length > 0) {
+            recordDailyUniqueScannerStocks(scannerName, scanOutput.results);
+        }
         res.json({
             success: true,
             scanner: scannerName,
@@ -4076,6 +4307,101 @@ app.get('/api/system/db-space', requireAuth, async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+// Admin DB Snapshot & Schema Inspector Endpoint
+app.get('/api/admin/db-snapshot', async (req, res) => {
+    try {
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return res.status(503).json({ success: false, error: 'Database disconnected' });
+        }
+        const db = mongoose.connection.db;
+        const stats = await db.command({ dbStats: 1 });
+        const collections = await db.listCollections().toArray();
+
+        const collectionsDetail = await Promise.all(collections.map(async (col) => {
+            const name = col.name;
+            const collectionObj = db.collection(name);
+            let count = 0;
+            try {
+                count = await collectionObj.countDocuments({});
+            } catch (e) {
+                try { count = await collectionObj.estimatedDocumentCount(); } catch (err) {}
+            }
+
+            let colStats = {};
+            try {
+                colStats = await db.command({ collStats: name });
+            } catch (e) {
+                console.warn(`[DB Snapshot] collStats failed for ${name}:`, e.message);
+            }
+
+            let sampleDocs = [];
+            try {
+                sampleDocs = await collectionObj.find({}).sort({ _id: -1 }).limit(5).toArray();
+            } catch (e) {
+                console.warn(`[DB Snapshot] Failed to fetch sample docs for ${name}:`, e.message);
+            }
+
+            const schemaFields = {};
+            if (sampleDocs.length > 0) {
+                sampleDocs.forEach(doc => {
+                    Object.keys(doc).forEach(key => {
+                        if (!schemaFields[key]) {
+                            const val = doc[key];
+                            let type = typeof val;
+                            if (val === null) type = 'null';
+                            else if (val instanceof Date) type = 'Date';
+                            else if (Array.isArray(val)) type = `Array[${val.length}]`;
+                            else if (val && typeof val === 'object') {
+                                if (val._bsontype === 'ObjectID' || val._bsontype === 'ObjectId') type = 'ObjectId';
+                                else type = 'Object';
+                            } else if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(val)) type = 'DateString';
+                            schemaFields[key] = type;
+                        }
+                    });
+                });
+            }
+
+            let indexes = [];
+            try {
+                indexes = await collectionObj.indexes();
+            } catch (e) {}
+
+            return {
+                name,
+                count,
+                sizeKb: (colStats.size ? colStats.size / 1024 : 0).toFixed(2),
+                storageSizeKb: (colStats.storageSize ? colStats.storageSize / 1024 : 0).toFixed(2),
+                avgObjSize: colStats.avgObjSize || (count > 0 && colStats.size ? Math.round(colStats.size / count) : 0),
+                indexCount: indexes.length,
+                indexes: indexes.map(idx => ({ name: idx.name, key: idx.key, unique: !!idx.unique })),
+                schemaFields,
+                sampleDocs: sampleDocs.slice(0, 3)
+            };
+        }));
+
+        collectionsDetail.sort((a, b) => b.count - a.count);
+
+        res.json({
+            success: true,
+            timestamp: new Date().toISOString(),
+            dbName: db.databaseName,
+            summary: {
+                totalCollections: stats.collections,
+                totalDocuments: stats.objects,
+                dataSizeMb: (stats.dataSize / (1024 * 1024)).toFixed(2),
+                storageSizeMb: (stats.storageSize / (1024 * 1024)).toFixed(2),
+                indexSizeMb: (stats.indexSize / (1024 * 1024)).toFixed(2),
+                avgObjSize: stats.avgObjSize ? (stats.avgObjSize).toFixed(0) + ' B' : 'N/A'
+            },
+            collections: collectionsDetail
+        });
+    } catch (err) {
+        console.error('[DB Snapshot API Error]', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 
 app.get('/api/admin/historical-sync/status', requireAuth, (req, res) => {
     res.json({ success: true, status: historicalSyncStatus });
@@ -9075,15 +9401,32 @@ app.get('*', (req, res, next) => {
     res.status(404).send('Application bundle not found.');
 });
 
+// Fallback for unmatched /api endpoints - return JSON 404 instead of HTML page
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ success: false, error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+});
+
+hybridServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.warn(`[Server] Port ${PORT} is currently in use. Trying fallback port ${Number(PORT) + 1}...`);
+        setTimeout(() => {
+            hybridServer.listen(Number(PORT) + 1, '0.0.0.0');
+        }, 1000);
+    } else {
+        console.error('[Server Error]:', err.message);
+    }
+});
+
 hybridServer.listen(PORT, '0.0.0.0', () => {
+    const activePort = hybridServer.address()?.port || PORT;
     const lanIp = getLanIp();
     console.log('='.repeat(60));
     console.log(`  AI Portfolio & Trading Chatbot`);
-    console.log(`  Local (HTTP):   http://localhost:${PORT}`);
-    console.log(`  Local (HTTPS):  https://localhost:${PORT}`);
+    console.log(`  Local (HTTP):   http://localhost:${activePort}`);
+    console.log(`  Local (HTTPS):  https://localhost:${activePort}`);
     if (lanIp) {
-        console.log(`  LAN/Docker:     http://${lanIp}:${PORT}`);
-        console.log(`  MCP (LAN):      http://${lanIp}:${PORT}/mcp`);
+        console.log(`  LAN/Docker:     http://${lanIp}:${activePort}`);
+        console.log(`  MCP (LAN):      http://${lanIp}:${activePort}/mcp`);
     }
     console.log('='.repeat(60));
 });

@@ -126,6 +126,66 @@ InstrumentSchema.index({ exchange: 1, tradingsymbol: 1 });
 
 const Instrument = mongoose.model('Instrument', InstrumentSchema);
 
+const FnoDailyScanSchema = new mongoose.Schema({
+    date: { type: String, required: true, index: true }, // Format YYYY-MM-DD
+    symbol: { type: String, required: true },
+    instrumentToken: { type: Number },
+    open: { type: Number, required: true },
+    high: { type: Number, required: true },
+    low: { type: Number, required: true },
+    close: { type: Number, required: true },
+    volume: { type: Number, default: 0 },
+    bodyLength: { type: Number, required: true },
+    bodyPercent: { type: Number, required: true },
+    isGreen: { type: Boolean, default: true },
+    fibonacciLevels: {
+        fib0: { type: Number },     // Open (0%)
+        fib236: { type: Number },   // 23.6%
+        fib382: { type: Number },   // 38.2%
+        fib500: { type: Number },   // 50%
+        fib618: { type: Number },   // 61.8%
+        fib786: { type: Number },   // 78.6%
+        fib100: { type: Number },   // Close (100%)
+        fib1272: { type: Number },  // 127.2%
+        fib1618: { type: Number },  // 161.8%
+        fib2000: { type: Number },  // 200%
+        fib2618: { type: Number }   // 261.8%
+    },
+    derivative: {
+        tradingsymbol: { type: String },
+        instrumentToken: { type: Number },
+        strike: { type: Number },
+        optionType: { type: String, default: 'CE' },
+        expiry: { type: String },
+        lotSize: { type: Number, default: 1 },
+        estimatedPremium: { type: Number, default: 0 }
+    },
+    scannedAt: { type: Date, default: Date.now }
+}, { collection: 'fno_daily_scans', timestamps: true, bufferCommands: false });
+
+FnoDailyScanSchema.index({ date: 1, symbol: 1 }, { unique: true });
+FnoDailyScanSchema.index({ date: 1, bodyPercent: -1 });
+
+const FnoDailyScan = mongoose.model('FnoDailyScan', FnoDailyScanSchema);
+
+const DailyUniqueScannerStockSchema = new mongoose.Schema({
+    date: { type: String, required: true, index: true }, // Format: YYYY-MM-DD
+    symbol: { type: String, required: true },            // Short tradingsymbol e.g. RELIANCE
+    fullName: { type: String },                          // Full symbol e.g. NSE:RELIANCE
+    ltp: { type: Number, default: 0 },
+    change: { type: Number, default: 0 },
+    volume: { type: Number, default: 0 },
+    isFno: { type: Boolean, default: false },            // Options chain enabled stock flag
+    scannersMatched: { type: [String], default: [] },    // Array of scanner names where stock appeared today
+    firstSeenAt: { type: Date, default: Date.now },
+    lastSeenAt: { type: Date, default: Date.now }
+}, { collection: 'daily_unique_scanner_stocks', timestamps: true, bufferCommands: false });
+
+DailyUniqueScannerStockSchema.index({ date: 1, symbol: 1 }, { unique: true });
+DailyUniqueScannerStockSchema.index({ date: 1, isFno: 1 });
+
+const DailyUniqueScannerStock = mongoose.model('DailyUniqueScannerStock', DailyUniqueScannerStockSchema);
+
 async function cleanupRedundantDBData() {
     try {
         console.log('[DB Maintenance] Starting redundant data cleanup...');
@@ -226,5 +286,7 @@ module.exports = {
     HistoricalCandle,
     KiteDoc,
     Instrument,
+    FnoDailyScan,
+    DailyUniqueScannerStock,
     cleanupRedundantDBData
 };

@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
   Copy, Trash2, LogOut, LogIn, ExternalLink, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon, Layers, BarChart2, Clock
+  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon, Layers, BarChart2, Clock, Calendar, Download
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -268,6 +268,49 @@ function AppContent() {
 
   const [settingsTab, setSettingsTab] = useState('fno'); // 'equity' or 'fno'
   const [isTestMode, setIsTestMode] = useState(() => localStorage.getItem('app_test_mode') !== 'false');
+  const [collapsedPageSections, setCollapsedPageSections] = useState({
+    dash_stats: true,
+    dash_chat: true,
+    dash_scanners: true,
+    dash_positions: true,
+    opt_controls: true,
+    opt_matrix: true,
+    opt_payoff: true,
+    scan_controls: true,
+    scan_results: true,
+    scan_radar: true,
+    chart_controls: true,
+    chart_canvas: true,
+    chart_results: true,
+    fnofib: true,
+    logs: true,
+    library: true,
+    settings: true,
+    autotrade: true,
+    admin: true,
+    builder: true,
+    backtest: true,
+    backtestRules: true,
+    performance: true,
+    stream: true,
+    fno_overview: true,
+    fno_screener: true,
+    fno_heatmap: true,
+    mon_telemetry: true,
+    mon_grafana: true,
+    admin_rules: true,
+    admin_keys: true,
+  });
+
+  const togglePageSection = (sectionKey) => {
+    setCollapsedPageSections((prev) => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey],
+    }));
+  };
+
+  const collapsedStrategySections = collapsedPageSections;
+  const toggleStrategySection = togglePageSection;
   const [selectedStrategy, setSelectedStrategy] = useState('ai_intraday_buy'); // 'ai_intraday_buy' | 'credit_spread' | 'leaps' | 'wheel'
   const [selectedIntradayScreener, setSelectedIntradayScreener] = useState('Top Gainers & Increasing OI');
   const [aiIntradaySignals, setAiIntradaySignals] = useState([]);
@@ -380,6 +423,17 @@ function AppContent() {
   const [scannerSortField, setScannerSortField] = useState(null); // 'change' | 'volume' | 'ltp'
   const [scannerSortDirection, setScannerSortDirection] = useState('desc'); // 'asc' | 'desc'
   const [scannerFilterMode, setScannerFilterMode] = useState('all'); // 'all' | 'fno'
+  
+  // Daily Unique Scanner Stocks States
+  const [dailyUniqueStocks, setDailyUniqueStocks] = useState([]);
+  const [dailySelectedDate, setDailySelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [dailyAvailableDates, setDailyAvailableDates] = useState([new Date().toISOString().split('T')[0]]);
+  const [dailyFnoFilter, setDailyFnoFilter] = useState(false);
+  const [dailyCopyFnoOnlyMode, setDailyCopyFnoOnlyMode] = useState(false);
+  const [dailySearchQuery, setDailySearchQuery] = useState('');
+  const [dailyUniqueLoading, setDailyUniqueLoading] = useState(false);
+  const [dailySortField, setDailySortField] = useState('lastSeenAt'); // 'symbol' | 'ltp' | 'change' | 'lastSeenAt'
+  const [dailySortDirection, setDailySortDirection] = useState('desc'); // 'asc' | 'desc'
   
   // AI Custom & Dynamic Scanner States
   const [scannersList, setScannersList] = useState([
@@ -2257,6 +2311,144 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
       return scannerSortDirection === 'asc' ? valA - valB : valB - valA;
     });
   };
+  const fetchDailyUniqueStocks = useCallback(async (targetDate = dailySelectedDate) => {
+    setDailyUniqueLoading(true);
+    try {
+      const res = await fetch(`/api/scanners/daily-unique-stocks?date=${encodeURIComponent(targetDate)}`);
+      const data = await res.json();
+      if (data && data.success) {
+        setDailyUniqueStocks(data.stocks || []);
+        if (data.availableDates && data.availableDates.length > 0) {
+          setDailyAvailableDates(data.availableDates);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching daily unique scanner stocks:', err);
+    } finally {
+      setDailyUniqueLoading(false);
+    }
+  }, [dailySelectedDate]);
+
+  useEffect(() => {
+    if (view === 'scanners' && appConfig.hasAccessToken) {
+      fetchDailyUniqueStocks(dailySelectedDate);
+    }
+  }, [view, dailySelectedDate, appConfig.hasAccessToken, fetchDailyUniqueStocks]);
+
+  useEffect(() => {
+    if ((scannerResults && scannerResults.length > 0) || (fnoScannerResults && fnoScannerResults.length > 0)) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (dailySelectedDate === todayStr) {
+        setDailyUniqueStocks(prev => {
+          const map = new Map(prev.map(item => [item.symbol, { ...item }]));
+          const now = new Date().toISOString();
+          
+          const processResults = (list, scannerNameStr) => {
+            if (!list) return;
+            list.forEach(r => {
+              if (!r || !r.symbol) return;
+              const sym = r.symbol.split(':').pop();
+              const existing = map.get(sym);
+              const isFnoVal = r.isFno || selectedScannerIndex === 'F&O Stocks';
+              
+              if (existing) {
+                existing.ltp = r.ltp || existing.ltp;
+                existing.change = r.change !== undefined ? r.change : existing.change;
+                existing.volume = r.volume || existing.volume;
+                existing.isFno = existing.isFno || isFnoVal;
+                const scName = scannerNameStr || selectedScanner;
+                if (scName && Array.isArray(existing.scannersMatched) && !existing.scannersMatched.includes(scName)) {
+                  existing.scannersMatched = [...existing.scannersMatched, scName];
+                }
+                existing.lastSeenAt = now;
+              } else {
+                const scName = scannerNameStr || selectedScanner;
+                map.set(sym, {
+                  symbol: sym,
+                  fullName: r.fullName || `NSE:${sym}`,
+                  ltp: r.ltp || 0,
+                  change: r.change || 0,
+                  volume: r.volume || 0,
+                  isFno: !!isFnoVal,
+                  scannersMatched: scName ? [scName] : [],
+                  firstSeenAt: now,
+                  lastSeenAt: now
+                });
+              }
+            });
+          };
+
+          processResults(scannerResults, selectedScanner);
+          processResults(fnoScannerResults, selectedFnoScanner);
+          return Array.from(map.values());
+        });
+      }
+    }
+  }, [scannerResults, fnoScannerResults, dailySelectedDate, selectedScanner, selectedFnoScanner, selectedScannerIndex]);
+
+  const toggleDailySort = (field) => {
+    if (dailySortField === field) {
+      setDailySortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setDailySortField(field);
+      setDailySortDirection('desc');
+    }
+  };
+
+  const getFilteredDailyUniqueStocks = () => {
+    return dailyUniqueStocks.filter(item => {
+      const matchesSearch = !dailySearchQuery || 
+        item.symbol.toLowerCase().includes(dailySearchQuery.toLowerCase()) || 
+        (item.fullName && item.fullName.toLowerCase().includes(dailySearchQuery.toLowerCase()));
+      const matchesFno = !dailyFnoFilter || item.isFno;
+      return matchesSearch && matchesFno;
+    });
+  };
+
+  const getSortedDailyUniqueStocks = () => {
+    const filtered = getFilteredDailyUniqueStocks();
+    return [...filtered].sort((a, b) => {
+      let valA = a[dailySortField];
+      let valB = b[dailySortField];
+      if (dailySortField === 'lastSeenAt' || dailySortField === 'firstSeenAt') {
+        valA = new Date(valA || 0).getTime();
+        valB = new Date(valB || 0).getTime();
+      } else {
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA === undefined || valA === null) valA = 0;
+        if (valB === undefined || valB === null) valB = 0;
+      }
+      if (valA < valB) return dailySortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return dailySortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const handleCopyDailyUniqueStocks = (forceFnoOnly = false, format = 'symbols') => {
+    let sourceList = getSortedDailyUniqueStocks();
+    if (forceFnoOnly || dailyCopyFnoOnlyMode) {
+      sourceList = sourceList.filter(s => s.isFno);
+    }
+    if (sourceList.length === 0) {
+      showAlert(`No ${forceFnoOnly || dailyCopyFnoOnlyMode ? 'Options Chain Enabled ' : ''}stocks available to copy for ${dailySelectedDate}.`);
+      return;
+    }
+
+    let textToCopy = '';
+    if (format === 'table') {
+      textToCopy = ['Symbol\tLTP\tChange%\tOptionsChain\tScannersMatched\tFirstSeen']
+        .concat(sourceList.map(s => 
+          `${s.symbol}\t₹${s.ltp}\t${s.change >= 0 ? '+' : ''}${s.change}%\t${s.isFno ? 'Yes (F&O)' : 'No'}\t${(s.scannersMatched || []).join(', ')}\t${s.firstSeenAt ? new Date(s.firstSeenAt).toLocaleTimeString() : ''}`
+        ))
+        .join('\n');
+    } else {
+      textToCopy = sourceList.map(s => s.symbol).join(', ');
+    }
+
+    navigator.clipboard.writeText(textToCopy);
+    showAlert(`Copied ${sourceList.length} ${forceFnoOnly || dailyCopyFnoOnlyMode ? 'Options Chain Enabled (F&O) ' : ''}unique stock symbols to clipboard!`);
+  };
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
@@ -3818,493 +4010,529 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 
                 {/* Top Stat Bar */}
                 {appConfig.hasAccessToken && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    
-                    {/* Available Cash Card */}
-                    <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
-                      <div className="flex items-center justify-between text-slate-400 font-medium">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Allocated Cash (5x Leverage)</span>
-                          {reallocationAutoEnabled && lastReallocationTime && (
-                            (() => {
-                              const elapsed = Date.now() - lastReallocationTime;
-                              const left = Math.max(0, 15 * 60 * 1000 - elapsed);
-                              const m = Math.floor(left / 60000);
-                              const s = Math.floor((left % 60000) / 1000);
-                              return (
-                                <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-semibold animate-pulse">
-                                  Realloc: {m}m {s}s
-                                </span>
-                              );
-                            })()
-                          )}
-                        </div>
-                        <Zap className="h-4 w-4 text-amber-400" />
-                      </div>
-                      <h3 className="text-lg font-display font-bold text-white mt-1">
-                        ₹{formatCurrency((margins?.equity?.net || 0) * (selectedMarginPercentage / 100) * 5)}
-                      </h3>
-                      <div className="flex justify-between items-center mt-1">
-                        <p className="text-[9px] text-slate-400 font-mono">
-                          Based on {(margins?.equity?.net || 0) > 0 ? `₹${formatCurrency(margins?.equity?.net)}` : '₹0.00'} × {selectedMarginPercentage}% allocation
-                        </p>
-                        <div className="flex items-center gap-1.5">
-                          <input 
-                            type="checkbox"
-                            id="reallocation-logic-toggle"
-                            checked={reallocationAutoEnabled}
-                            onChange={toggleReallocationLogic}
-                            className="h-3 w-3 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
-                          />
-                          <label htmlFor="reallocation-logic-toggle" className="text-[9px] font-medium text-slate-300 cursor-pointer select-none">
-                            Smart Reallocation
-                          </label>
-                        </div>
-                      </div>
-                    </Card>
-
-                    {/* Net Realtime PnL Card */}
-                    <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
-                      <div className="flex items-center justify-between text-slate-400 font-medium">
-                    <TrendingUp className={`h-4 w-4 ${(positionsPnL + portfolioPnL - totalCharges) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
-                  </div>
-                  <h3 className={`text-lg font-display font-bold mt-1 ${
-                    (positionsPnL + portfolioPnL - totalCharges) >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {(positionsPnL + portfolioPnL - totalCharges) >= 0 ? '+' : ''}₹{formatCurrency(positionsPnL + portfolioPnL - totalCharges)}
-                  </h3>
-                  <div className="flex justify-between items-center text-[9px] text-slate-400">
-                    <div className="flex flex-col gap-0.5">
-                      <span>Gross: ₹{formatCurrency(positionsPnL + portfolioPnL)}</span>
-                      <span>Charges: ₹{formatCurrency(totalCharges)}</span>
-                    </div>
-                    {netPnLDiff !== 0 && (
-                      <div className={`flex items-center gap-1 font-bold tracking-wider rounded px-1.5 py-0.5 ${netPnLDiff > 0 ? 'text-emerald-400 bg-emerald-400/10' : 'text-rose-400 bg-rose-400/10'}`}>
-                        {netPnLDiff > 0 ? '▲' : '▼'} ₹{formatCurrency(Math.abs(netPnLDiff))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="border-t border-white/5 pt-2 mt-1 flex flex-col gap-2">
-                    <Button 
-                      size="sm"
-                      variant="outline"
-                      className="w-full h-7 text-[10px] bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-300 border-indigo-500/20 cursor-pointer flex items-center justify-center gap-1 font-semibold"
-                      onClick={() => window.open('/?view=tradingview-matrix', '_blank')}
-                    >
-                      <LineChart className="h-3 w-3" />
-                      Live Charts Grid
-                    </Button>
-                    <Button 
-                      size="sm"
-                      variant="outline"
-                      className="w-full h-7 text-[10px] bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 border-purple-500/20 cursor-pointer flex items-center justify-center gap-1 font-semibold"
-                      onClick={() => window.open('/?view=fno-matrix', '_blank')}
-                    >
-                      <Flame className="h-3.5 w-3.5" />
-                      F&O Trading Matrix
-                    </Button>
-                  </div>
-                </Card>
-
-
-
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-            
-            {/* COLUMN 1: PORTFOLIO STRATEGIST CHAT (1/3rd) */}
-            <div className="flex flex-col gap-6">
-              
-              {/* Chatbot glass panel */}
-              <div className="glass-panel flex flex-col h-[520px] overflow-hidden">
-                {/* Chat header */}
-                <div className="px-5 py-4 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Brain className="h-5 w-5 text-indigo-400 animate-pulse" />
-                  </div>
-
-                  {/* Mode and Margin selector toggle */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4">
-                    {/* Mode selector */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Mode:</span>
-                      <div className="flex bg-black/40 border border-white/5 p-0.5 rounded-lg">
-                        {['BUY', 'SELL', 'BOTH'].map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => {
-                              setChatMode(m);
-                              localStorage.setItem('portfolio_chat_mode', m);
-                            }}
-                            className={`px-2 py-0.5 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
-                              chatMode === m 
-                                ? m === 'BUY'
-                                  ? 'bg-emerald-600/80 text-white shadow'
-                                  : m === 'SELL'
-                                  ? 'bg-rose-600/80 text-white shadow'
-                                  : 'bg-indigo-600/80 text-white shadow'
-                                : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            {m}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {appConfig.hasAccessToken && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Margin:</span>
-                        <select 
-                          value={selectedMarginPercentage}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setSelectedMarginPercentage(val);
-                            saveAppStateField({ selectedMarginPercentage: val });
-                          }}
-                          className="bg-black/35 border border-white/5 rounded-lg px-1.5 py-0.5 text-[10px] text-indigo-300 outline-none font-semibold cursor-pointer"
-                        >
-                          <option value={100}>100%</option>
-                          <option value={75}>75%</option>
-                          <option value={50}>50%</option>
-                          <option value={25}>25%</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Messages view */}
-                <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 bg-gradient-to-b from-transparent to-black/20">
-                  {chatMessages.map((msg) => (
+                  <div className="glass-panel p-4 flex flex-col gap-4 border-slate-800 bg-[#0f1524]/40 backdrop-blur-md rounded-xl">
                     <div 
-                      key={msg.id}
-                      className={`flex flex-col max-w-[85%] rounded-2xl px-4 py-3 text-sm transition-all ${
-                        msg.sender === 'user'
-                          ? 'self-end bg-indigo-600/80 text-white rounded-tr-none shadow-md shadow-indigo-600/10'
-                          : msg.sender === 'system'
-                          ? 'self-start bg-rose-500/10 border border-rose-500/20 text-rose-300 font-semibold'
-                          : 'self-start bg-white/5 border border-white/5 text-slate-200 rounded-tl-none'
-                      }`}
+                      onClick={() => togglePageSection('dash_stats')}
+                      className="flex items-center justify-between cursor-pointer select-none border-b border-white/5 pb-2"
                     >
-                      <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 block ${
-                        msg.sender === 'user' ? 'text-indigo-200 text-right' : msg.sender === 'system' ? 'text-rose-400' : 'text-purple-400'
-                      }`}>
-                        {msg.sender === 'user' ? 'You' : msg.sender === 'system' ? '⚠️ System' : '✦ AI Assistant'}
-                      </span>
-                      <div className="leading-relaxed whitespace-pre-line">
-                        {msg.text}
+                      <div className="flex items-center gap-2">
+                        <Zap className="h-4 w-4 text-amber-400" />
+                        <h3 className="font-display font-semibold text-sm text-white">Portfolio Quick Stats &amp; PnL Summary</h3>
                       </div>
-                    </div>
-                  ))}
-                  {isChatLoading && (
-                    <div className="flex flex-col max-w-[85%] self-start bg-white/5 border border-white/5 text-slate-200 rounded-2xl rounded-tl-none px-4 py-3 text-sm animate-pulse">
-                      <span className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-purple-400">
-                        ✦ AI Assistant
+                      <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                        {collapsedPageSections.dash_stats ? 'Extend ❯' : 'Minimize 🔽'}
+                        {collapsedPageSections.dash_stats ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </span>
-                      <div className="flex gap-1 py-1">
-                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                      </div>
                     </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
 
-                {/* Chat input form */}
-                <div className="p-4 border-t border-white/5 bg-black/30">
-                  <form onSubmit={handleChatSubmit} className="flex gap-2.5">
-                    <input 
-                      type="text"
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      placeholder="Ask the chatbot..."
-                      disabled={!appConfig.hasAccessToken}
-                      className="flex-1 bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500/50 text-white placeholder-slate-500 disabled:opacity-50"
-                    />
-                    <button 
-                      type="submit"
-                      disabled={!appConfig.hasAccessToken || isChatLoading || !chatInput.trim()}
-                      className="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 shadow-md shadow-indigo-600/10 flex items-center gap-1.5 cursor-pointer"
-                    >
-                      {isChatLoading ? 'Thinking...' : 'Send'}
-                    </button>
-                  </form>
-                </div>
-
-              </div>
-
-            </div>
-
-            {/* COLUMN 2: TOP 7 SCANNERS SECTION (1/3rd) */}
-            <div className="flex flex-col gap-6">
-              
-              {/* ALL SCANNERS LIST COMPACT CARDS */}
-              {appConfig.hasAccessToken && (
-                <div className="flex flex-col gap-3 h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar">
-                  {scannersList.map((scannerObj, idx) => (
-                    <Card key={idx} className="glass-panel border-0 ring-0 p-3 !overflow-visible">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 max-w-[65%]">
-                          <TrendingUp className="h-4 w-4 text-indigo-400 shrink-0" />
-                          <CardTitle className="font-display font-semibold text-xs text-white truncate" title={scannerObj.name}>
-                            {scannerObj.name}
-                          </CardTitle>
-                          {/* Scanner Tooltip */}
-                          <div className="relative group z-[100] shrink-0">
-                            <Info className="h-3.5 w-3.5 text-slate-400 hover:text-slate-200 cursor-pointer" />
-                            <div className="absolute bottom-full mb-2 -translate-x-1/2 left-1/2 hidden group-hover:block w-60 p-3 bg-slate-950/95 border border-white/10 rounded-xl text-[10px] text-slate-300 leading-relaxed shadow-2xl backdrop-blur-md text-center pointer-events-none whitespace-normal">
-                              {scannerObj.description}
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-950"></div>
+                    {!collapsedPageSections.dash_stats && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        
+                        {/* Available Cash Card */}
+                        <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
+                          <div className="flex items-center justify-between text-slate-400 font-medium">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Allocated Cash (5x Leverage)</span>
+                              {reallocationAutoEnabled && lastReallocationTime && (
+                                (() => {
+                                  const elapsed = Date.now() - lastReallocationTime;
+                                  const left = Math.max(0, 15 * 60 * 1000 - elapsed);
+                                  const m = Math.floor(left / 60000);
+                                  const s = Math.floor((left % 60000) / 1000);
+                                  return (
+                                    <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-semibold animate-pulse">
+                                      Realloc: {m}m {s}s
+                                    </span>
+                                  );
+                                })()
+                              )}
+                            </div>
+                            <Zap className="h-4 w-4 text-amber-400" />
+                          </div>
+                          <h3 className="text-lg font-display font-bold text-white mt-1">
+                            ₹{formatCurrency((margins?.equity?.net || 0) * (selectedMarginPercentage / 100) * 5)}
+                          </h3>
+                          <div className="flex justify-between items-center mt-1">
+                            <p className="text-[9px] text-slate-400 font-mono">
+                              Based on {(margins?.equity?.net || 0) > 0 ? `₹${formatCurrency(margins?.equity?.net)}` : '₹0.00'} × {selectedMarginPercentage}% allocation
+                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <input 
+                                type="checkbox"
+                                id="reallocation-logic-toggle"
+                                checked={reallocationAutoEnabled}
+                                onChange={toggleReallocationLogic}
+                                className="h-3 w-3 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
+                              />
+                              <label htmlFor="reallocation-logic-toggle" className="text-[9px] font-medium text-slate-300 cursor-pointer select-none">
+                                Smart Reallocation
+                              </label>
                             </div>
                           </div>
+                        </Card>
+
+                        {/* Net Realtime PnL Card */}
+                        <Card className="glass-panel border-0 ring-0 p-4 flex flex-col justify-between h-auto gap-1">
+                          <div className="flex items-center justify-between text-slate-400 font-medium">
+                            <TrendingUp className={`h-4 w-4 ${(positionsPnL + portfolioPnL - totalCharges) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                          </div>
+                          <h3 className={`text-lg font-display font-bold mt-1 ${
+                            (positionsPnL + portfolioPnL - totalCharges) >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                          }`}>
+                            {(positionsPnL + portfolioPnL - totalCharges) >= 0 ? '+' : ''}₹{formatCurrency(positionsPnL + portfolioPnL - totalCharges)}
+                          </h3>
+                          <div className="flex justify-between items-center text-[9px] text-slate-400">
+                            <div className="flex flex-col gap-0.5">
+                              <span>Gross: ₹{formatCurrency(positionsPnL + portfolioPnL)}</span>
+                              <span>Charges: ₹{formatCurrency(totalCharges)}</span>
+                            </div>
+                            {netPnLDiff !== 0 && (
+                              <div className={`flex items-center gap-1 font-bold tracking-wider rounded px-1.5 py-0.5 ${netPnLDiff > 0 ? 'text-emerald-400 bg-emerald-400/10' : 'text-rose-400 bg-rose-400/10'}`}>
+                                {netPnLDiff > 0 ? '▲' : '▼'} ₹{formatCurrency(Math.abs(netPnLDiff))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="border-t border-white/5 pt-2 mt-1 flex flex-col gap-2">
+                            <Button 
+                              size="sm"
+                              variant="outline"
+                              className="w-full h-7 text-[10px] bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-300 border-indigo-500/20 cursor-pointer flex items-center justify-center gap-1 font-semibold"
+                              onClick={() => window.open('/?view=tradingview-matrix', '_blank')}
+                            >
+                              <LineChart className="h-3 w-3" />
+                              Live Charts Grid
+                            </Button>
+                            <Button 
+                              size="sm"
+                              variant="outline"
+                              className="w-full h-7 text-[10px] bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 border-purple-500/20 cursor-pointer flex items-center justify-center gap-1 font-semibold"
+                              onClick={() => window.open('/?view=fno-matrix', '_blank')}
+                            >
+                              <Flame className="h-3.5 w-3.5" />
+                              F&amp;O Trading Matrix
+                            </Button>
+                          </div>
+                        </Card>
+
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+                
+                {/* COLUMN 1: PORTFOLIO STRATEGIST CHAT (1/3rd) */}
+                <div className="flex flex-col gap-6">
+                  
+                  {/* Chatbot glass panel */}
+                  <div className="glass-panel flex flex-col overflow-hidden">
+                    {/* Chat header */}
+                    <div 
+                      onClick={() => togglePageSection('dash_chat')}
+                      className="px-5 py-4 border-b border-white/5 bg-white/[0.01] flex items-center justify-between cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Brain className="h-5 w-5 text-indigo-400 animate-pulse" />
+                        <span className="font-display font-semibold text-sm text-white">AI Portfolio Strategist</span>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                          {collapsedPageSections.dash_chat ? 'Extend ❯' : 'Minimize 🔽'}
+                          {collapsedPageSections.dash_chat ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </span>
+                      </div>
+                    </div>
+
+                    {!collapsedPageSections.dash_chat && (
+                      <div className="flex flex-col h-[460px]">
+                        <div className="px-5 py-3 border-b border-white/5 bg-black/20 flex items-center justify-between">
+                          {/* Mode selector */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Mode:</span>
+                            <div className="flex bg-black/40 border border-white/5 p-0.5 rounded-lg">
+                              {['BUY', 'SELL', 'BOTH'].map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => {
+                                    setChatMode(m);
+                                    localStorage.setItem('portfolio_chat_mode', m);
+                                  }}
+                                  className={`px-2 py-0.5 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                                    chatMode === m 
+                                      ? m === 'BUY'
+                                        ? 'bg-emerald-600/80 text-white shadow'
+                                        : m === 'SELL'
+                                        ? 'bg-rose-600/80 text-white shadow'
+                                        : 'bg-indigo-600/80 text-white shadow'
+                                      : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  {m}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {appConfig.hasAccessToken && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Margin:</span>
+                              <select 
+                                value={selectedMarginPercentage}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setSelectedMarginPercentage(val);
+                                  saveAppStateField({ selectedMarginPercentage: val });
+                                }}
+                                className="bg-black/35 border border-white/5 rounded-lg px-1.5 py-0.5 text-[10px] text-indigo-300 outline-none font-semibold cursor-pointer"
+                              >
+                                <option value={100}>100%</option>
+                                <option value={75}>75%</option>
+                                <option value={50}>50%</option>
+                                <option value={25}>25%</option>
+                              </select>
+                            </div>
+                          )}
                         </div>
-                        
-                        <div className="flex gap-2 items-center">
-                          <button
-                            title="Refresh (Silent Fetch)"
-                            className="px-2 py-1 rounded border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 active:bg-indigo-500/35 transition-all text-[10px] font-semibold flex items-center gap-1.5 cursor-pointer"
-                            onClick={() => handleRefreshScannerSilent(scannerObj.name)}
-                          >
-                            <RefreshCw className="h-3 w-3" />
-                          </button>
-                          <button
-                            title="Provide Top 7 to AI Agent"
-                            onClick={() => handleProvideScannerToAgent(scannerObj.name)}
-                            disabled={isChatLoading}
-                            className="px-2 py-1 rounded border border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 transition-all text-[10px] font-semibold flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Brain className="h-3 w-3" />
-                            AI
-                          </button>
+
+                        {/* Messages view */}
+                        <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 bg-gradient-to-b from-transparent to-black/20">
+                          {chatMessages.map((msg) => (
+                            <div 
+                              key={msg.id}
+                              className={`flex flex-col max-w-[85%] rounded-2xl px-4 py-3 text-sm transition-all ${
+                                msg.sender === 'user'
+                                  ? 'self-end bg-indigo-600/80 text-white rounded-tr-none shadow-md shadow-indigo-600/10'
+                                  : msg.sender === 'system'
+                                  ? 'self-start bg-rose-500/10 border border-rose-500/20 text-rose-300 font-semibold'
+                                  : 'self-start bg-white/5 border border-white/5 text-slate-200 rounded-tl-none'
+                              }`}
+                            >
+                              <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 block ${
+                                msg.sender === 'user' ? 'text-indigo-200 text-right' : msg.sender === 'system' ? 'text-rose-400' : 'text-purple-400'
+                              }`}>
+                                {msg.sender === 'user' ? 'You' : msg.sender === 'system' ? '⚠️ System' : '✦ AI Assistant'}
+                              </span>
+                              <div className="leading-relaxed whitespace-pre-line">
+                                {msg.text}
+                              </div>
+                            </div>
+                          ))}
+                          {isChatLoading && (
+                            <div className="flex flex-col max-w-[85%] self-start bg-white/5 border border-white/5 text-slate-200 rounded-2xl rounded-tl-none px-4 py-3 text-sm animate-pulse">
+                              <span className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-purple-400">
+                                ✦ AI Assistant
+                              </span>
+                              <div className="flex gap-1 py-1">
+                                <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              </div>
+                            </div>
+                          )}
+                          <div ref={chatEndRef} />
+                        </div>
+
+                        {/* Chat input form */}
+                        <div className="p-4 border-t border-white/5 bg-black/30">
+                          <form onSubmit={handleChatSubmit} className="flex gap-2.5">
+                            <input 
+                              type="text"
+                              value={chatInput}
+                              onChange={(e) => setChatInput(e.target.value)}
+                              placeholder="Ask the chatbot..."
+                              disabled={!appConfig.hasAccessToken}
+                              className="flex-1 bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500/50 text-white placeholder-slate-500 disabled:opacity-50"
+                            />
+                            <button 
+                              type="submit"
+                              disabled={!appConfig.hasAccessToken || isChatLoading || !chatInput.trim()}
+                              className="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 shadow-md shadow-indigo-600/10 flex items-center gap-1.5 cursor-pointer"
+                            >
+                              {isChatLoading ? 'Thinking...' : 'Send'}
+                            </button>
+                          </form>
                         </div>
                       </div>
-                    </Card>
-                  ))}
+                    )}
+
+                  </div>
+
                 </div>
-              )}
 
-            </div>
-
-            {/* COLUMN 3: MIS P&L EXIT CONTROLS (1/3rd) */}
-            <div className="flex flex-col gap-6">
-              
-              {/* MIS exit cutoff switch controls */}
-              <Card className="glass-panel border-0 ring-0 p-5 !overflow-visible">
-                <CardHeader className="flex flex-row items-center justify-between mb-2 p-0 space-y-0">
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="font-display font-semibold text-sm text-white">MIS P&L Exit Controls</CardTitle>
-                      {/* Tooltip for calculations */}
-                      <div className="relative group hover:z-[9999]">
-                        <Info className="h-3.5 w-3.5 text-slate-400 hover:text-slate-200 cursor-pointer animate-pulse" />
-                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block w-64 p-3 bg-slate-950/95 border border-white/10 rounded-xl text-[11px] text-slate-300 leading-normal shadow-2xl z-[9999] backdrop-blur-md">
-                          <div className="font-semibold text-white mb-1">PnL Calculations:</div>
-                          <p className="mb-1.5"><span className="text-indigo-400 font-medium">Current P&L</span>: Unrealized P&L of all active open positions based on real-time LTP versus entry price.</p>
-                          <p><span className="text-indigo-400 font-medium">Total P&L</span>: Combined unrealized P&L of open positions + realized P&L of all closed positions from today.</p>
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-950"></div>
+                {/* COLUMN 2: TOP 7 SCANNERS SECTION (1/3rd) */}
+                <div className="flex flex-col gap-6">
+                  
+                  {/* ALL SCANNERS LIST COMPACT CARDS */}
+                  {appConfig.hasAccessToken && (
+                    <div className="glass-panel p-4 flex flex-col gap-3">
+                      <div 
+                        onClick={() => togglePageSection('dash_scanners')}
+                        className="flex items-center justify-between cursor-pointer select-none border-b border-white/5 pb-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <TrendingUp className="h-4 w-4 text-indigo-400" />
+                          <h3 className="font-display font-semibold text-sm text-white">Live Technical Scanners</h3>
                         </div>
+                        <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                          {collapsedPageSections.dash_scanners ? 'Extend ❯' : 'Minimize 🔽'}
+                          {collapsedPageSections.dash_scanners ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </span>
                       </div>
+
+                      {!collapsedPageSections.dash_scanners && (
+                        <div className="flex flex-col gap-3 max-h-[460px] overflow-y-auto pr-2 custom-scrollbar">
+                          {scannersList.map((scannerObj, idx) => (
+                            <Card key={idx} className="glass-panel border-0 ring-0 p-3 !overflow-visible">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 max-w-[65%]">
+                                  <TrendingUp className="h-4 w-4 text-indigo-400 shrink-0" />
+                                  <CardTitle className="font-display font-semibold text-xs text-white truncate" title={scannerObj.name}>
+                                    {scannerObj.name}
+                                  </CardTitle>
+                                  <div className="relative group z-[100] shrink-0">
+                                    <Info className="h-3.5 w-3.5 text-slate-400 hover:text-slate-200 cursor-pointer" />
+                                    <div className="absolute bottom-full mb-2 -translate-x-1/2 left-1/2 hidden group-hover:block w-60 p-3 bg-slate-950/95 border border-white/10 rounded-xl text-[10px] text-slate-300 leading-relaxed shadow-2xl backdrop-blur-md text-center pointer-events-none whitespace-normal">
+                                      {scannerObj.description}
+                                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-950"></div>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex gap-2 items-center">
+                                  <button
+                                    title="Refresh (Silent Fetch)"
+                                    className="px-2 py-1 rounded border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 active:bg-indigo-500/35 transition-all text-[10px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                                    onClick={() => handleRefreshScannerSilent(scannerObj.name)}
+                                  >
+                                    <RefreshCw className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    title="Provide Top 7 to AI Agent"
+                                    onClick={() => handleProvideScannerToAgent(scannerObj.name)}
+                                    disabled={isChatLoading}
+                                    className="px-2 py-1 rounded border border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 transition-all text-[10px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Brain className="h-3 w-3" />
+                                    AI
+                                  </button>
+                                </div>
+                              </div>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">MIS positions auto square off at 3:24 PM.</p>
-                  </div>
-                  {isPnlFormDirty && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 animate-pulse">
-                      Unsaved
-                    </span>
                   )}
-                </CardHeader>
 
-                <CardContent className="flex flex-col gap-4 text-xs p-0 mt-4">
+                </div>
+
+                {/* COLUMN 3: MIS P&L EXIT CONTROLS (1/3rd) */}
+                <div className="flex flex-col gap-6">
                   
-                  {/* Action buttons (EXIT ALL) at the top */}
-                  <div className="flex flex-col gap-2">
-                    <Button 
-                      variant="destructive"
-                      onClick={handleExitAll}
-                      className="w-full py-2.5 rounded-xl border border-rose-500/40 bg-rose-500/20 text-rose-300 hover:bg-rose-500/35 font-semibold text-xs transition-all cursor-pointer h-auto"
+                  {/* MIS exit cutoff switch controls */}
+                  <Card className="glass-panel border-0 ring-0 p-5 !overflow-visible flex flex-col gap-3">
+                    <div 
+                      onClick={() => togglePageSection('dash_positions')}
+                      className="flex items-center justify-between cursor-pointer select-none border-b border-white/5 pb-2"
                     >
-                      EXIT ALL OPEN POSITIONS
-                    </Button>
-                    <Button 
-                      onClick={handleExitNegativePositions}
-                      className="w-full py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/20 text-amber-300 hover:bg-amber-500/35 font-semibold text-xs transition-all cursor-pointer h-auto"
-                    >
-                      EXIT NEGATIVE PNL STOCKS ONLY
-                    </Button>
-                  </div>
-
-                  {/* Exit mode selection */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Evaluation Mode</label>
-                    <Select value={pnlExitModeDraft} onValueChange={handleExitModeChange}>
-                      <SelectTrigger className="w-full bg-black/30 border-white/5 rounded-xl px-3 py-2 h-auto text-white cursor-pointer justify-between">
-                        <SelectValue placeholder="Select Evaluation Mode" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-900 border-white/10 text-white">
-                        <SelectItem value="current" className="hover:bg-indigo-600 focus:bg-indigo-600 text-slate-200 cursor-pointer">Current P&L (Open Positions Only)</SelectItem>
-                        <SelectItem value="total" className="hover:bg-indigo-600 focus:bg-indigo-600 text-slate-200 cursor-pointer">Total P&L (Open + Closed Today)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Cutoff enabled toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="checkbox"
-                        id="pnl-exit-auto-enabled"
-                        checked={pnlExitAutoEnabledDraft}
-                        onChange={(e) => handleExitAutoEnabledChange(e.target.checked)}
-                        className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
-                      />
-                      <label htmlFor="pnl-exit-auto-enabled" className="font-medium text-slate-300 cursor-pointer select-none">
-                        Auto-Exit Cutoff Switch
-                      </label>
-                    </div>
-                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${pnlExitAutoEnabledDraft ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
-                      {pnlExitAutoEnabledDraft ? 'ACTIVE' : 'OFF'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/5">
-                    <span className="font-medium text-slate-400">
-                      {pnlExitModeDraft === 'current' ? 'Current MIS P&L:' : 'Total MIS P&L:'}
-                    </span>
-                    <span className={`font-bold ${currentMisPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {currentMisPnL >= 0 ? '+' : ''}₹{formatCurrency(currentMisPnL)}
-                    </span>
-                  </div>
-
-                  {/* Quick Preset Pills */}
-                  <div className="flex flex-wrap gap-2 pb-1">
-                    {pnlPresets.map((preset, idx) => (
-                      <div key={`${preset.p}-${preset.l}-${idx}`} className="relative group flex items-center">
-                        <button
-                          onClick={() => {
-                            setProfitTargetExitDraft(String(preset.p));
-                            setLossTargetExitDraft(String(preset.l));
-                          }}
-                          className="px-2.5 py-1 text-[10px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-slate-300 transition-colors cursor-pointer"
-                        >
-                          {preset.p}/{preset.l}
-                        </button>
-                        <button
-                          onClick={() => {
-                            const updated = pnlPresets.filter((_, i) => i !== idx);
-                            setPnlPresets(updated);
-                            localStorage.setItem('pnl_exit_presets', JSON.stringify(updated));
-                          }}
-                          className="absolute -top-1.5 -right-1.5 hidden group-hover:flex items-center justify-center w-3.5 h-3.5 text-[9px] bg-rose-600 hover:bg-rose-500 text-white rounded-full transition-colors cursor-pointer border border-black/50 font-bold"
-                          title="Delete Preset"
-                        >
-                          ×
-                        </button>
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="font-display font-semibold text-sm text-white">MIS P&amp;L Exit Controls</CardTitle>
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Add Custom Preset Option */}
-                  <div className="flex items-center gap-2 mt-1 pb-2">
-                    <div className="flex items-center gap-1 bg-black/20 border border-white/5 rounded-lg p-1">
-                      <input 
-                        type="number"
-                        placeholder="Profit"
-                        value={newPresetProfit}
-                        onChange={(e) => setNewPresetProfit(e.target.value)}
-                        className="bg-transparent text-[10px] w-14 text-white focus:outline-none placeholder-slate-500 px-1 py-0.5"
-                      />
-                      <span className="text-slate-600 text-[10px] select-none">/</span>
-                      <input 
-                        type="number"
-                        placeholder="Loss"
-                        value={newPresetLoss}
-                        onChange={(e) => setNewPresetLoss(e.target.value)}
-                        className="bg-transparent text-[10px] w-14 text-white focus:outline-none placeholder-slate-500 px-1 py-0.5"
-                      />
+                      <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                        {collapsedPageSections.dash_positions ? 'Extend ❯' : 'Minimize 🔽'}
+                        {collapsedPageSections.dash_positions ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </span>
                     </div>
-                    <button
-                      onClick={() => {
-                        const p = parseFloat(newPresetProfit);
-                        const l = parseFloat(newPresetLoss);
-                        if (!isNaN(p) && !isNaN(l)) {
-                          const updated = [...pnlPresets, { p, l }];
-                          setPnlPresets(updated);
-                          localStorage.setItem('pnl_exit_presets', JSON.stringify(updated));
-                          setNewPresetProfit('');
-                          setNewPresetLoss('');
-                        }
-                      }}
-                      className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/80 hover:bg-indigo-500 text-white rounded-lg transition-colors cursor-pointer border border-white/5"
-                    >
-                      + Add Pill
-                    </button>
-                  </div>
 
-                  {/* Target thresholds */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Profit Limit (₹)</label>
-                      <input 
-                        type="number"
-                        placeholder="e.g. 10000"
-                        value={profitTargetExitDraft}
-                        onChange={(e) => setProfitTargetExitDraft(e.target.value)}
+                    {!collapsedPageSections.dash_positions && (
+                      <CardContent className="flex flex-col gap-4 text-xs p-0 mt-2">
                         
-                        className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Loss Limit (₹)</label>
-                      <input 
-                        type="number"
-                        placeholder="e.g. -2000"
-                        value={lossTargetExitDraft}
-                        onChange={(e) => setLossTargetExitDraft(e.target.value)}
-                        
-                        className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  {/* Save immediately action buttons */}
-                  <div className="flex gap-2 mt-2">
-                    <Button 
-                      onClick={() => handleSavePnLLimits()}
-                      disabled={!isPnlFormDirty}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-semibold h-auto transition-all cursor-pointer ${
-                        isPnlFormDirty 
-                          ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-900/20' 
-                          : 'bg-white/5 text-white/40 cursor-not-allowed'
-                      }`}
-                    >
-                      SET LIMITS
-                    </Button>
-                    <Button 
-                      variant="outline"
-                      onClick={() => {
-                        setProfitTargetExitDraft(profitTargetExit === 0 ? '' : String(profitTargetExit));
-                        setLossTargetExitDraft(lossTargetExit === 0 ? '' : String(lossTargetExit));
-                        setPnlExitModeDraft(pnlExitMode);
-                        setPnlExitAutoEnabledDraft(pnlExitAutoEnabled);
-                      }}
-                      disabled={!isPnlFormDirty}
-                      className="px-3 py-2.5 h-auto rounded-xl border-white/10 hover:bg-white/10 text-slate-300 transition-all cursor-pointer"
-                      title="Revert changes"
-                    >
-                      <RefreshCcw className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+                        {/* Action buttons (EXIT ALL) at the top */}
+                        <div className="flex flex-col gap-2">
+                          <Button 
+                            variant="destructive"
+                            onClick={handleExitAll}
+                            className="w-full py-2.5 rounded-xl border border-rose-500/40 bg-rose-500/20 text-rose-300 hover:bg-rose-500/35 font-semibold text-xs transition-all cursor-pointer h-auto"
+                          >
+                            EXIT ALL OPEN POSITIONS
+                          </Button>
+                          <Button 
+                            onClick={handleExitNegativePositions}
+                            className="w-full py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/20 text-amber-300 hover:bg-amber-500/35 font-semibold text-xs transition-all cursor-pointer h-auto"
+                          >
+                            EXIT NEGATIVE PNL STOCKS ONLY
+                          </Button>
+                        </div>
 
-                  
+                        {/* Exit mode selection */}
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Evaluation Mode</label>
+                          <Select value={pnlExitModeDraft} onValueChange={handleExitModeChange}>
+                            <SelectTrigger className="w-full bg-black/30 border-white/5 rounded-xl px-3 py-2 h-auto text-white cursor-pointer justify-between">
+                              <SelectValue placeholder="Select Evaluation Mode" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-white/10 text-white">
+                              <SelectItem value="current" className="hover:bg-indigo-600 focus:bg-indigo-600 text-slate-200 cursor-pointer">Current P&amp;L (Open Positions Only)</SelectItem>
+                              <SelectItem value="total" className="hover:bg-indigo-600 focus:bg-indigo-600 text-slate-200 cursor-pointer">Total P&amp;L (Open + Closed Today)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                </CardContent>
-              </Card>
+                        {/* Cutoff enabled toggle */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="checkbox"
+                              id="pnl-exit-auto-enabled"
+                              checked={pnlExitAutoEnabledDraft}
+                              onChange={(e) => handleExitAutoEnabledChange(e.target.checked)}
+                              className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
+                            />
+                            <label htmlFor="pnl-exit-auto-enabled" className="font-medium text-slate-300 cursor-pointer select-none">
+                              Auto-Exit Cutoff Switch
+                            </label>
+                          </div>
+                          <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${pnlExitAutoEnabledDraft ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                            {pnlExitAutoEnabledDraft ? 'ACTIVE' : 'OFF'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                          <span className="font-medium text-slate-400">
+                            {pnlExitModeDraft === 'current' ? 'Current MIS P&L:' : 'Total MIS P&L:'}
+                          </span>
+                          <span className={`font-bold ${currentMisPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {currentMisPnL >= 0 ? '+' : ''}₹{formatCurrency(currentMisPnL)}
+                          </span>
+                        </div>
+
+                        {/* Quick Preset Pills */}
+                        <div className="flex flex-wrap gap-2 pb-1">
+                          {pnlPresets.map((preset, idx) => (
+                            <div key={`${preset.p}-${preset.l}-${idx}`} className="relative group flex items-center">
+                              <button
+                                onClick={() => {
+                                  setProfitTargetExitDraft(String(preset.p));
+                                  setLossTargetExitDraft(String(preset.l));
+                                }}
+                                className="px-2.5 py-1 text-[10px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-slate-300 transition-colors cursor-pointer"
+                              >
+                                {preset.p}/{preset.l}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const updated = pnlPresets.filter((_, i) => i !== idx);
+                                  setPnlPresets(updated);
+                                  localStorage.setItem('pnl_exit_presets', JSON.stringify(updated));
+                                }}
+                                className="absolute -top-1.5 -right-1.5 hidden group-hover:flex items-center justify-center w-3.5 h-3.5 text-[9px] bg-rose-600 hover:bg-rose-500 text-white rounded-full transition-colors cursor-pointer border border-black/50 font-bold"
+                                title="Delete Preset"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Add Custom Preset Option */}
+                        <div className="flex items-center gap-2 mt-1 pb-2">
+                          <div className="flex items-center gap-1 bg-black/20 border border-white/5 rounded-lg p-1">
+                            <input 
+                              type="number"
+                              placeholder="Profit"
+                              value={newPresetProfit}
+                              onChange={(e) => setNewPresetProfit(e.target.value)}
+                              className="bg-transparent text-[10px] w-14 text-white focus:outline-none placeholder-slate-500 px-1 py-0.5"
+                            />
+                            <span className="text-slate-600 text-[10px] select-none">/</span>
+                            <input 
+                              type="number"
+                              placeholder="Loss"
+                              value={newPresetLoss}
+                              onChange={(e) => setNewPresetLoss(e.target.value)}
+                              className="bg-transparent text-[10px] w-14 text-white focus:outline-none placeholder-slate-500 px-1 py-0.5"
+                            />
+                          </div>
+                          <button
+                            onClick={() => {
+                              const p = parseFloat(newPresetProfit);
+                              const l = parseFloat(newPresetLoss);
+                              if (!isNaN(p) && !isNaN(l)) {
+                                const updated = [...pnlPresets, { p, l }];
+                                setPnlPresets(updated);
+                                localStorage.setItem('pnl_exit_presets', JSON.stringify(updated));
+                                setNewPresetProfit('');
+                                setNewPresetLoss('');
+                              }
+                            }}
+                            className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/80 hover:bg-indigo-500 text-white rounded-lg transition-colors cursor-pointer border border-white/5"
+                          >
+                            + Add Pill
+                          </button>
+                        </div>
+
+                        {/* Target thresholds */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Profit Limit (₹)</label>
+                            <input 
+                              type="number"
+                              placeholder="e.g. 10000"
+                              value={profitTargetExitDraft}
+                              onChange={(e) => setProfitTargetExitDraft(e.target.value)}
+                              
+                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Loss Limit (₹)</label>
+                            <input 
+                              type="number"
+                              placeholder="e.g. -2000"
+                              value={lossTargetExitDraft}
+                              onChange={(e) => setLossTargetExitDraft(e.target.value)}
+                              
+                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                        {/* Save immediately action buttons */}
+                        <div className="flex gap-2 mt-2">
+                          <Button 
+                            onClick={() => handleSavePnLLimits()}
+                            disabled={!isPnlFormDirty}
+                            className={`flex-1 py-2.5 rounded-xl text-xs font-semibold h-auto transition-all cursor-pointer ${
+                              isPnlFormDirty 
+                                ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-900/20' 
+                                : 'bg-white/5 text-white/40 cursor-not-allowed'
+                            }`}
+                          >
+                            SET LIMITS
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            onClick={() => {
+                              setProfitTargetExitDraft(profitTargetExit === 0 ? '' : String(profitTargetExit));
+                              setLossTargetExitDraft(lossTargetExit === 0 ? '' : String(lossTargetExit));
+                              setPnlExitModeDraft(pnlExitMode);
+                              setPnlExitAutoEnabledDraft(pnlExitAutoEnabled);
+                            }}
+                            disabled={!isPnlFormDirty}
+                            className="px-3 py-2.5 h-auto rounded-xl border-white/10 hover:bg-white/10 text-slate-300 transition-all cursor-pointer"
+                            title="Revert changes"
+                          >
+                            <RefreshCcw className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+
+                      </CardContent>
+                    )}
+                  </Card>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
       )}
 
       {/* ========================================================================= */}
@@ -5787,7 +6015,10 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         {view === 'monitoring' && (
           <div className="flex flex-col gap-6">
             <div className="glass-panel p-6 border-slate-800 bg-[#0f1524]/40 backdrop-blur-md rounded-xl">
-              <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-6 flex-wrap gap-4">
+              <div 
+                onClick={() => togglePageSection('mon_telemetry')}
+                className="flex items-center justify-between border-b border-white/5 pb-4 mb-4 flex-wrap gap-4 cursor-pointer select-none"
+              >
                 <div>
                   <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                     <Activity className="h-5 w-5 text-rose-400" />
@@ -5797,88 +6028,99 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     Real-time metrics, logs aggregation, and monitoring infrastructure dashboard.
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <a 
-                    href={getMonitoringUrl(3000, "/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark")} 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Globe className="h-3.5 w-3.5" />
-                    Open Grafana
-                  </a>
-                  <a 
-                    href={getMonitoringUrl(9090)} 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Server className="h-3.5 w-3.5" />
-                    Open Prometheus
-                  </a>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Scrapers Status</span>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>Express Backend (/metrics)</span>
-                      <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>VectorBT FastAPI (/metrics)</span>
-                      <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Logs & Loki</span>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>Loki Ingest Host</span>
-                      <span className="bg-indigo-500/20 text-indigo-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Running</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>Promtail Container Agent</span>
-                      <span className="bg-indigo-500/20 text-indigo-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Alerts Manager</span>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>Alertmanager (Port 9093)</span>
-                      <span className="bg-amber-500/20 text-amber-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Online</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>Alert Routing Rules</span>
-                      <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Loaded</span>
-                    </div>
-                  </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                    {collapsedPageSections.mon_telemetry ? 'Extend ❯' : 'Minimize 🔽'}
+                    {collapsedPageSections.mon_telemetry ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </span>
                 </div>
               </div>
 
-              {/* Embedding the live Grafana dashboard */}
-              <div className="border border-white/5 rounded-xl overflow-hidden h-[450px] bg-[#070b13] flex flex-col items-center justify-center text-center p-6 text-slate-400 relative">
-                <iframe 
-                  src={getMonitoringUrl(3000, "/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark&kiosk")} 
-                  width="100%" 
-                  height="100%" 
-                  frameBorder="0"
-                  title="Grafana Dashboard Live Feed"
-                  className="absolute inset-0 z-10"
-                />
-                <div className="flex flex-col items-center gap-2">
-                  <Sliders className="h-8 w-8 text-slate-600 animate-pulse" />
-                  <span className="text-xs">Connecting to Grafana Live Feed...</span>
-                  <span className="text-[10px] text-slate-500 mt-1 max-w-sm">Ensure your Docker compose monitoring stack is started (`docker-compose up -d`) to load this panel.</span>
+              {!collapsedPageSections.mon_telemetry && (
+                <div className="flex flex-col gap-6">
+                  <div className="flex gap-2 justify-end">
+                    <a 
+                      href={getMonitoringUrl(3000, "/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark")} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      Open Grafana
+                    </a>
+                    <a 
+                      href={getMonitoringUrl(9090)} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Server className="h-3.5 w-3.5" />
+                      Open Prometheus
+                    </a>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Scrapers Status</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-xs text-slate-300">
+                          <span>Express Backend (/metrics)</span>
+                          <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-300">
+                          <span>VectorBT FastAPI (/metrics)</span>
+                          <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Logs & Loki</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-xs text-slate-300">
+                          <span>Loki Ingest Host</span>
+                          <span className="bg-indigo-500/20 text-indigo-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Running</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-300">
+                          <span>Promtail Container Agent</span>
+                          <span className="bg-indigo-500/20 text-indigo-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Active</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#0b0f19] border border-white/5 p-4 rounded-xl">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-3">Alerts Manager</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-xs text-slate-300">
+                          <span>Alertmanager (Port 9093)</span>
+                          <span className="bg-amber-500/20 text-amber-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Online</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-300">
+                          <span>Alert Routing Rules</span>
+                          <span className="bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded text-[10px] uppercase">Loaded</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Embedding the live Grafana dashboard */}
+                  <div className="border border-white/5 rounded-xl overflow-hidden h-[450px] bg-[#070b13] flex flex-col items-center justify-center text-center p-6 text-slate-400 relative">
+                    <iframe 
+                      src={getMonitoringUrl(3000, "/d/signal-generator-metrics/signal-generator-telemetry?orgId=1&refresh=5s&theme=dark&kiosk")} 
+                      width="100%" 
+                      height="100%" 
+                      frameBorder="0"
+                      title="Grafana Dashboard Live Feed"
+                      className="absolute inset-0 z-10"
+                    />
+                    <div className="flex flex-col items-center gap-2">
+                      <Sliders className="h-8 w-8 text-slate-600 animate-pulse" />
+                      <span className="text-xs">Connecting to Grafana Live Feed...</span>
+                      <span className="text-[10px] text-slate-500 mt-1 max-w-sm">Ensure your Docker compose monitoring stack is started (`docker-compose up -d`) to load this panel.</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -5892,7 +6134,10 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             {/* SEBI & ZERODHA REGULATORY BULLETIN: CLOSING AUCTION SESSION (CAS) & EXTENDED F&O TIMINGS (EFFECTIVE AUG 3, 2026) */}
             <div className="glass-panel p-6 border-amber-500/30 bg-amber-950/20 backdrop-blur-xl rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
               {/* Header Badge */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-amber-500/20 pb-4">
+              <div 
+                onClick={() => togglePageSection('admin_rules')}
+                className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-amber-500/20 pb-4 cursor-pointer select-none"
+              >
                 <div className="flex items-center gap-3">
                   <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
                     <AlertTriangle className="h-6 w-6 animate-pulse" />
@@ -5910,102 +6155,112 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950 border border-amber-500/20 text-xs font-mono text-amber-300 flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-amber-400" />
-                  <span>F&amp;O Market Close: <strong className="text-emerald-400 font-bold">3:40 PM IST</strong></span>
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-xl bg-slate-950 border border-amber-500/20 text-xs font-mono text-amber-300 flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-amber-400" />
+                    <span>F&amp;O Market Close: <strong className="text-emerald-400 font-bold">3:40 PM IST</strong></span>
+                  </div>
+                  <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                    {collapsedPageSections.admin_rules ? 'Extend ❯' : 'Minimize 🔽'}
+                    {collapsedPageSections.admin_rules ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </span>
                 </div>
               </div>
 
-              {/* Timetable Comparison Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
-                {/* Category I: F&O Listed Stocks */}
-                <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                    <span className="font-bold text-amber-300 flex items-center gap-1.5">
-                      <Layers className="h-4 w-4 text-amber-400" />
-                      F&amp;O Listed Stocks (Category I)
-                    </span>
-                    <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">CAS Applicable</span>
-                  </div>
-                  <ul className="space-y-2 text-slate-300 text-[11px]">
-                    <li className="flex justify-between"><span>Continuous Trading Halt:</span> <strong className="text-rose-400">3:15 PM</strong></li>
-                    <li className="flex justify-between"><span>CAS Auction Window:</span> <strong className="text-indigo-400">3:15 PM - 3:35 PM</strong></li>
-                    <li className="flex justify-between"><span>Equilibrium Close:</span> <strong className="text-emerald-400">3:35 PM</strong></li>
-                    <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:10 PM</strong></li>
-                    <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Price Band: ±3% of 3:00 - 3:15 PM VWAP Reference Price.</li>
-                  </ul>
-                </div>
+              {!collapsedPageSections.admin_rules && (
+                <div className="flex flex-col gap-6">
+                  {/* Timetable Comparison Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+                    {/* Category I: F&O Listed Stocks */}
+                    <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                          <Layers className="h-4 w-4 text-amber-400" />
+                          F&amp;O Listed Stocks (Category I)
+                        </span>
+                        <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">CAS Applicable</span>
+                      </div>
+                      <ul className="space-y-2 text-slate-300 text-[11px]">
+                        <li className="flex justify-between"><span>Continuous Trading Halt:</span> <strong className="text-rose-400">3:15 PM</strong></li>
+                        <li className="flex justify-between"><span>CAS Auction Window:</span> <strong className="text-indigo-400">3:15 PM - 3:35 PM</strong></li>
+                        <li className="flex justify-between"><span>Equilibrium Close:</span> <strong className="text-emerald-400">3:35 PM</strong></li>
+                        <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:10 PM</strong></li>
+                        <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Price Band: ±3% of 3:00 - 3:15 PM VWAP Reference Price.</li>
+                      </ul>
+                    </div>
 
-                {/* Category II: Non-F&O Stocks */}
-                <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                    <span className="font-bold text-slate-200 flex items-center gap-1.5">
-                      <Sliders className="h-4 w-4 text-indigo-400" />
-                      All Other Stocks (Category II)
-                    </span>
-                    <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">No CAS</span>
-                  </div>
-                  <ul className="space-y-2 text-slate-300 text-[11px]">
-                    <li className="flex justify-between"><span>Continuous Trading Close:</span> <strong className="text-emerald-400">3:30 PM</strong></li>
-                    <li className="flex justify-between"><span>Closing Price Method:</span> <strong className="text-slate-300">15-Min VWAP</strong></li>
-                    <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:25 PM</strong></li>
-                    <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Regular continuous trading runs till 3:30 PM as usual.</li>
-                  </ul>
-                </div>
+                    {/* Category II: Non-F&O Stocks */}
+                    <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                          <Sliders className="h-4 w-4 text-indigo-400" />
+                          All Other Stocks (Category II)
+                        </span>
+                        <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">No CAS</span>
+                      </div>
+                      <ul className="space-y-2 text-slate-300 text-[11px]">
+                        <li className="flex justify-between"><span>Continuous Trading Close:</span> <strong className="text-emerald-400">3:30 PM</strong></li>
+                        <li className="flex justify-between"><span>Closing Price Method:</span> <strong className="text-slate-300">15-Min VWAP</strong></li>
+                        <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:25 PM</strong></li>
+                        <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Regular continuous trading runs till 3:30 PM as usual.</li>
+                      </ul>
+                    </div>
 
-                {/* Derivatives: Index & Stock F&O */}
-                <div className="p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/20 space-y-3">
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                    <span className="font-bold text-emerald-300 flex items-center gap-1.5">
-                      <Zap className="h-4 w-4 text-emerald-400" />
-                      Index &amp; Stock F&amp;O Contracts
-                    </span>
-                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">Extended Hours</span>
+                    {/* Derivatives: Index & Stock F&O */}
+                    <div className="p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/20 space-y-3">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <span className="font-bold text-emerald-300 flex items-center gap-1.5">
+                          <Zap className="h-4 w-4 text-emerald-400" />
+                          Index &amp; Stock F&amp;O Contracts
+                        </span>
+                        <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">Extended Hours</span>
+                      </div>
+                      <ul className="space-y-2 text-slate-300 text-[11px]">
+                        <li className="flex justify-between"><span>Continuous Trading Close:</span> <strong className="text-emerald-300 font-bold">3:40 PM (+10m)</strong></li>
+                        <li className="flex justify-between"><span>Expiry Settlement:</span> <strong className="text-indigo-300">CAS Stock Close</strong></li>
+                        <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:25 PM</strong></li>
+                        <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Futures &amp; Options trade continuously until 3:40 PM IST.</li>
+                      </ul>
+                    </div>
                   </div>
-                  <ul className="space-y-2 text-slate-300 text-[11px]">
-                    <li className="flex justify-between"><span>Continuous Trading Close:</span> <strong className="text-emerald-300 font-bold">3:40 PM (+10m)</strong></li>
-                    <li className="flex justify-between"><span>Expiry Settlement:</span> <strong className="text-indigo-300">CAS Stock Close</strong></li>
-                    <li className="flex justify-between"><span>MIS Auto Square-Off:</span> <strong className="text-amber-400 font-bold">3:25 PM</strong></li>
-                    <li className="text-[10px] text-slate-400 pt-1 border-t border-white/5">Futures &amp; Options trade continuously until 3:40 PM IST.</li>
-                  </ul>
-                </div>
-              </div>
 
-              {/* 5-Stage CAS Timeline Workflow */}
-              <div className="space-y-3 pt-2 border-t border-white/10">
-                <h4 className="text-xs font-bold text-white font-display uppercase tracking-wider flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-amber-400" />
-                  Closing Auction Session (CAS) 5-Stage Timetable Workflow
-                </h4>
+                  {/* 5-Stage CAS Timeline Workflow */}
+                  <div className="space-y-3 pt-2 border-t border-white/10">
+                    <h4 className="text-xs font-bold text-white font-display uppercase tracking-wider flex items-center gap-2">
+                      <Activity className="h-4 w-4 text-amber-400" />
+                      Closing Auction Session (CAS) 5-Stage Timetable Workflow
+                    </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 font-mono text-xs">
-                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
-                    <span className="text-[10px] text-amber-400 font-bold block">1. 3:00 - 3:15 PM</span>
-                    <span className="text-[11px] text-white font-bold block">VWAP Reference</span>
-                    <span className="text-[10px] text-slate-400 block">15-min VWAP calculates indicative Reference Price.</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
-                    <span className="text-[10px] text-indigo-400 font-bold block">2. 3:15 - 3:20 PM</span>
-                    <span className="text-[11px] text-white font-bold block">Transition &amp; Band</span>
-                    <span className="text-[10px] text-slate-400 block">CTS stops. ±3% price band applied. SL &amp; Icebergs cancelled.</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
-                    <span className="text-[10px] text-emerald-400 font-bold block">3. 3:20 - 3:25 PM</span>
-                    <span className="text-[11px] text-white font-bold block">Order Entry I</span>
-                    <span className="text-[10px] text-slate-400 block">Market + Limit orders entered. Indicative price broadcast.</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
-                    <span className="text-[10px] text-purple-400 font-bold block">4. 3:25 - 3:30 PM</span>
-                    <span className="text-[11px] text-white font-bold block">Order Entry II</span>
-                    <span className="text-[10px] text-slate-400 block">Limit orders only. Random close between 3:28 - 3:30 PM.</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/30 space-y-1">
-                    <span className="text-[10px] text-emerald-300 font-bold block">5. 3:30 - 3:35 PM</span>
-                    <span className="text-[11px] text-white font-bold block">Equilibrium Close</span>
-                    <span className="text-[10px] text-slate-400 block">Order matching algorithm executes official closing price.</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 font-mono text-xs">
+                      <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                        <span className="text-[10px] text-amber-400 font-bold block">1. 3:00 - 3:15 PM</span>
+                        <span className="text-[11px] text-white font-bold block">VWAP Reference</span>
+                        <span className="text-[10px] text-slate-400 block">15-min VWAP calculates indicative Reference Price.</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                        <span className="text-[10px] text-indigo-400 font-bold block">2. 3:15 - 3:20 PM</span>
+                        <span className="text-[11px] text-white font-bold block">Transition &amp; Band</span>
+                        <span className="text-[10px] text-slate-400 block">CTS stops. ±3% price band applied. SL &amp; Icebergs cancelled.</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                        <span className="text-[10px] text-emerald-400 font-bold block">3. 3:20 - 3:25 PM</span>
+                        <span className="text-[11px] text-white font-bold block">Order Entry I</span>
+                        <span className="text-[10px] text-slate-400 block">Market + Limit orders entered. Indicative price broadcast.</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                        <span className="text-[10px] text-purple-400 font-bold block">4. 3:25 - 3:30 PM</span>
+                        <span className="text-[11px] text-white font-bold block">Order Entry II</span>
+                        <span className="text-[10px] text-slate-400 block">Limit orders only. Random close between 3:28 - 3:30 PM.</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/30 space-y-1">
+                        <span className="text-[10px] text-emerald-300 font-bold block">5. 3:30 - 3:35 PM</span>
+                        <span className="text-[11px] text-white font-bold block">Equilibrium Close</span>
+                        <span className="text-[10px] text-slate-400 block">Order matching algorithm executes official closing price.</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* LOGGED IN SESSIONS & LOCATIONS TRACKER CARD */}
@@ -7352,44 +7607,60 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
       {/* ========================================================================= */}
       {view === 'fno' && (
         <div className="flex flex-col gap-6 w-full text-slate-200 animate-in fade-in duration-200">
-          {/* Header Card */}
-          <div className="glass-panel p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-purple-500/10 bg-purple-950/5">
-            <div>
-              <h2 className="text-lg font-display font-bold text-white flex items-center gap-2">
-                <Flame className="h-5 w-5 text-purple-400 animate-pulse" />
-                F&O Derivatives & Scanners Dashboard
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Scan underlying derivatives, track Open Interest structures, and deploy AI-executed option strategies with single-click actions.
-              </p>
+          {/* Header Card (MINIMIZABLE & EXTENDABLE) */}
+          <div className="glass-panel p-5 flex flex-col gap-4 border-purple-500/10 bg-purple-950/5">
+            <div 
+              onClick={() => togglePageSection('fno_overview')}
+              className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer select-none border-b border-white/5 pb-3"
+            >
+              <div>
+                <h2 className="text-lg font-display font-bold text-white flex items-center gap-2">
+                  <Flame className="h-5 w-5 text-purple-400 animate-pulse" />
+                  F&amp;O Derivatives &amp; Scanners Dashboard
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Scan underlying derivatives, track Open Interest structures, and deploy AI-executed option strategies with single-click actions.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                  {collapsedPageSections.fno_overview ? 'Extend ❯' : 'Minimize 🔽'}
+                  {collapsedPageSections.fno_overview ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Button 
-                onClick={async () => {
-                  setToastNotification('Running DB cleanup & loading data...');
-                  try {
-                    const resClean = await fetch('/api/db/cleanup', { method: 'POST' });
-                    const dataClean = await resClean.json();
-                    const resSync = await fetch('/api/db/sync-complete', { method: 'POST' });
-                    const dataSync = await resSync.json();
-                    setToastNotification(`DB Cleaned & Synced! Loaded ${dataSync.totalInstrumentsCount} instruments & ${dataSync.totalHistoricalCandlesCount} candles.`);
-                  } catch (err) {
-                    setToastNotification(`DB sync error: ${err.message}`);
-                  }
-                }}
-                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className="h-3.5 w-3.5 text-purple-400" />
-                Clean & Sync DB 🧹
-              </Button>
-              <Button 
-                onClick={() => window.open('/?view=fno-matrix', '_blank')}
-                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-purple-600/10 flex items-center gap-1.5 cursor-pointer"
-              >
-                <Sliders className="h-3.5 w-3.5" />
-                Launch F&O Matrix ↗
-              </Button>
-            </div>
+
+            {!collapsedPageSections.fno_overview && (
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pt-1">
+                <div className="flex items-center gap-3">
+                  <Button 
+                    onClick={async () => {
+                      setToastNotification('Running DB cleanup & loading data...');
+                      try {
+                        const resClean = await fetch('/api/db/cleanup', { method: 'POST' });
+                        const dataClean = await resClean.json();
+                        const resSync = await fetch('/api/db/sync-complete', { method: 'POST' });
+                        const dataSync = await resSync.json();
+                        setToastNotification(`DB Cleaned & Synced! Loaded ${dataSync.totalInstrumentsCount} instruments & ${dataSync.totalHistoricalCandlesCount} candles.`);
+                      } catch (err) {
+                        setToastNotification(`DB sync error: ${err.message}`);
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 text-purple-400" />
+                    Clean &amp; Sync DB 🧹
+                  </Button>
+                  <Button 
+                    onClick={() => window.open('/?view=fno-matrix', '_blank')}
+                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-purple-600/10 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Sliders className="h-3.5 w-3.5" />
+                    Launch F&amp;O Matrix ↗
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Controls Panel: Dropdowns & Live Search Bar */}
@@ -7988,71 +8259,84 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         {view === 'optionchain' && (
           <div className="flex flex-col gap-6 w-full text-slate-200">
             {/* Header & Controls Panel */}
-            <div className="glass-panel p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border border-white/10 rounded-2xl bg-[#111827]/80 backdrop-blur-md shadow-xl">
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                    <Layers className="h-5 w-5" />
+            <div className="glass-panel p-5 flex flex-col gap-4 border border-white/10 rounded-2xl bg-[#111827]/80 backdrop-blur-md shadow-xl">
+              <div 
+                onClick={() => togglePageSection('opt_controls')}
+                className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer select-none border-b border-white/5 pb-3"
+              >
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                      <Layers className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-display font-bold text-white tracking-tight flex items-center gap-2">
+                        Option Chain Studio
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono font-normal uppercase tracking-wider">
+                          Live Analytics
+                        </span>
+                      </h2>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Real-time Option Matrix, Call/Put Open Interest distribution, PCR sentiment, and Max Pain metrics.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-xl font-display font-bold text-white tracking-tight flex items-center gap-2">
-                      Option Chain Studio
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono font-normal uppercase tracking-wider">
-                        Live Analytics
-                      </span>
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Real-time Option Matrix, Call/Put Open Interest distribution, PCR sentiment, and Max Pain metrics.
-                    </p>
-                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                    {collapsedPageSections.opt_controls ? 'Extend ❯' : 'Minimize 🔽'}
+                    {collapsedPageSections.opt_controls ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </span>
                 </div>
               </div>
 
-              {/* Controls */}
-              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                {/* Expiry Selector */}
-                <select
-                  value={optChainState.expiry}
-                  onChange={(e) => {
-                    const newExp = e.target.value;
-                    setOptChainState(prev => ({ ...prev, expiry: newExp }));
-                    fetchDedicatedOptionChain(optChainState.symbol, newExp);
-                  }}
-                  className="bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none focus:border-emerald-500 cursor-pointer"
-                >
-                  {(optChainState.data?.expiries || getFrontendDynamicExpiries(optChainState.symbol)).map(exp => (
-                    <option key={exp.date} value={exp.date}>{exp.label || exp.date}</option>
-                  ))}
-                </select>
+              {!collapsedPageSections.opt_controls && (
+                <div className="flex flex-wrap items-center gap-3 w-full justify-between pt-1">
+                  {/* Expiry Selector */}
+                  <select
+                    value={optChainState.expiry}
+                    onChange={(e) => {
+                      const newExp = e.target.value;
+                      setOptChainState(prev => ({ ...prev, expiry: newExp }));
+                      fetchDedicatedOptionChain(optChainState.symbol, newExp);
+                    }}
+                    className="bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    {(optChainState.data?.expiries || getFrontendDynamicExpiries(optChainState.symbol)).map(exp => (
+                      <option key={exp.date} value={exp.date}>{exp.label || exp.date}</option>
+                    ))}
+                  </select>
 
-                {/* Auto Refresh Toggle */}
-                <button
-                  onClick={() => setOptChainState(prev => ({ ...prev, autoRefresh: !prev.autoRefresh }))}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                    optChainState.autoRefresh
-                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                      : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <RefreshCcw className={`h-3.5 w-3.5 ${optChainState.autoRefresh ? 'animate-spin text-emerald-400' : ''}`} />
-                  {optChainState.autoRefresh ? 'Auto 10s On' : 'Auto Refresh'}
-                </button>
+                  {/* Auto Refresh Toggle */}
+                  <button
+                    onClick={() => setOptChainState(prev => ({ ...prev, autoRefresh: !prev.autoRefresh }))}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                      optChainState.autoRefresh
+                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <RefreshCcw className={`h-3.5 w-3.5 ${optChainState.autoRefresh ? 'animate-spin text-emerald-400' : ''}`} />
+                    {optChainState.autoRefresh ? 'Auto 10s On' : 'Auto Refresh'}
+                  </button>
 
-                {/* Manual Refresh Button */}
-                <button
-                  onClick={() => fetchDedicatedOptionChain(optChainState.symbol, optChainState.expiry)}
-                  disabled={optChainState.loading}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${optChainState.loading ? 'animate-spin' : ''}`} />
-                  Refresh
-                </button>
-              </div>
+                  {/* Manual Refresh Button */}
+                  <button
+                    onClick={() => fetchDedicatedOptionChain(optChainState.symbol, optChainState.expiry)}
+                    disabled={optChainState.loading}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${optChainState.loading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Quick Symbol Preset Selector Pills */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Indices & F&O:</span>
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Indices &amp; F&amp;O:</span>
               {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'RELIANCE', 'TCS', 'HDFCBANK', 'INFY'].map(sym => (
                 <button
                   key={sym}
@@ -8073,7 +8357,10 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
             {/* 3 Key Trading Strategies Selector */}
             <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-[#0f172a]/90 shadow-xl space-y-4">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 border-b border-white/10 pb-3">
+              <div 
+                onClick={() => togglePageSection('opt_matrix')}
+                className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 border-b border-white/10 pb-3 cursor-pointer select-none"
+              >
                 <div>
                   <h3 className="text-base font-display font-bold text-white flex items-center gap-2">
                     <Zap className="h-4 w-4 text-amber-400" />
@@ -8083,14 +8370,15 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     Select a strategy to view rules, target deltas, and execute automated GTT orders.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-lg border ${
-                    isTestMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                  }`}>
-                    {isTestMode ? 'GTT Test Mode Active' : 'Live Order Mode Active'}
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                    {collapsedPageSections.opt_matrix ? 'Extend ❯' : 'Minimize 🔽'}
+                    {collapsedPageSections.opt_matrix ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </span>
                 </div>
               </div>
+
+              {!collapsedPageSections.opt_matrix && (
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {/* Strategy 1: AI Intraday Options Buying (Featured) */}
@@ -8125,7 +8413,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         onClick={(e) => e.stopPropagation()}
                         className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-amber-300 font-bold focus:outline-none cursor-pointer"
                       >
-                        <option value="Top Gainers & Increasing OI">Top Gainers & OI (Call Buy)</option>
+                        <option value="Top Gainers & Increasing OI">Top Gainers &amp; OI (Call Buy)</option>
                         <option value="Futures Long Buildup">Long Buildup (Call Buy)</option>
                         <option value="Short Covering Rally">Short Covering (Call Buy)</option>
                         <option value="Unusual Volume Activity">Volume Surge (Breakout)</option>
@@ -8284,7 +8572,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </button>
                 </div>
               </div>
-            </div>
+            )}
+          </div>
 
             {/* AI Intraday Options Signals Panel */}
             {aiIntradaySignals.length > 0 && (
@@ -8508,138 +8797,151 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
             {/* Main Option Chain Matrix Table */}
             <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-slate-900/80 shadow-xl overflow-hidden">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-display font-bold text-white flex items-center gap-2">
-                  Option Matrix: {optChainState.symbol} ({optChainState.expiry})
-                </h3>
-                <span className="text-xs text-slate-400 font-mono">
-                  {optChainState.loading ? 'Updating live chain...' : `Showing ${optChainState.data?.strikes?.length || 0} strikes around ATM`}
+              <div 
+                onClick={() => togglePageSection('opt_payoff')}
+                className="flex items-center justify-between cursor-pointer select-none border-b border-white/5 pb-3 mb-4"
+              >
+                <div>
+                  <h3 className="text-sm font-display font-bold text-white flex items-center gap-2">
+                    Option Matrix: {optChainState.symbol} ({optChainState.expiry})
+                  </h3>
+                  <span className="text-xs text-slate-400 font-mono">
+                    {optChainState.loading ? 'Updating live chain...' : `Showing ${optChainState.data?.strikes?.length || 0} strikes around ATM`}
+                  </span>
+                </div>
+                <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                  {collapsedPageSections.opt_payoff ? 'Extend ❯' : 'Minimize 🔽'}
+                  {collapsedPageSections.opt_payoff ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </span>
               </div>
 
-              {optChainState.loading && !optChainState.data ? (
-                <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-3">
-                  <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
-                  <span className="text-xs font-semibold">Loading Live Option Chain Matrix...</span>
-                </div>
-              ) : optChainState.data ? (
-                <div className="overflow-x-auto border border-white/5 rounded-xl">
-                  <Table className="w-full text-xs border-collapse">
-                    <TableHeader className="bg-slate-950/90">
-                      <TableRow className="border-b border-white/10 hover:bg-transparent">
-                        {/* Call Headers */}
-                        <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-center bg-indigo-950/30 py-3">CE IV (%)</TableHead>
-                        <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-right bg-indigo-950/30">CE OI</TableHead>
-                        <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-right bg-indigo-950/30">CE Chg</TableHead>
-                        <TableHead className="text-[10px] uppercase font-bold text-indigo-300 text-right bg-indigo-950/50 font-mono">CE LTP (₹)</TableHead>
-                        
-                        {/* Strike Header */}
-                        <TableHead className="text-[11px] uppercase font-extrabold text-purple-300 text-center bg-purple-950/60 border-x border-purple-500/30 py-3">STRIKE</TableHead>
-                        
-                        {/* Put Headers */}
-                        <TableHead className="text-[10px] uppercase font-bold text-rose-300 text-left bg-rose-950/50 font-mono">PE LTP (₹)</TableHead>
-                        <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-left bg-rose-950/30">PE Chg</TableHead>
-                        <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-left bg-rose-950/30">PE OI</TableHead>
-                        <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-center bg-rose-950/30">PE IV (%)</TableHead>
-                        <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center bg-slate-950">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-
-                    <TableBody>
-                      {optChainState.data.strikes.map((st) => {
-                        const spot = optChainState.data.spotPrice;
-                        const isCeItm = st.strike < spot;
-                        const isPeItm = st.strike > spot;
-
-                        return (
-                          <TableRow 
-                            key={st.strike} 
-                            className={`border-b border-white/5 transition-colors ${
-                              st.isAtm 
-                                ? 'bg-purple-950/40 border-y border-purple-500/50 font-bold' 
-                                : 'hover:bg-white/[0.03]'
-                            }`}
-                          >
-                            {/* CE IV */}
-                            <TableCell className={`text-center font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20 text-emerald-300' : 'text-slate-400'}`}>
-                              {st.ce.iv}%
-                            </TableCell>
-
-                            {/* CE OI */}
-                            <TableCell className={`text-right font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20 text-slate-200' : 'text-slate-300'}`}>
-                              {st.ce.oi.toLocaleString()}
-                            </TableCell>
-
-                            {/* CE Chg */}
-                            <TableCell className={`text-right font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20' : ''} ${st.ce.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {st.ce.change >= 0 ? '+' : ''}{st.ce.change}%
-                            </TableCell>
-
-                            {/* CE LTP */}
-                            <TableCell className={`text-right font-mono font-bold text-xs ${isCeItm ? 'bg-emerald-950/40 text-emerald-300' : 'text-white'}`}>
-                              ₹{st.ce.ltp.toFixed(2)}
-                            </TableCell>
-
-                            {/* Strike Price */}
-                            <TableCell className={`text-center font-mono font-bold text-xs py-2 border-x ${
-                              st.isAtm 
-                                ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-500/30' 
-                                : 'bg-slate-950/80 text-slate-100 border-white/10'
-                            }`}>
-                              <div className="flex items-center justify-center gap-1">
-                                <span>{st.strike}</span>
-                                {st.isAtm && (
-                                  <span className="text-[9px] px-1 bg-white/20 text-white rounded font-sans font-bold">ATM</span>
-                                )}
-                              </div>
-                            </TableCell>
-
-                            {/* PE LTP */}
-                            <TableCell className={`text-left font-mono font-bold text-xs ${isPeItm ? 'bg-emerald-950/40 text-emerald-300' : 'text-white'}`}>
-                              ₹{st.pe.ltp.toFixed(2)}
-                            </TableCell>
-
-                            {/* PE Chg */}
-                            <TableCell className={`text-left font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20' : ''} ${st.pe.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {st.pe.change >= 0 ? '+' : ''}{st.pe.change}%
-                            </TableCell>
-
-                            {/* PE OI */}
-                            <TableCell className={`text-left font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20 text-slate-200' : 'text-slate-300'}`}>
-                              {st.pe.oi.toLocaleString()}
-                            </TableCell>
-
-                            {/* PE IV */}
-                            <TableCell className={`text-center font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20 text-emerald-300' : 'text-slate-400'}`}>
-                              {st.pe.iv}%
-                            </TableCell>
-
-                            {/* Actions */}
-                            <TableCell className="text-center py-1">
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  onClick={() => showAlert(`Selected ${st.ce.symbol} at ₹${st.ce.ltp}`, 'Option Order')}
-                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600/80 hover:bg-indigo-500 text-white cursor-pointer"
-                                >
-                                  CE
-                                </button>
-                                <button
-                                  onClick={() => showAlert(`Selected ${st.pe.symbol} at ₹${st.pe.ltp}`, 'Option Order')}
-                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600/80 hover:bg-rose-500 text-white cursor-pointer"
-                                >
-                                  PE
-                                </button>
-                              </div>
-                            </TableCell>
+              {!collapsedPageSections.opt_payoff && (
+                <div>
+                  {optChainState.loading && !optChainState.data ? (
+                    <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-3">
+                      <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
+                      <span className="text-xs font-semibold">Loading Live Option Chain Matrix...</span>
+                    </div>
+                  ) : optChainState.data ? (
+                    <div className="overflow-x-auto border border-white/5 rounded-xl">
+                      <Table className="w-full text-xs border-collapse">
+                        <TableHeader className="bg-slate-950/90">
+                          <TableRow className="border-b border-white/10 hover:bg-transparent">
+                            {/* Call Headers */}
+                            <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-center bg-indigo-950/30 py-3">CE IV (%)</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-right bg-indigo-950/30">CE OI</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-indigo-400 text-right bg-indigo-950/30">CE Chg</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-indigo-300 text-right bg-indigo-950/50 font-mono">CE LTP (₹)</TableHead>
+                            
+                            {/* Strike Header */}
+                            <TableHead className="text-[11px] uppercase font-extrabold text-purple-300 text-center bg-purple-950/60 border-x border-purple-500/30 py-3">STRIKE</TableHead>
+                            
+                            {/* Put Headers */}
+                            <TableHead className="text-[10px] uppercase font-bold text-rose-300 text-left bg-rose-950/50 font-mono">PE LTP (₹)</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-left bg-rose-950/30">PE Chg</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-left bg-rose-950/30">PE OI</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-rose-400 text-center bg-rose-950/30">PE IV (%)</TableHead>
+                            <TableHead className="text-[10px] uppercase font-bold text-slate-400 text-center bg-slate-950">Action</TableHead>
                           </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="py-12 text-center text-xs text-slate-500">
-                  Failed to load option chain data.
+                        </TableHeader>
+
+                        <TableBody>
+                          {optChainState.data.strikes.map((st) => {
+                            const spot = optChainState.data.spotPrice;
+                            const isCeItm = st.strike < spot;
+                            const isPeItm = st.strike > spot;
+
+                            return (
+                              <TableRow 
+                                key={st.strike} 
+                                className={`border-b border-white/5 transition-colors ${
+                                  st.isAtm 
+                                    ? 'bg-purple-950/40 border-y border-purple-500/50 font-bold' 
+                                    : 'hover:bg-white/[0.03]'
+                                }`}
+                              >
+                                {/* CE IV */}
+                                <TableCell className={`text-center font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20 text-emerald-300' : 'text-slate-400'}`}>
+                                  {st.ce.iv}%
+                                </TableCell>
+
+                                {/* CE OI */}
+                                <TableCell className={`text-right font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20 text-slate-200' : 'text-slate-300'}`}>
+                                  {st.ce.oi.toLocaleString()}
+                                </TableCell>
+
+                                {/* CE Chg */}
+                                <TableCell className={`text-right font-mono text-[11px] ${isCeItm ? 'bg-emerald-950/20' : ''} ${st.ce.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {st.ce.change >= 0 ? '+' : ''}{st.ce.change}%
+                                </TableCell>
+
+                                {/* CE LTP */}
+                                <TableCell className={`text-right font-mono font-bold text-xs ${isCeItm ? 'bg-emerald-950/40 text-emerald-300' : 'text-white'}`}>
+                                  ₹{st.ce.ltp.toFixed(2)}
+                                </TableCell>
+
+                                {/* Strike Price */}
+                                <TableCell className={`text-center font-mono font-bold text-xs py-2 border-x ${
+                                  st.isAtm 
+                                    ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-500/30' 
+                                    : 'bg-slate-950/80 text-slate-100 border-white/10'
+                                }`}>
+                                  <div className="flex items-center justify-center gap-1">
+                                    <span>{st.strike}</span>
+                                    {st.isAtm && (
+                                      <span className="text-[9px] px-1 bg-white/20 text-white rounded font-sans font-bold">ATM</span>
+                                    )}
+                                  </div>
+                                </TableCell>
+
+                                {/* PE LTP */}
+                                <TableCell className={`text-left font-mono font-bold text-xs ${isPeItm ? 'bg-emerald-950/40 text-emerald-300' : 'text-white'}`}>
+                                  ₹{st.pe.ltp.toFixed(2)}
+                                </TableCell>
+
+                                {/* PE Chg */}
+                                <TableCell className={`text-left font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20' : ''} ${st.pe.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {st.pe.change >= 0 ? '+' : ''}{st.pe.change}%
+                                </TableCell>
+
+                                {/* PE OI */}
+                                <TableCell className={`text-left font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20 text-slate-200' : 'text-slate-300'}`}>
+                                  {st.pe.oi.toLocaleString()}
+                                </TableCell>
+
+                                {/* PE IV */}
+                                <TableCell className={`text-center font-mono text-[11px] ${isPeItm ? 'bg-emerald-950/20 text-emerald-300' : 'text-slate-400'}`}>
+                                  {st.pe.iv}%
+                                </TableCell>
+
+                                {/* Actions */}
+                                <TableCell className="text-center py-1">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => showAlert(`Selected ${st.ce.symbol} at ₹${st.ce.ltp}`, 'Option Order')}
+                                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600/80 hover:bg-indigo-500 text-white cursor-pointer"
+                                    >
+                                      CE
+                                    </button>
+                                    <button
+                                      onClick={() => showAlert(`Selected ${st.pe.symbol} at ₹${st.pe.ltp}`, 'Option Order')}
+                                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600/80 hover:bg-rose-500 text-white cursor-pointer"
+                                    >
+                                      PE
+                                    </button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center text-xs text-slate-500">
+                      Failed to load option chain data.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -8675,8 +8977,11 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             </div>
 
             {/* Interactive Visual & AI Custom Scanner Builder Panel */}
-            <Card id="ai-scanner-builder" className="glass-panel border-0 ring-0 p-5 bg-slate-900/80 border-indigo-500/20">
-              <CardHeader className="p-0 mb-4 border-b border-white/5 pb-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            <Card id="ai-scanner-builder" className="glass-panel border-0 ring-0 p-5 bg-slate-900/80 border-indigo-500/20 flex flex-col gap-4">
+              <CardHeader 
+                onClick={() => togglePageSection('scan_controls')}
+                className="p-0 border-b border-white/5 pb-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 cursor-pointer select-none"
+              >
                 <div>
                   <div className="flex items-center gap-2">
                     <Sliders className="h-5 w-5 text-indigo-400" />
@@ -8686,40 +8991,48 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                     </span>
                   </div>
                   <CardDescription className="text-xs text-slate-400 mt-1">
-                    Visually combine Supertrend, RSI, EMA, Bollinger, Ichimoku, ADX, VWAP, Stochastic, MACD & more into custom high-probability market scanners.
+                    Visually combine Supertrend, RSI, EMA, Bollinger, Ichimoku, ADX, VWAP, Stochastic, MACD &amp; more into custom high-probability market scanners.
                   </CardDescription>
                 </div>
 
-                {/* Builder Mode Selector */}
-                <div className="flex bg-black/40 border border-white/10 p-1 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => setVisualBuilderMode('visual')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                      visualBuilderMode === 'visual'
-                        ? 'bg-indigo-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <Sliders className="w-3.5 h-3.5" />
-                    <span>Visual Builder 🎛️</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVisualBuilderMode('ai_prompt')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                      visualBuilderMode === 'ai_prompt'
-                        ? 'bg-purple-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>AI Prompt ✨</span>
-                  </button>
+                <div className="flex items-center gap-3">
+                  {/* Builder Mode Selector */}
+                  <div className="flex bg-black/40 border border-white/10 p-1 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => setVisualBuilderMode('visual')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        visualBuilderMode === 'visual'
+                          ? 'bg-indigo-600 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>Visual Builder 🎛️</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisualBuilderMode('ai_prompt')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        visualBuilderMode === 'ai_prompt'
+                          ? 'bg-purple-600 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>AI Prompt ✨</span>
+                    </button>
+                  </div>
+
+                  <span className="text-xs text-slate-400 font-mono flex items-center gap-1 ml-2">
+                    {collapsedPageSections.scan_controls ? 'Extend ❯' : 'Minimize 🔽'}
+                    {collapsedPageSections.scan_controls ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </span>
                 </div>
               </CardHeader>
 
-              <CardContent className="p-0">
+              {!collapsedPageSections.scan_controls && (
+                <CardContent className="p-0">
                 {visualBuilderMode === 'visual' ? (
                   <form onSubmit={handleSaveVisualScanner} className="flex flex-col gap-4">
                     {/* Preset Templates Selector Bar */}
@@ -9033,6 +9346,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </form>
                 )}
               </CardContent>
+              )}
             </Card>
 
             {/* Main content grid */}
@@ -9041,130 +9355,147 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               {/* Left Column: List of Scanners */}
               <div className="xl:col-span-1 flex flex-col gap-4">
                 <div className="glass-panel p-4 flex flex-col gap-3.5">
-                  
-                  {/* Search and Filters */}
-                  <div className="flex flex-col gap-2">
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        placeholder="Search for Scanners"
-                        value={scannerSearchFilter}
-                        onChange={(e) => setScannerSearchFilter(e.target.value)}
-                        className="flex-1 bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/30"
-                      />
-                      <Select value={selectedScannerIndex} onValueChange={setSelectedScannerIndex}>
-                        <SelectTrigger className="w-[120px] bg-black/30 border-white/5 rounded-xl px-3 py-2 h-auto text-xs text-white justify-between cursor-pointer">
-                          <SelectValue placeholder="Select Index" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-900 border-white/10 text-white">
-                          <SelectItem value="Nifty 50">Nifty 50</SelectItem>
-                          <SelectItem value="Bank Nifty">Bank Nifty</SelectItem>
-                          <SelectItem value="Sensex">Sensex</SelectItem>
-                          <SelectItem value="Bankex">Bankex</SelectItem>
-                          <SelectItem value="Nifty 100">Nifty 100</SelectItem>
-                          <SelectItem value="Nifty 200">Nifty 200</SelectItem>
-                          <SelectItem value="Nifty 500">Nifty 500</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  <div 
+                    onClick={() => togglePageSection('scan_radar')}
+                    className="flex items-center justify-between cursor-pointer select-none border-b border-white/5 pb-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-indigo-400" />
+                      <h3 className="font-display font-semibold text-sm text-white">Scanners Directory</h3>
                     </div>
-                    
-                    {/* Timeframe Filter Bar */}
-                    <div className="flex border-b border-white/5 pb-1 mt-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider gap-3">
-                      {['All', '1min', '5min', '15min', '1hour', '1day', 'custom'].map(tf => (
-                        <button
-                          key={tf}
-                          onClick={() => setSelectedScannerTimeframe(tf)}
-                          className={`pb-1 border-b-2 transition-all cursor-pointer ${
-                            selectedScannerTimeframe === tf 
-                              ? 'border-indigo-500 text-white' 
-                              : 'border-transparent text-slate-500 hover:text-slate-300'
-                          }`}
-                        >
-                          {tf}
-                        </button>
-                      ))}
-                    </div>
+                    <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                      {collapsedPageSections.scan_radar ? 'Extend ❯' : 'Minimize 🔽'}
+                      {collapsedPageSections.scan_radar ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </span>
                   </div>
 
-                  {/* Scanner List Cards */}
-                  <div className="flex flex-col gap-2 max-h-[500px] overflow-y-auto pr-1">
-                    {(() => {
-                      const filtered = scannersList.filter(m => {
-                        const matchesSearch = m.name.toLowerCase().includes(scannerSearchFilter.toLowerCase());
-                        const matchesTf = selectedScannerTimeframe === 'All' || m.tf.toLowerCase() === selectedScannerTimeframe.toLowerCase();
-                        return matchesSearch && matchesTf;
-                      });
-
-                      if (filtered.length === 0) {
-                        return <p className="text-center text-xs text-slate-500 py-6">No matching scanners found.</p>;
-                      }
-
-                      return filtered.map(item => (
-                        <div
-                          key={item.name}
-                          onClick={() => setSelectedScanner(item.name)}
-                          className={`w-full text-left p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
-                            selectedScanner === item.name
-                              ? 'bg-indigo-600/20 border-indigo-500/40 text-white'
-                              : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04] text-slate-300'
-                          }`}
-                        >
-                          <div className="flex flex-col gap-1 min-w-0 pr-2">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-semibold text-xs truncate">{item.name}</span>
-                              {item.isCustom && (
-                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
-                                  AI
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[8px] font-bold self-start px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono">
-                              {item.tf}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            {item.isCustom && (
-                              <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenEditScanner(item);
-                                  }}
-                                  title="Edit Scanner Code & Parameters"
-                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 active:bg-white/20 text-slate-300 hover:text-white text-[10px] transition-all cursor-pointer border border-white/10"
-                                >
-                                  <Pencil className="w-3 h-3 text-indigo-400" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteScanner(item.name);
-                                  }}
-                                  disabled={deletingScannerName === item.name}
-                                  title="Delete Scanner"
-                                  className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/30 text-rose-400 hover:text-rose-300 text-[10px] transition-all cursor-pointer border border-rose-500/20"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedScanner(item.name);
-                                runScanner(item.name, selectedScannerIndex);
-                              }}
-                              title="Scan Now"
-                              className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer ml-1"
-                            >
-                              <RefreshCw className={`w-3 h-3 ${scannerLoading && selectedScanner === item.name ? 'animate-spin' : ''}`} />
-                              <span>Scan</span>
-                            </button>
-                          </div>
+                  {!collapsedPageSections.scan_radar && (
+                    <div className="flex flex-col gap-3.5 pt-1">
+                      {/* Search and Filters */}
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <input 
+                            type="text"
+                            placeholder="Search for Scanners"
+                            value={scannerSearchFilter}
+                            onChange={(e) => setScannerSearchFilter(e.target.value)}
+                            className="flex-1 bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/30"
+                          />
+                          <Select value={selectedScannerIndex} onValueChange={setSelectedScannerIndex}>
+                            <SelectTrigger className="w-[120px] bg-black/30 border-white/5 rounded-xl px-3 py-2 h-auto text-xs text-white justify-between cursor-pointer">
+                              <SelectValue placeholder="Select Index" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-white/10 text-white">
+                              <SelectItem value="Nifty 50">Nifty 50</SelectItem>
+                              <SelectItem value="Bank Nifty">Bank Nifty</SelectItem>
+                              <SelectItem value="Sensex">Sensex</SelectItem>
+                              <SelectItem value="Bankex">Bankex</SelectItem>
+                              <SelectItem value="Nifty 100">Nifty 100</SelectItem>
+                              <SelectItem value="Nifty 200">Nifty 200</SelectItem>
+                              <SelectItem value="Nifty 500">Nifty 500</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
-                      ));
-                    })()}
-                  </div>
+                        
+                        {/* Timeframe Filter Bar */}
+                        <div className="flex border-b border-white/5 pb-1 mt-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider gap-3">
+                          {['All', '1min', '5min', '15min', '1hour', '1day', 'custom'].map(tf => (
+                            <button
+                              key={tf}
+                              onClick={() => setSelectedScannerTimeframe(tf)}
+                              className={`pb-1 border-b-2 transition-all cursor-pointer ${
+                                selectedScannerTimeframe === tf 
+                                  ? 'border-indigo-500 text-white' 
+                                  : 'border-transparent text-slate-500 hover:text-slate-300'
+                              }`}
+                            >
+                              {tf}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Scanner List Cards */}
+                      <div className="flex flex-col gap-2 max-h-[500px] overflow-y-auto pr-1">
+                        {(() => {
+                          const filtered = scannersList.filter(m => {
+                            const matchesSearch = m.name.toLowerCase().includes(scannerSearchFilter.toLowerCase());
+                            const matchesTf = selectedScannerTimeframe === 'All' || m.tf.toLowerCase() === selectedScannerTimeframe.toLowerCase();
+                            return matchesSearch && matchesTf;
+                          });
+
+                          if (filtered.length === 0) {
+                            return <p className="text-center text-xs text-slate-500 py-6">No matching scanners found.</p>;
+                          }
+
+                          return filtered.map(item => (
+                            <div
+                              key={item.name}
+                              onClick={() => setSelectedScanner(item.name)}
+                              className={`w-full text-left p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
+                                selectedScanner === item.name
+                                  ? 'bg-indigo-600/20 border-indigo-500/40 text-white'
+                                  : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04] text-slate-300'
+                              }`}
+                            >
+                              <div className="flex flex-col gap-1 min-w-0 pr-2">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-xs truncate">{item.name}</span>
+                                  {item.isCustom && (
+                                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
+                                      AI
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[8px] font-bold self-start px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono">
+                                  {item.tf}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                {item.isCustom && (
+                                  <>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenEditScanner(item);
+                                      }}
+                                      title="Edit Scanner Code & Parameters"
+                                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 active:bg-white/20 text-slate-300 hover:text-white text-[10px] transition-all cursor-pointer border border-white/10"
+                                    >
+                                      <Pencil className="w-3 h-3 text-indigo-400" />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteScanner(item.name);
+                                      }}
+                                      disabled={deletingScannerName === item.name}
+                                      title="Delete Scanner"
+                                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/30 text-rose-400 hover:text-rose-300 text-[10px] transition-all cursor-pointer border border-rose-500/20"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedScanner(item.name);
+                                    runScanner(item.name, selectedScannerIndex);
+                                  }}
+                                  title="Scan Now"
+                                  className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer ml-1"
+                                >
+                                  <RefreshCw className={`w-3 h-3 ${scannerLoading && selectedScanner === item.name ? 'animate-spin' : ''}`} />
+                                  <span>Scan</span>
+                                </button>
+                              </div>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               </div>
@@ -9172,6 +9503,29 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               {/* Right Column: Scanner Results Table */}
               <div className="xl:col-span-3 flex flex-col gap-4">
                 <div className="glass-panel p-5">
+                  <div 
+                    onClick={() => togglePageSection('scan_results')}
+                    className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4 cursor-pointer select-none"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-display font-bold text-base text-white">{selectedScanner}</h3>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                          Index: {selectedScannerIndex}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        Live scanner matches and technical parameters.
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                      {collapsedPageSections.scan_results ? 'Extend ❯' : 'Minimize 🔽'}
+                      {collapsedPageSections.scan_results ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </span>
+                  </div>
+
+                  {!collapsedPageSections.scan_results && (
+                    <div className="pt-2">
                   
                   {/* Results Header */}
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4 mb-4">
@@ -9408,8 +9762,283 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                       )}
                     </button>
                   </div>
+                  </div>
+                  )}
 
                 </div>
+
+                {/* Daily Unique Scanner Stocks Card */}
+                <div className="glass-panel p-5 border border-indigo-500/20 bg-slate-950/80">
+                  <div 
+                    onClick={() => togglePageSection('daily_unique_stocks')}
+                    className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4 cursor-pointer select-none"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-5 w-5 text-purple-400" />
+                        <h3 className="font-display font-bold text-base text-white">Daily Unique Scanner Stocks</h3>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300">
+                          Date: {dailySelectedDate}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        Unique list of all stocks appearing in scanner results throughout the day. Copy full list or filter specifically for Options Chain (F&amp;O) enabled stocks.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                        {collapsedPageSections.daily_unique_stocks ? 'Extend ❯' : 'Minimize 🔽'}
+                        {collapsedPageSections.daily_unique_stocks ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </span>
+                    </div>
+                  </div>
+
+                  {!collapsedPageSections.daily_unique_stocks && (
+                    <div className="pt-3 flex flex-col gap-4">
+                      {/* Control Bar: Date Selector, Counts, Search & Toggles */}
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-black/40 p-3.5 rounded-xl border border-white/5">
+                        
+                        {/* Left: Date selector & Metrics */}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-indigo-400" />
+                            <select
+                              value={dailySelectedDate}
+                              onChange={(e) => setDailySelectedDate(e.target.value)}
+                              className="bg-slate-900 border border-white/10 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                            >
+                              {dailyAvailableDates.map(d => (
+                                <option key={d} value={d}>{d} {d === new Date().toISOString().split('T')[0] ? '(Today)' : ''}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs font-semibold">
+                            <span className="px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
+                              Total Unique: <strong className="text-white ml-1">{dailyUniqueStocks.length}</strong>
+                            </span>
+                            <span className="px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300">
+                              Options Chain (F&amp;O): <strong className="text-white ml-1">{dailyUniqueStocks.filter(s => s.isFno).length}</strong>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Right: Search & Toggle Options Chain Filter */}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder="Search symbol..."
+                              value={dailySearchQuery}
+                              onChange={(e) => setDailySearchQuery(e.target.value)}
+                              className="bg-black/50 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44"
+                            />
+                          </div>
+
+                          {/* Toggle filter: Show Options Chain Enabled Only */}
+                          <div className="inline-flex p-0.5 rounded-lg bg-slate-900 border border-white/10 text-xs select-none">
+                            <button
+                              type="button"
+                              onClick={() => setDailyFnoFilter(false)}
+                              className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                                !dailyFnoFilter
+                                  ? 'bg-indigo-600 text-white shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              All Stocks ({dailyUniqueStocks.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDailyFnoFilter(true)}
+                              className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                                dailyFnoFilter
+                                  ? 'bg-purple-600 text-white shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <Zap className="w-3.5 h-3.5 text-amber-400" />
+                              Options Chain Only ({dailyUniqueStocks.filter(s => s.isFno).length})
+                            </button>
+                          </div>
+
+                          <button
+                            onClick={() => fetchDailyUniqueStocks(dailySelectedDate)}
+                            title="Refresh daily unique list"
+                            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 cursor-pointer"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${dailyUniqueLoading ? 'animate-spin' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Copy Actions Bar & Toggle Copy Options Chain Enabled Stocks */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-950/30 p-3 rounded-xl border border-indigo-500/20">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                            <Copy className="w-4 h-4 text-indigo-400" />
+                            Copy Options:
+                          </span>
+
+                          {/* Toggle: Copy Only Options Chain Enabled Stocks */}
+                          <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300 hover:text-white">
+                            <input
+                              type="checkbox"
+                              checked={dailyCopyFnoOnlyMode}
+                              onChange={(e) => setDailyCopyFnoOnlyMode(e.target.checked)}
+                              className="rounded border-white/20 bg-slate-900 text-purple-600 focus:ring-purple-500 h-4 w-4 cursor-pointer"
+                            />
+                            <span className="font-medium">
+                              Copy ONLY Options Chain Enabled Stocks
+                            </span>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => handleCopyDailyUniqueStocks(false, 'symbols')}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/20"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>
+                              {dailyCopyFnoOnlyMode ? 'Copy F&O Symbols' : 'Copy Visible Symbols'} ({getSortedDailyUniqueStocks().filter(s => !dailyCopyFnoOnlyMode || s.isFno).length})
+                            </span>
+                          </button>
+
+                          <button
+                            onClick={() => handleCopyDailyUniqueStocks(true, 'symbols')}
+                            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-purple-600/20"
+                          >
+                            <Zap className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Copy F&amp;O Only</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleCopyDailyUniqueStocks(dailyCopyFnoOnlyMode, 'table')}
+                            className="px-3 py-1.5 bg-white/5 hover:bg-white/10 active:bg-white/20 text-slate-300 hover:text-white border border-white/10 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Copy Full Table (TSV)</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Copyable Table */}
+                      <div className="overflow-x-auto max-h-[550px] border border-white/5 rounded-xl">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="text-slate-400 bg-black/40 border-b border-white/5">
+                              <th className="py-2.5 px-3 font-bold uppercase tracking-wider w-12 text-center">#</th>
+                              <th 
+                                onClick={() => toggleDailySort('symbol')}
+                                className="py-2.5 px-3 font-bold uppercase tracking-wider cursor-pointer hover:text-indigo-400 select-none transition-colors"
+                              >
+                                Symbol{dailySortField === 'symbol' ? (dailySortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                              </th>
+                              <th 
+                                onClick={() => toggleDailySort('ltp')}
+                                className="py-2.5 px-3 font-bold uppercase tracking-wider text-right cursor-pointer hover:text-indigo-400 select-none transition-colors"
+                              >
+                                LTP{dailySortField === 'ltp' ? (dailySortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                              </th>
+                              <th 
+                                onClick={() => toggleDailySort('change')}
+                                className="py-2.5 px-3 font-bold uppercase tracking-wider text-right cursor-pointer hover:text-indigo-400 select-none transition-colors"
+                              >
+                                Change %{dailySortField === 'change' ? (dailySortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                              </th>
+                              <th className="py-2.5 px-3 font-bold uppercase tracking-wider text-center">
+                                Options Chain
+                              </th>
+                              <th className="py-2.5 px-3 font-bold uppercase tracking-wider">
+                                Scanners Matched Today
+                              </th>
+                              <th 
+                                onClick={() => toggleDailySort('lastSeenAt')}
+                                className="py-2.5 px-3 font-bold uppercase tracking-wider text-right cursor-pointer hover:text-indigo-400 select-none transition-colors"
+                              >
+                                Last Seen{dailySortField === 'lastSeenAt' ? (dailySortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 text-slate-200 bg-slate-950/40">
+                            {dailyUniqueLoading && dailyUniqueStocks.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="py-12 text-center text-slate-500 italic">
+                                  Loading daily unique scanner stocks...
+                                </td>
+                              </tr>
+                            ) : getSortedDailyUniqueStocks().length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
+                                  {dailyFnoFilter
+                                    ? 'No Options Chain Enabled stocks appeared in scanner results on this date.'
+                                    : 'No unique stocks appeared in scanner results on this date yet.'}
+                                </td>
+                              </tr>
+                            ) : (
+                              getSortedDailyUniqueStocks().map((row, idx) => (
+                                <tr key={row.symbol} className="hover:bg-white/[0.02] transition-colors">
+                                  <td className="py-3 px-3 text-center text-slate-500 font-mono text-[11px]">
+                                    {idx + 1}
+                                  </td>
+                                  <td className="py-3 px-3">
+                                    <div className="flex flex-col">
+                                      <span className="font-semibold text-white flex items-center gap-1.5">
+                                        {row.symbol}
+                                        {row.isFno && (
+                                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                                            F&amp;O
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="text-[9px] text-slate-500 font-mono mt-0.5">{row.fullName}</span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono font-bold text-white">
+                                    ₹{formatCurrency(row.ltp)}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono font-bold">
+                                    <span className={row.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                      ({row.change >= 0 ? '+' : ''}{row.change.toFixed(2)}%)
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-center">
+                                    {row.isFno ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300">
+                                        <Zap className="w-3 h-3 text-amber-400" />
+                                        Enabled
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-500 font-medium">Equity Only</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-3">
+                                    <div className="flex flex-wrap gap-1">
+                                      {Array.isArray(row.scannersMatched) && row.scannersMatched.length > 0 ? (
+                                        row.scannersMatched.map((sc, i) => (
+                                          <span key={i} className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
+                                            {sc}
+                                          </span>
+                                        ))
+                                      ) : (
+                                        <span className="text-[9px] text-slate-500 italic">Scanner Match</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono text-[10px] text-slate-400">
+                                    {row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleTimeString() : '—'}
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
 
             </div>
@@ -9618,200 +10247,212 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             {/* Left/Main Column: Configuration & Parameters */}
             <div className="xl:col-span-1 flex flex-col gap-6">
               <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
-                  <Sliders className="h-5 w-5 text-indigo-400" />
-                  <CardTitle className="font-display font-semibold text-sm text-white">Backtest Configuration</CardTitle>
+                <CardHeader 
+                  onClick={() => togglePageSection('chart_controls')}
+                  className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between cursor-pointer select-none"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sliders className="h-5 w-5 text-indigo-400" />
+                    <CardTitle className="font-display font-semibold text-sm text-white">Backtest Configuration</CardTitle>
+                  </div>
+                  <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                    {collapsedPageSections.chart_controls ? 'Extend ❯' : 'Minimize 🔽'}
+                    {collapsedPageSections.chart_controls ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </span>
                 </CardHeader>
-                <CardContent className="p-0 flex flex-col gap-4 mt-2">
-                  <form onSubmit={handleRunBacktest} className="flex flex-col gap-4">
-                    {/* Stock Dropdown */}
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <label className="text-slate-400 font-semibold">Cached Database Stock</label>
-                      <Select value={backtestSymbol} onValueChange={(val) => {
-                        setBacktestSymbol(val);
-                        const st = availableStocks.find(s => s.symbol === val);
-                        if (st && st.intervals && st.intervals.length > 0) {
-                          setBacktestInterval(st.intervals[0]);
-                        }
-                      }}>
-                        <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
-                          <SelectValue placeholder="Select Cached Stock" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-950 border-white/10 text-white text-xs max-h-[250px] overflow-y-auto">
-                          {availableStocks.length === 0 ? (
-                            <SelectItem disabled value="none">No stock data cached in DB</SelectItem>
-                          ) : (
-                            availableStocks.map((s) => (
-                              <SelectItem key={s.symbol} value={s.symbol}>
-                                {s.symbol} ({s.intervals.join(', ')})
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
 
-                    {/* Timeframe Interval */}
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <label className="text-slate-400 font-semibold">Timeframe Interval</label>
-                      <Select value={backtestInterval} onValueChange={setBacktestInterval}>
-                        <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
-                          <SelectValue placeholder="Select Interval" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-950 border-white/10 text-white text-xs">
-                          {(() => {
-                            const activeStock = availableStocks.find(s => s.symbol === backtestSymbol);
-                            const intervals = activeStock ? activeStock.intervals : ['day'];
-                            return intervals.map(inv => (
-                              <SelectItem key={inv} value={inv}>
-                                {inv === 'minute' ? '1 Minute' : inv === 'day' ? 'Daily' : inv}
-                              </SelectItem>
-                            ));
-                          })()}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* From Date */}
+                {!collapsedPageSections.chart_controls && (
+                  <CardContent className="p-0 flex flex-col gap-4 mt-2">
+                    <form onSubmit={handleRunBacktest} className="flex flex-col gap-4">
+                      {/* Stock Dropdown */}
                       <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">From Date</label>
-                        <input 
-                          type="date"
-                          value={backtestFromDate}
-                          onChange={(e) => setBacktestFromDate(e.target.value)}
-                          className="w-full bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50 [color-scheme:dark]"
-                        />
+                        <label className="text-slate-400 font-semibold">Cached Database Stock</label>
+                        <Select value={backtestSymbol} onValueChange={(val) => {
+                          setBacktestSymbol(val);
+                          const st = availableStocks.find(s => s.symbol === val);
+                          if (st && st.intervals && st.intervals.length > 0) {
+                            setBacktestInterval(st.intervals[0]);
+                          }
+                        }}>
+                          <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
+                            <SelectValue placeholder="Select Cached Stock" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-950 border-white/10 text-white text-xs max-h-[250px] overflow-y-auto">
+                            {availableStocks.length === 0 ? (
+                              <SelectItem disabled value="none">No stock data cached in DB</SelectItem>
+                            ) : (
+                              availableStocks.map((s) => (
+                                <SelectItem key={s.symbol} value={s.symbol}>
+                                  {s.symbol} ({s.intervals.join(', ')})
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
 
-                      {/* To Date */}
+                      {/* Timeframe Interval */}
                       <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">To Date</label>
-                        <input 
-                          type="date"
-                          value={backtestToDate}
-                          onChange={(e) => setBacktestToDate(e.target.value)}
-                          className="w-full bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50 [color-scheme:dark]"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* Capital */}
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Initial Capital (₹)</label>
-                        <input 
-                          type="number"
-                          value={backtestCapital}
-                          onChange={(e) => setBacktestCapital(parseFloat(e.target.value) || 0)}
-                          className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
-                        />
+                        <label className="text-slate-400 font-semibold">Timeframe Interval</label>
+                        <Select value={backtestInterval} onValueChange={setBacktestInterval}>
+                          <SelectTrigger className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 text-xs h-auto text-white focus:ring-0">
+                            <SelectValue placeholder="Select Interval" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-950 border-white/10 text-white text-xs">
+                            {(() => {
+                              const activeStock = availableStocks.find(s => s.symbol === backtestSymbol);
+                              const intervals = activeStock ? activeStock.intervals : ['day'];
+                              return intervals.map(inv => (
+                                <SelectItem key={inv} value={inv}>
+                                  {inv === 'minute' ? '1 Minute' : inv === 'day' ? 'Daily' : inv}
+                                </SelectItem>
+                              ));
+                            })()}
+                          </SelectContent>
+                        </Select>
                       </div>
 
-                      {/* Leverage */}
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Leverage Power</label>
-                        <input 
-                          type="number"
-                          value={backtestLeverage}
-                          onChange={(e) => setBacktestLeverage(parseFloat(e.target.value) || 0)}
-                          className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs text-center"
-                        />
-                      </div>
-                    </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* From Date */}
+                        <div className="flex flex-col gap-1.5 text-xs">
+                          <label className="text-slate-400 font-semibold">From Date</label>
+                          <input 
+                            type="date"
+                            value={backtestFromDate}
+                            onChange={(e) => setBacktestFromDate(e.target.value)}
+                            className="w-full bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50 [color-scheme:dark]"
+                          />
+                        </div>
 
-                    <div className="grid grid-cols-2 gap-3 items-center">
-                      {/* Target Margin % */}
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Target Margin %</label>
-                        <input 
-                          type="number"
-                          value={backtestMarginPct}
-                          onChange={(e) => setBacktestMarginPct(parseFloat(e.target.value) || 0)}
-                          className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs text-center"
-                        />
+                        {/* To Date */}
+                        <div className="flex flex-col gap-1.5 text-xs">
+                          <label className="text-slate-400 font-semibold">To Date</label>
+                          <input 
+                            type="date"
+                            value={backtestToDate}
+                            onChange={(e) => setBacktestToDate(e.target.value)}
+                            className="w-full bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50 [color-scheme:dark]"
+                          />
+                        </div>
                       </div>
 
-                      {/* Allow Short Positions */}
-                      <div className="flex items-center gap-2 cursor-pointer select-none mt-4">
-                        <input 
-                          type="checkbox"
-                          id="chart-allow-shorting"
-                          checked={backtestAllowShorting}
-                          onChange={(e) => setBacktestAllowShorting(e.target.checked)}
-                          className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
-                        />
-                        <label htmlFor="chart-allow-shorting" className="text-slate-300 font-semibold text-xs cursor-pointer">Allow Shorts</label>
-                      </div>
-                    </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Capital */}
+                        <div className="flex flex-col gap-1.5 text-xs">
+                          <label className="text-slate-400 font-semibold">Initial Capital (₹)</label>
+                          <input 
+                            type="number"
+                            value={backtestCapital}
+                            onChange={(e) => setBacktestCapital(parseFloat(e.target.value) || 0)}
+                            className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
+                          />
+                        </div>
 
-                    {/* Interactive Form for Indicators */}
-                    <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-3">
+                        {/* Leverage */}
+                        <div className="flex flex-col gap-1.5 text-xs">
+                          <label className="text-slate-400 font-semibold">Leverage Power</label>
+                          <input 
+                            type="number"
+                            value={backtestLeverage}
+                            onChange={(e) => setBacktestLeverage(parseFloat(e.target.value) || 0)}
+                            className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs text-center"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 items-center">
+                        {/* Target Margin % */}
+                        <div className="flex flex-col gap-1.5 text-xs">
+                          <label className="text-slate-400 font-semibold">Target Margin %</label>
+                          <input 
+                            type="number"
+                            value={backtestMarginPct}
+                            onChange={(e) => setBacktestMarginPct(parseFloat(e.target.value) || 0)}
+                            className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs text-center"
+                          />
+                        </div>
+
+                        {/* Allow Short Positions */}
+                        <div className="flex items-center gap-2 cursor-pointer select-none mt-4">
+                          <input 
+                            type="checkbox"
+                            id="chart-allow-shorting"
+                            checked={backtestAllowShorting}
+                            onChange={(e) => setBacktestAllowShorting(e.target.checked)}
+                            className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
+                          />
+                          <label htmlFor="chart-allow-shorting" className="text-slate-300 font-semibold text-xs cursor-pointer">Allow Shorts</label>
+                        </div>
+                      </div>
+
+                      {/* Interactive Form for Indicators */}
+                      <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-3">
+                        <div className="flex flex-col gap-1 text-[11px]">
+                          <label className="text-slate-400 font-semibold">Fast EMA</label>
+                          <input 
+                            type="number" 
+                            value={fastEmaPeriod}
+                            onChange={(e) => setFastEmaPeriod(parseInt(e.target.value) || 9)}
+                            className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 text-[11px]">
+                          <label className="text-slate-400 font-semibold">Slow EMA</label>
+                          <input 
+                            type="number" 
+                            value={slowEmaPeriod}
+                            onChange={(e) => setSlowEmaPeriod(parseInt(e.target.value) || 21)}
+                            className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 text-[11px]">
+                          <label className="text-slate-400 font-semibold">RSI Period</label>
+                          <input 
+                            type="number" 
+                            value={rsiPeriod}
+                            onChange={(e) => setRsiPeriod(parseInt(e.target.value) || 14)}
+                            className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
                       <div className="flex flex-col gap-1 text-[11px]">
-                        <label className="text-slate-400 font-semibold">Fast EMA</label>
+                        <label className="text-slate-400 font-semibold">Buy Condition</label>
                         <input 
-                          type="number" 
-                          value={fastEmaPeriod}
-                          onChange={(e) => setFastEmaPeriod(parseInt(e.target.value) || 9)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                          type="text" 
+                          value={buySignalExpr}
+                          onChange={(e) => setBuySignalExpr(e.target.value)}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
                         />
                       </div>
+
                       <div className="flex flex-col gap-1 text-[11px]">
-                        <label className="text-slate-400 font-semibold">Slow EMA</label>
+                        <label className="text-slate-400 font-semibold">Sell Condition</label>
                         <input 
-                          type="number" 
-                          value={slowEmaPeriod}
-                          onChange={(e) => setSlowEmaPeriod(parseInt(e.target.value) || 21)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
+                          type="text" 
+                          value={sellSignalExpr}
+                          onChange={(e) => setSellSignalExpr(e.target.value)}
+                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
                         />
                       </div>
-                      <div className="flex flex-col gap-1 text-[11px]">
-                        <label className="text-slate-400 font-semibold">RSI Period</label>
-                        <input 
-                          type="number" 
-                          value={rsiPeriod}
-                          onChange={(e) => setRsiPeriod(parseInt(e.target.value) || 14)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-2.5 py-1.5 text-white text-center focus:outline-none"
-                        />
-                      </div>
-                    </div>
 
-                    <div className="flex flex-col gap-1 text-[11px]">
-                      <label className="text-slate-400 font-semibold">Buy Condition</label>
-                      <input 
-                        type="text" 
-                        value={buySignalExpr}
-                        onChange={(e) => setBuySignalExpr(e.target.value)}
-                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1 text-[11px]">
-                      <label className="text-slate-400 font-semibold">Sell Condition</label>
-                      <input 
-                        type="text" 
-                        value={sellSignalExpr}
-                        onChange={(e) => setSellSignalExpr(e.target.value)}
-                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
-                      />
-                    </div>
-
-                    <Button 
-                      type="submit"
-                      disabled={backtestLoading}
-                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 h-auto border-0 cursor-pointer"
-                    >
-                      {backtestLoading ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <>
-                          <Play className="w-3.5 h-3.5" />
-                          <span>Run Backtest & Load Chart</span>
-                        </>
-                      )}
-                    </Button>
-                  </form>
-                </CardContent>
+                      <Button 
+                        type="submit"
+                        disabled={backtestLoading}
+                        className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 h-auto border-0 cursor-pointer"
+                      >
+                        {backtestLoading ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5" />
+                            <span>Run Backtest &amp; Load Chart</span>
+                          </>
+                        )}
+                      </Button>
+                    </form>
+                  </CardContent>
+                )}
               </Card>
             </div>
 
@@ -9820,73 +10461,94 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
               {/* TradingView Widget Card */}
               {backtestSymbol && (
                 <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-3">
-                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
+                  <CardHeader 
+                    onClick={() => togglePageSection('chart_canvas')}
+                    className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between cursor-pointer select-none"
+                  >
                     <div className="flex items-center gap-2">
                       <TrendingUp className="h-5 w-5 text-indigo-400" />
                       <CardTitle className="font-display font-semibold text-sm text-white">TradingView Historical Chart: {backtestSymbol}</CardTitle>
                     </div>
-                    <span className="text-[10px] text-slate-500 font-mono">Candlestick Feed</span>
+                    <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                      {collapsedPageSections.chart_canvas ? 'Extend ❯' : 'Minimize 🔽'}
+                      {collapsedPageSections.chart_canvas ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </span>
                   </CardHeader>
-                  <CardContent className="p-0 mt-3 h-[450px] rounded-xl overflow-hidden bg-black/45 border border-white/5 relative">
-                    <TradingViewWidget 
-                      symbol={backtestSymbol}
-                      interval={backtestInterval === 'day' ? 'D' : backtestInterval === '60minute' ? '60' : backtestInterval === '30minute' ? '15' : backtestInterval === '15minute' ? '15' : backtestInterval === '5minute' ? '5' : '1'}
-                      showEMA9={true}
-                      showEMA21={true}
-                      showBB={false}
-                      trades={backtestResults?.trades || []}
-                    />
-                  </CardContent>
+
+                  {!collapsedPageSections.chart_canvas && (
+                    <CardContent className="p-0 mt-3 h-[450px] rounded-xl overflow-hidden bg-black/45 border border-white/5 relative">
+                      <TradingViewWidget 
+                        symbol={backtestSymbol}
+                        interval={backtestInterval === 'day' ? 'D' : backtestInterval === '60minute' ? '60' : backtestInterval === '30minute' ? '15' : backtestInterval === '15minute' ? '15' : backtestInterval === '5minute' ? '5' : '1'}
+                        showEMA9={true}
+                        showEMA21={true}
+                        showBB={false}
+                        trades={backtestResults?.trades || []}
+                      />
+                    </CardContent>
+                  )}
                 </Card>
               )}
 
               {/* Backtest Results Cards */}
               {backtestResults && (
                 <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-indigo-400" />
-                    <CardTitle className="font-display font-semibold text-sm text-white">Backtest Simulation Metrics</CardTitle>
+                  <CardHeader 
+                    onClick={() => togglePageSection('chart_results')}
+                    className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between cursor-pointer select-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5 text-indigo-400" />
+                      <CardTitle className="font-display font-semibold text-sm text-white">Backtest Simulation Metrics</CardTitle>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono flex items-center gap-1">
+                      {collapsedPageSections.chart_results ? 'Extend ❯' : 'Minimize 🔽'}
+                      {collapsedPageSections.chart_results ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </span>
                   </CardHeader>
-                  <CardContent className="p-0 flex flex-col gap-4 mt-2">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-display">
-                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Final Portfolio Value</span>
-                        <span className="text-sm font-bold text-white block mt-0.5">₹{formatCurrency(backtestResults.summary?.finalEquity)}</span>
-                        <span className={`text-[9px] font-semibold ${
-                          backtestResults.summary?.totalReturnPct >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                        }`}>
-                          {backtestResults.summary?.totalReturnPct >= 0 ? '+' : ''}
-                          {backtestResults.summary?.totalReturnPct?.toFixed(2)}% Return
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Annualized CAGR</span>
-                        <span className="text-sm font-bold text-white block mt-0.5">{backtestResults.summary?.cagr?.toFixed(2)}%</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Strategy Benchmark</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Max Drawdown</span>
-                        <span className="text-sm font-bold text-rose-400 block mt-0.5">{backtestResults.summary?.maxDrawdownPct?.toFixed(2)}%</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Peak-to-Trough risk</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                        <span className="text-slate-500 uppercase font-bold text-[8px] block">Sharpe Ratio</span>
-                        <span className="text-sm font-bold text-indigo-300 block mt-0.5">{backtestResults.summary?.sharpeRatio?.toFixed(2)}</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Risk-adjusted return</span>
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] font-semibold text-slate-300 bg-white/[0.01] border border-white/5 p-3.5 rounded-xl">
-                      <div className="flex justify-between">
-                        <span>Total Execution Days:</span>
-                        <span className="text-white">{backtestResults.summary?.totalDays} days</span>
+                  {!collapsedPageSections.chart_results && (
+                    <CardContent className="p-0 flex flex-col gap-4 mt-2">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-display">
+                        <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                          <span className="text-slate-500 uppercase font-bold text-[8px] block">Final Portfolio Value</span>
+                          <span className="text-sm font-bold text-white block mt-0.5">₹{formatCurrency(backtestResults.summary?.finalEquity)}</span>
+                          <span className={`text-[9px] font-semibold ${
+                            backtestResults.summary?.totalReturnPct >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                          }`}>
+                            {backtestResults.summary?.totalReturnPct >= 0 ? '+' : ''}
+                            {backtestResults.summary?.totalReturnPct?.toFixed(2)}% Return
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                          <span className="text-slate-500 uppercase font-bold text-[8px] block">Annualized CAGR</span>
+                          <span className="text-sm font-bold text-white block mt-0.5">{backtestResults.summary?.cagr?.toFixed(2)}%</span>
+                          <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Strategy Benchmark</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                          <span className="text-slate-500 uppercase font-bold text-[8px] block">Max Drawdown</span>
+                          <span className="text-sm font-bold text-rose-400 block mt-0.5">{backtestResults.summary?.maxDrawdownPct?.toFixed(2)}%</span>
+                          <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Peak-to-Trough risk</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                          <span className="text-slate-500 uppercase font-bold text-[8px] block">Sharpe Ratio</span>
+                          <span className="text-sm font-bold text-indigo-300 block mt-0.5">{backtestResults.summary?.sharpeRatio?.toFixed(2)}</span>
+                          <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold">Risk-adjusted return</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Win Rate:</span>
-                        <span className="text-white">{backtestResults.summary?.winRatePct?.toFixed(1)}% ({backtestResults.summary?.winningTrades} of {backtestResults.summary?.totalTrades} trades)</span>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] font-semibold text-slate-300 bg-white/[0.01] border border-white/5 p-3.5 rounded-xl">
+                        <div className="flex justify-between">
+                          <span>Total Execution Days:</span>
+                          <span className="text-white">{backtestResults.summary?.totalDays} days</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Win Rate:</span>
+                          <span className="text-white">{backtestResults.summary?.winRatePct?.toFixed(1)}% ({backtestResults.summary?.winningTrades} of {backtestResults.summary?.totalTrades} trades)</span>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
+                    </CardContent>
+                  )}
                 </Card>
               )}
 

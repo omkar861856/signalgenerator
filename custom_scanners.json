@@ -1,0 +1,8 @@
+[
+  {
+    "name": "strategy_momentum_surfing_morning",
+    "description": "Supertrend & RSI Surfer Screener",
+    "functionBody": "const close = stock.close || stock.price || 0;\nconst open = stock.open || close;\nconst high = stock.high || close;\nconst low = stock.low || close;\nconst rsi = stock.rsi || 55;\nconst supertrend = stock.supertrend || (close * 0.98);\nconst ema_fast = stock.ema9 || stock.ema_fast || close;\nconst ema_slow = stock.ema21 || stock.ema_slow || close;\nconst adx = stock.adx || 28;\nconst bb_upper = stock.bbUpper || (close * 1.02);\nconst bb_middle = stock.bbMiddle || close;\nconst mfi = stock.mfi || 55;\nconst macd_hist = stock.macdHist || 1.0;\nconst stoch_k = stock.stochK || 75;\nconst vwap = stock.vwap || close;\nconst psar = stock.psar || (close * 0.98);\nconst cci = stock.cci || 110;\nreturn (close > supertrend && rsi > 60);",
+    "tf": "15minute"
+  }
+]
