@@ -1405,7 +1405,7 @@ function getScannerResults(scannerName, indexName, forceMode = null) {
                         buildup,
                         pcr: parseFloat((0.85 + (Math.abs(Math.sin(token)) * 0.45)).toFixed(2)),
                         iv: parseFloat((14.5 + (Math.abs(Math.cos(token)) * 11.5)).toFixed(1)),
-                        expiry: indexName.includes('Nifty') || indexName.includes('Sensex') ? '30-JUL-2026' : '27-AUG-2026',
+                        expiry: '27-AUG-2026',
                         expiryType: indexName.includes('Nifty') || indexName.includes('Sensex') ? 'Weekly' : 'Monthly',
                         scanMode: modeInfo.mode,
                         isFno: fnoSet.has(token) || indexName === 'F&O Stocks' || indexName === 'Nifty 50' || indexName === 'Bank Nifty' || indexName === 'Sensex'
@@ -1542,24 +1542,26 @@ function getFnoStocksList() {
     return ["ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BHARTIARTL", "BPCL", "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY", "EICHERMOT", "GRASIM", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK", "INDUSINDBK", "INFY", "ITC", "JSWSTEEL", "KOTAKBANK", "LT", "LTIM", "M&M", "MARUTI", "NESTLEIND", "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE", "SBIN", "SUNPHARMA", "TATACONSUM", "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN", "ULTRACEMCO", "UPL", "WIPRO"];
 }
 
-function calculateFibonacciOpenToClose(open, close) {
-    const range = close - open;
+function calculateFibonacciLowToHigh(low, high) {
+    const range = high - low;
     return {
-        fib0: parseFloat(open.toFixed(2)),                                // 0.0% (Open)
-        fib236: parseFloat((open + 0.236 * range).toFixed(2)),          // 23.6%
-        fib382: parseFloat((open + 0.382 * range).toFixed(2)),          // 38.2%
-        fib500: parseFloat((open + 0.500 * range).toFixed(2)),          // 50.0%
-        fib618: parseFloat((open + 0.618 * range).toFixed(2)),          // 61.8%
-        fib786: parseFloat((open + 0.786 * range).toFixed(2)),          // 78.6%
-        fib100: parseFloat(close.toFixed(2)),                             // 100.0% (Close)
-        fib1272: parseFloat((open + 1.272 * range).toFixed(2)),         // 127.2% Target
-        fib1618: parseFloat((open + 1.618 * range).toFixed(2)),         // 161.8% Target
-        fib2000: parseFloat((open + 2.000 * range).toFixed(2)),         // 200.0% Target
-        fib2618: parseFloat((open + 2.618 * range).toFixed(2))          // 261.8% Target
+        fib0: parseFloat(low.toFixed(2)),                                    // 0.0% (Low)
+        fib236: parseFloat((low + 0.236 * range).toFixed(2)),              // 23.6%
+        fib382: parseFloat((low + 0.382 * range).toFixed(2)),              // 38.2%
+        fib500: parseFloat((low + 0.500 * range).toFixed(2)),              // 50.0%
+        fib600: parseFloat((high - 0.600 * range).toFixed(2)),             // 60.0% Retracement (Buy Zone Top)
+        fib618: parseFloat((high - 0.618 * range).toFixed(2)),             // 61.8% Retracement
+        fib650: parseFloat((high - 0.650 * range).toFixed(2)),             // 65.0% Retracement (Buy Zone Bottom)
+        fib786: parseFloat((high - 0.786 * range).toFixed(2)),             // 78.6% Retracement (Stop Loss Trigger)
+        fib100: parseFloat(high.toFixed(2)),                                 // 100.0% (High - Target 1 / Previous swing high)
+        fib1272: parseFloat((low + 1.272 * range).toFixed(2)),             // 127.2% Target 2 Extension
+        fib1618: parseFloat((low + 1.618 * range).toFixed(2)),             // 161.8% Target 3 Extension
+        fib2000: parseFloat((low + 2.000 * range).toFixed(2)),             // 200.0% Extension
+        fib2618: parseFloat((low + 2.618 * range).toFixed(2))              // 261.8% Extension
     };
 }
 
-async function getAppropriateCeDerivative(symbol, closePrice) {
+async function getAppropriateCeDerivative(symbol, closePrice, optionMode = 'ATM') {
     const cleanSym = symbol.toUpperCase().split(':').pop().replace('NSE:', '').replace('NFO:', '').trim();
     
     let step = 50;
@@ -1571,56 +1573,146 @@ async function getAppropriateCeDerivative(symbol, closePrice) {
     else if (closePrice <= 250) step = 2.5;
 
     const atmStrike = Math.round(closePrice / step) * step;
+    let selectedStrike = atmStrike;
+    
+    // Preferred: ATM CE or 1 strike ITM CE (Avoid far OTM)
+    if (optionMode === '1ITM') {
+        selectedStrike = atmStrike - step; // 1 strike ITM for bullish Call option
+    }
+
+    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+    // Dynamic NSE Monthly Stock Expiry Calculator (Last Thursday of the Month)
+    const getExactMonthlyStockExpiryData = (refDate = new Date()) => {
+        const year = refDate.getFullYear();
+        const month = refDate.getMonth();
+        const lastDay = new Date(year, month + 1, 0);
+        let dayOfWeek = lastDay.getDay();
+        let diff = dayOfWeek >= 4 ? (dayOfWeek - 4) : (dayOfWeek + 7 - 4);
+        let expiryDate = new Date(year, month, lastDay.getDate() - diff, 23, 59, 59);
+        
+        if (refDate > expiryDate) {
+            return getExactMonthlyStockExpiryData(new Date(year, month + 1, 1));
+        }
+        
+        const dd = String(expiryDate.getDate()).padStart(2, '0');
+        const mmm = months[expiryDate.getMonth()];
+        const yyyy = expiryDate.getFullYear();
+        const yy = String(yyyy).slice(-2);
+        
+        return {
+            expiryDateStr: `${dd}-${mmm}-${yyyy}`,
+            symbolTag: `${yy}${mmm}`
+        };
+    };
+
+    const expiryInfo = getExactMonthlyStockExpiryData(new Date());
+    let resolvedExpiryStr = expiryInfo.expiryDateStr;
+    let resolvedSymbolTag = expiryInfo.symbolTag;
 
     let inst = null;
     try {
         const { Instrument } = require('./db');
         if (Instrument) {
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
             inst = await Instrument.findOne({
                 name: cleanSym,
                 segment: 'NFO-OPT',
                 instrument_type: 'CE',
-                strike: atmStrike
-            }).sort({ expiry: 1 }).lean();
+                strike: selectedStrike
+            }).sort({ expiry: -1 }).lean();
         }
     } catch (e) {}
 
-    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-    const now = new Date();
-    const currMonthStr = months[now.getMonth()];
-    const yearSuffix = now.getFullYear().toString().slice(-2);
-    const expTag = `${yearSuffix}${currMonthStr}`;
+    if (inst && inst.expiry) {
+        const parsedExp = new Date(inst.expiry);
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        if (!isNaN(parsedExp.getTime()) && parsedExp >= todayStart) {
+            const dd = String(parsedExp.getDate()).padStart(2, '0');
+            const mmm = months[parsedExp.getMonth()];
+            const yyyy = parsedExp.getFullYear();
+            const yy = String(yyyy).slice(-2);
+            resolvedExpiryStr = `${dd}-${mmm}-${yyyy}`;
+            resolvedSymbolTag = `${yy}${mmm}`;
+        }
+    }
 
-    const tradingsymbol = inst ? inst.tradingsymbol : `${cleanSym}${expTag}${atmStrike}CE`;
+    const tradingsymbol = `${cleanSym}${resolvedSymbolTag}${selectedStrike}CE`;
     const lotSize = inst && inst.lot_size ? inst.lot_size : (cleanSym === 'RELIANCE' ? 250 : cleanSym === 'TCS' ? 175 : cleanSym === 'INFY' ? 400 : cleanSym === 'HDFCBANK' ? 550 : 500);
-    const instrumentToken = inst ? inst.instrument_token : (1000000 + Math.floor(Math.random() * 8999999));
+    const instrumentToken = inst && inst.instrument_token ? inst.instrument_token : (1000000 + Math.floor(Math.random() * 8999999));
     
-    const intrinsicValue = Math.max(0, closePrice - atmStrike);
+    const intrinsicValue = Math.max(0, closePrice - selectedStrike);
     const timeValue = parseFloat((closePrice * 0.022).toFixed(2));
     const estimatedPremium = parseFloat((intrinsicValue + timeValue).toFixed(2));
+
+    const minMarginRequired = parseFloat((estimatedPremium * lotSize).toFixed(2));
 
     return {
         tradingsymbol,
         instrumentToken,
-        strike: atmStrike,
+        strike: selectedStrike,
         optionType: 'CE',
-        expiry: inst && inst.expiry ? inst.expiry : `${currMonthStr}-${now.getFullYear()}`,
+        selectionMode: optionMode === '1ITM' ? '1ITM' : 'ATM',
+        expiry: resolvedExpiryStr,
         lotSize,
-        estimatedPremium
+        estimatedPremium,
+        minMarginRequired
     };
 }
 
 async function scanFnoFirst15MinFibonacci(options = {}) {
-    const { FnoDailyScan, HistoricalCandle } = require('./db');
+    const { FnoDailyScan, HistoricalCandle, StrategyConfig } = require('./db');
     const targetDate = options.targetDate || new Date().toISOString().split('T')[0];
     const minBodyPercent = options.minBodyPercent !== undefined ? parseFloat(options.minBodyPercent) : 0.05;
     
+    let optionMode = options.optionSelectionMode || 'ATM';
+    if (StrategyConfig) {
+        try {
+            const cfg = await StrategyConfig.findOne({ strategyId: 'strategy_1_fibonacci_option_buy' }).lean();
+            if (cfg && cfg.optionSelectionMode) {
+                optionMode = cfg.optionSelectionMode;
+            }
+        } catch (e) {}
+    }
+    
     const fnoSymbols = getFnoStocksList();
+    // Sourced directly from "Top Gainers and Increasing" scanner (Nifty 500 / F&O Stocks)
+    let scannerData = getScannerResults('Top Gainers and Increasing', 'Nifty 500');
+    if (!scannerData.results || scannerData.results.length === 0) {
+        scannerData = getScannerResults('Top Gainers and Increasing', 'F&O Stocks');
+    }
+
+    const fnoSet = new Set(getFnoStocksList().map(s => s.trim().toUpperCase()));
+    const targetSymbols = [];
+    const seenSymbols = new Set();
+
+    if (scannerData && scannerData.results) {
+        scannerData.results.forEach(res => {
+            const cleanSym = (res.symbol || '').split(':').pop().trim().toUpperCase();
+            if (cleanSym && fnoSet.has(cleanSym) && !seenSymbols.has(cleanSym)) {
+                seenSymbols.add(cleanSym);
+                targetSymbols.push(cleanSym);
+            }
+        });
+    }
+
+    // Fallback to F&O list to ensure comprehensive coverage
+    getFnoStocksList().forEach(sym => {
+        const cleanSym = sym.trim().toUpperCase();
+        if (!seenSymbols.has(cleanSym)) {
+            seenSymbols.add(cleanSym);
+            targetSymbols.push(cleanSym);
+        }
+    });
+
     const scannedRecords = [];
 
-    for (const sym of fnoSymbols) {
-        const cleanSym = sym.trim().toUpperCase();
+    for (const cleanSym of targetSymbols) {
         let open, high, low, close, volume;
+        let dataSource = 'HISTORICAL';
+        let dataSourceLabel = 'HISTORICAL MARKET DATA';
 
         // Try to fetch 1st 15m candle from DB HistoricalCandle
         let candle15m = null;
@@ -1636,41 +1728,85 @@ async function scanFnoFirst15MinFibonacci(options = {}) {
             }
         } catch (e) {}
 
+        const isMarketOpen = isMarketTradingHours();
+
         if (candle15m) {
             open = candle15m.open;
             high = candle15m.high;
             low = candle15m.low;
             close = candle15m.close;
             volume = candle15m.volume || 10000;
+            dataSource = 'HISTORICAL';
+            dataSourceLabel = 'HISTORICAL MARKET DATA (PREVIOUS SESSION)';
         } else {
-            // Live quote or deterministic baseline fallback for testing/demonstration
-            const ltp = getLtpBySymbol(cleanSym);
-            const basePrice = ltp && ltp > 0 ? ltp : (100 + (cleanSym.charCodeAt(0) * 12.5) % 1500);
-            
-            // Hash seed to determine candle movement
-            const hash = cleanSym.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-            const isBullish = (hash % 10) >= 3; // ~70% green candles for F&O list sampling
-            
-            if (!isBullish) continue; // Skip red candles
+            // Check real live quote in quoteCache or fetch real market OHLC from Zerodha
+            const token = getTokenBySymbol(cleanSym);
+            const cachedQuote = token ? quoteCache[token] : null;
 
-            const bodyChangePct = 0.35 + ((hash % 15) * 0.12); // e.g. 0.35% to 2.15% body
-            open = parseFloat((basePrice).toFixed(2));
-            close = parseFloat((basePrice * (1 + bodyChangePct / 100)).toFixed(2));
-            high = parseFloat((close * 1.004).toFixed(2));
-            low = parseFloat((open * 0.996).toFixed(2));
-            volume = 25000 + (hash * 350);
+            if (cachedQuote && cachedQuote.open > 0 && cachedQuote.ltp > 0) {
+                open = cachedQuote.open;
+                high = cachedQuote.high || Math.max(open, cachedQuote.ltp);
+                low = cachedQuote.low || Math.min(open, cachedQuote.ltp);
+                close = cachedQuote.ltp || cachedQuote.close;
+                volume = cachedQuote.volume || 0;
+                dataSource = isMarketOpen ? 'LIVE_MARKET' : 'HISTORICAL';
+                dataSourceLabel = isMarketOpen ? 'REAL-TIME LIVE MARKET DATA' : 'HISTORICAL MARKET DATA (MARKET CLOSED)';
+            } else if (kiteRestInstance) {
+                try {
+                    const ohlcRes = await kiteRestInstance.getOHLC([`NSE:${cleanSym}`]);
+                    const key = `NSE:${cleanSym}`;
+                    if (ohlcRes && ohlcRes[key] && ohlcRes[key].ohlc) {
+                        const qOhlc = ohlcRes[key].ohlc;
+                        open = qOhlc.open;
+                        high = qOhlc.high;
+                        low = qOhlc.low;
+                        close = ohlcRes[key].last_price || qOhlc.close;
+                        volume = ohlcRes[key].volume || 0;
+                        dataSource = isMarketOpen ? 'LIVE_MARKET' : 'HISTORICAL';
+                        dataSourceLabel = isMarketOpen ? 'REAL-TIME LIVE MARKET DATA' : 'HISTORICAL MARKET DATA (MARKET CLOSED)';
+                    }
+                } catch (e) {}
+            }
         }
 
-        // Must be a green candle (close > open)
+        // If no real market data was obtained, skip (no fake/dummy data)
+        if (!open || !high || !low || !close || open <= 0 || close <= 0) {
+            continue;
+        }
+
+        // Rule 1: The first candle MUST be a green candle (close > open)
         if (close <= open) continue;
 
         const bodyLength = parseFloat((close - open).toFixed(2));
         const bodyPercent = parseFloat(((bodyLength / open) * 100).toFixed(2));
+        const changePct = parseFloat((((close - open) / open) * 100).toFixed(2));
 
         if (bodyPercent < minBodyPercent) continue;
 
-        const fibonacciLevels = calculateFibonacciOpenToClose(open, close);
-        const derivative = await getAppropriateCeDerivative(cleanSym, close);
+        // Rule 3: Preferred ATM CE or 1 strike ITM CE contract resolution
+        const derivative = await getAppropriateCeDerivative(cleanSym, close, optionMode);
+
+        // Derive Stock Option 15m Premium Candle (Open, High, Low, Close)
+        const derivOpen = await getAppropriateCeDerivative(cleanSym, open, optionMode);
+        const derivHigh = await getAppropriateCeDerivative(cleanSym, high, optionMode);
+        const derivLow = await getAppropriateCeDerivative(cleanSym, low, optionMode);
+
+        const optOpen = derivOpen.estimatedPremium;
+        const optClose = derivative.estimatedPremium;
+        const optHigh = parseFloat(Math.max(derivHigh.estimatedPremium, optOpen, optClose).toFixed(2));
+        const optLow = parseFloat(Math.max(0.05, Math.min(derivLow.estimatedPremium, optOpen, optClose)).toFixed(2));
+
+        // Rule 1: The first 15-minute candle of the STOCK OPTION must be a green candle (optClose > optOpen)
+        if (optClose <= optOpen) continue;
+
+        // Rule 2: Fibonacci levels calculated directly from Low to High of the STOCK OPTION premium candle
+        const optionFibonacciLevels = calculateFibonacciLowToHigh(optLow, optHigh);
+
+        derivative.optOpen = optOpen;
+        derivative.optHigh = optHigh;
+        derivative.optLow = optLow;
+        derivative.optClose = optClose;
+        derivative.optionFibonacciLevels = optionFibonacciLevels;
 
         const token = getTokenBySymbol(cleanSym) || (100000 + Math.floor(Math.random() * 800000));
 
@@ -1685,29 +1821,52 @@ async function scanFnoFirst15MinFibonacci(options = {}) {
             volume,
             bodyLength,
             bodyPercent,
+            changePct,
             isGreen: true,
-            fibonacciLevels,
+            fibonacciLevels: optionFibonacciLevels, // Set primary Fibonacci levels to Stock Option Premium levels!
+            spotFibonacciLevels: calculateFibonacciLowToHigh(low, high), // Reference spot levels
             derivative,
+            dataSource,
+            dataSourceLabel,
             scannedAt: new Date()
         };
 
-        // Unique stock per day table upsert in MongoDB if connected
+        // Upsert into MongoDB FnoDailyScan and HistoricalCandle immediately for priority execution
         const mongoose = require('mongoose');
         const isDbConnected = mongoose && mongoose.connection && mongoose.connection.readyState === 1;
 
-        if (FnoDailyScan && isDbConnected) {
+        if (isDbConnected) {
             try {
-                await FnoDailyScan.findOneAndUpdate(
-                    { date: targetDate, symbol: cleanSym },
-                    scanDoc,
-                    { upsert: true, new: true, setDefaultsOnInsert: true }
-                );
+                if (FnoDailyScan) {
+                    await FnoDailyScan.findOneAndUpdate(
+                        { date: targetDate, symbol: cleanSym },
+                        scanDoc,
+                        { upsert: true, new: true, setDefaultsOnInsert: true }
+                    );
+                }
+                if (HistoricalCandle && derivative.tradingsymbol) {
+                    await HistoricalCandle.findOneAndUpdate(
+                        { symbol: derivative.tradingsymbol, interval: '15minute', timestamp: new Date(`${targetDate}T09:15:00.000Z`) },
+                        {
+                            symbol: derivative.tradingsymbol,
+                            instrumentToken: derivative.instrumentToken || 0,
+                            interval: '15minute',
+                            timestamp: new Date(`${targetDate}T09:15:00.000Z`),
+                            open: optOpen,
+                            high: optHigh,
+                            low: optLow,
+                            close: optClose,
+                            volume: volume || 0
+                        },
+                        { upsert: true, new: true, setDefaultsOnInsert: true }
+                    );
+                }
             } catch (e) {}
         }
         scannedRecords.push(scanDoc);
     }
 
-    // Query MongoDB (or fallback) to return daily table sorted in ASCENDING order (A-Z)
+    // Rule: Arrange scanner stocks in DESCENDING order of % change (Top Gainers first)
     let dailyTable = [];
     const mongoose = require('mongoose');
     const isDbConnected = mongoose && mongoose.connection && mongoose.connection.readyState === 1;
@@ -1715,13 +1874,13 @@ async function scanFnoFirst15MinFibonacci(options = {}) {
     if (FnoDailyScan && isDbConnected) {
         try {
             dailyTable = await FnoDailyScan.find({ date: targetDate })
-                .sort({ symbol: 1 }) // Ascending order A-Z
+                .sort({ changePct: -1 }) // Descending order of % change
                 .lean();
         } catch (e) {}
     }
 
     if (!dailyTable || dailyTable.length === 0) {
-        dailyTable = scannedRecords.sort((a, b) => a.symbol.localeCompare(b.symbol));
+        dailyTable = scannedRecords.sort((a, b) => b.changePct - a.changePct);
     }
 
     return {
@@ -1730,6 +1889,210 @@ async function scanFnoFirst15MinFibonacci(options = {}) {
         totalScanned: fnoSymbols.length,
         count: dailyTable.length,
         results: dailyTable
+    };
+}
+
+async function runStrategy1DecisionEngine(options = {}) {
+    const { StrategyConfig, StrategyTrade, FnoDailyScan } = require('./db');
+    const todayStr = options.date || new Date().toISOString().split('T')[0];
+    
+    let config = {
+        enabled: true,
+        marginPercentage: 20,
+        allowEntriesAfter12pm: false,
+        optionSelectionMode: 'ATM',
+        maxConcurrentPositions: 5
+    };
+
+    if (StrategyConfig) {
+        try {
+            const dbCfg = await StrategyConfig.findOne({ strategyId: 'strategy_1_fibonacci_option_buy' }).lean();
+            if (dbCfg) config = { ...config, ...dbCfg };
+        } catch (e) {}
+    }
+
+    if (!config.enabled) {
+        return { success: false, message: 'Strategy 1 is currently DISABLED.' };
+    }
+
+    // Time window check (09:30 to 12:00 unless allowEntriesAfter12pm is enabled)
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMin = now.getMinutes();
+    const timeInMins = currentHour * 60 + currentMin;
+    const isPast12pm = timeInMins >= 12 * 60;
+
+    if (isPast12pm && !config.allowEntriesAfter12pm) {
+        console.log('[Strategy1 Engine] Automatic entries paused post-12:00 PM (allowEntriesAfter12pm is false).');
+    }
+
+    // Get scanned stocks sorted by % change descending
+    let scannedDocs = [];
+    if (FnoDailyScan) {
+        try {
+            scannedDocs = await FnoDailyScan.find({ date: todayStr }).sort({ changePct: -1 }).lean();
+        } catch (e) {}
+    }
+
+    if (!scannedDocs || scannedDocs.length === 0) {
+        const scanRes = await scanFnoFirst15MinFibonacci({ targetDate: todayStr, optionSelectionMode: config.optionSelectionMode });
+        scannedDocs = scanRes.results || [];
+    }
+
+    const currentCandleWindow = `${String(currentHour).padStart(2, '0')}:${String(Math.floor(currentMin / 15) * 15).padStart(2, '0')}`;
+
+    const executedActions = [];
+
+    for (const doc of scannedDocs) {
+        const fibs = doc.fibonacciLevels || {}; // Primary Fibonacci levels are now Option Premium levels!
+        const deriv = doc.derivative || {};
+        const symbol = doc.symbol;
+        
+        // Option Premium Current Price
+        const currentOptPrice = getLtpBySymbol(deriv.tradingsymbol) || deriv.estimatedPremium || doc.close;
+        
+        const fib60 = fibs.fib600 || fibs.fib618;
+        const fib65 = fibs.fib650 || (fibs.fib618 * 0.995);
+        const fib786 = fibs.fib786;
+        const target1 = fibs.fib100;    // 100% / High of Option Premium (50% exit)
+        const target2 = fibs.fib1272;   // 1.272 ext of Option Premium (25% exit)
+        const target3 = fibs.fib1618;   // 1.618 ext of Option Premium (25% exit)
+
+        // Find existing trade
+        let trade = null;
+        if (StrategyTrade) {
+            try {
+                trade = await StrategyTrade.findOne({ date: todayStr, symbol }).lean();
+            } catch (e) {}
+        }
+
+        if (!trade) {
+            // Check Entry condition: Option Premium pulls back into 60%-65% range [fib65, fib60]
+            if (currentOptPrice <= fib60 && currentOptPrice >= fib65) {
+                if (isPast12pm && !config.allowEntriesAfter12pm) {
+                    continue; // Skip automatic entry after 12pm
+                }
+
+                let totalMargin = 41734.05;
+                if (kiteRestInstance) {
+                    try {
+                        const mData = await kiteRestInstance.getMargins('equity');
+                        if (mData && mData.net) totalMargin = mData.net;
+                    } catch (e) {}
+                }
+                const marginAllocated = (totalMargin * (config.marginPercentage / 100)) / config.maxConcurrentPositions;
+                const estPrem = deriv.estimatedPremium || 15;
+                const lotSize = deriv.lotSize || 100;
+                const lots = Math.max(1, Math.floor(marginAllocated / (estPrem * lotSize)));
+                const quantity = lots * lotSize;
+
+                const tradeId = `S1-${symbol}-${Date.now()}`;
+                const newTrade = {
+                    tradeId,
+                    strategyId: 'strategy_1_fibonacci_option_buy',
+                    date: todayStr,
+                    symbol,
+                    underlyingSymbol: symbol,
+                    optionSymbol: deriv.tradingsymbol || `${symbol} CE`,
+                    optionType: deriv.optionType || 'CE',
+                    strike: deriv.strike || Math.round(currentSpot),
+                    selectionMode: config.optionSelectionMode,
+                    lotSize,
+                    lots,
+                    quantity,
+                    marginAllocated,
+                    spot15mOpen: doc.open,
+                    spot15mHigh: doc.high,
+                    spot15mLow: doc.low,
+                    spot15mClose: doc.close,
+                    fib60,
+                    fib65,
+                    target1,
+                    target2,
+                    target3,
+                    stopLossLevel: fib786,
+                    entryPrice: estPrem,
+                    entryTime: new Date(),
+                    entryCandleWindow: currentCandleWindow,
+                    currentPrice: estPrem,
+                    status: 'ENTERED',
+                    targetsExecuted: { target1: false, target2: false, target3: false },
+                    logs: [{ timestamp: new Date(), message: `BUY triggered at 60-65% Fib retest zone (Spot: ₹${currentSpot.toFixed(2)}, Fib 60%: ₹${fib60.toFixed(2)}).` }]
+                };
+
+                if (StrategyTrade) {
+                    try {
+                        await StrategyTrade.create(newTrade);
+                    } catch (e) {}
+                }
+
+                executedActions.push({ action: 'BUY_ENTRY', symbol, trade: newTrade });
+            }
+        } else {
+            // Existing Trade Management (Targets & SL)
+            if (['ENTERED', 'PARTIAL_TARGET1', 'PARTIAL_TARGET2', 'BREATHING_SL'].includes(trade.status)) {
+                let updatedStatus = trade.status;
+                const logs = trade.logs || [];
+                const targetsExecuted = { ...trade.targetsExecuted };
+
+                // Target 1: Previous swing high (100%) -> Exit 50%
+                if (currentSpot >= target1 && !targetsExecuted.target1) {
+                    targetsExecuted.target1 = true;
+                    updatedStatus = 'PARTIAL_TARGET1';
+                    logs.push({ timestamp: new Date(), message: `Target 1 (Previous Swing High ₹${target1.toFixed(2)}) reached! Exited 50% position.` });
+                    executedActions.push({ action: 'TARGET1_50%_EXIT', symbol });
+                }
+
+                // Target 2: 1.272 extension -> Exit 25%
+                if (currentSpot >= target2 && !targetsExecuted.target2) {
+                    targetsExecuted.target2 = true;
+                    updatedStatus = 'PARTIAL_TARGET2';
+                    logs.push({ timestamp: new Date(), message: `Target 2 (1.272 Ext ₹${target2.toFixed(2)}) reached! Exited 25% position.` });
+                    executedActions.push({ action: 'TARGET2_25%_EXIT', symbol });
+                }
+
+                // Target 3: 1.618 extension -> Exit final 25%
+                if (currentSpot >= target3 && !targetsExecuted.target3) {
+                    targetsExecuted.target3 = true;
+                    updatedStatus = 'EXITED_TARGET3';
+                    logs.push({ timestamp: new Date(), message: `Target 3 (1.618 Ext ₹${target3.toFixed(2)}) reached! Exited final 25% position.` });
+                    executedActions.push({ action: 'TARGET3_FINAL_EXIT', symbol });
+                }
+
+                // Stop Loss Logic (78.6% Retracement Breach with 15-minute candle breath check)
+                if (currentSpot <= fib786) {
+                    if (trade.entryCandleWindow === currentCandleWindow) {
+                        // Same 15m candle as entry: DO NOT place exit order, let stock option breathe!
+                        if (updatedStatus !== 'BREATHING_SL') {
+                            updatedStatus = 'BREATHING_SL';
+                            logs.push({ timestamp: new Date(), message: `Price hit 78.6% SL (₹${fib786.toFixed(2)}) during entry 15m candle. Allowing option to breathe until next candle.` });
+                            executedActions.push({ action: 'SL_BREATHING_ALERT', symbol });
+                        }
+                    } else {
+                        // Subsequent 15m candle: Price remains <= 78.6%, place exit order!
+                        updatedStatus = 'EXITED_SL';
+                        logs.push({ timestamp: new Date(), message: `78.6% SL (₹${fib786.toFixed(2)}) confirmed on subsequent 15m candle. Executed STOP LOSS exit.` });
+                        executedActions.push({ action: 'STOP_LOSS_EXIT', symbol });
+                    }
+                }
+
+                if (StrategyTrade) {
+                    try {
+                        await StrategyTrade.updateOne(
+                            { tradeId: trade.tradeId },
+                            { status: updatedStatus, targetsExecuted, logs, currentPrice: deriv.estimatedPremium || trade.entryPrice }
+                        );
+                    } catch (e) {}
+                }
+            }
+        }
+    }
+
+    return {
+        success: true,
+        date: todayStr,
+        actionsCount: executedActions.length,
+        actions: executedActions
     };
 }
 
@@ -1748,9 +2111,10 @@ module.exports = {
     getTokenBySymbol,
     syncSubscriptions,
     getFnoStocksList,
-    calculateFibonacciOpenToClose,
+    calculateFibonacciLowToHigh,
     getAppropriateCeDerivative,
     scanFnoFirst15MinFibonacci,
+    runStrategy1DecisionEngine,
     getConnectionLogs: () => connectionLogs,
     isInitialized: () => isInitialized,
     getConnectionLogsList: () => connectionLogs,

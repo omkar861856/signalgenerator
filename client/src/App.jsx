@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { 
-  TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Check, X, 
+  TrendingUp, TrendingDown, Shield, Zap, Settings, Play, Pause, Check, X, 
   Copy, Trash2, LogOut, LogIn, ExternalLink, RefreshCw, AlertTriangle, Lock, Plus, Search, 
   FileText, LayoutDashboard, CopyCheck, Brain, CircleDot, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon, Layers, BarChart2, Clock, Calendar, Download
+  Eye, EyeOff, Activity, Flame, Info, Sparkles, Wand2, Briefcase, IndianRupee, PieChart, Cpu, Server, Database, Globe, Square, Code, LineChart, History, MessageSquare, Menu, RefreshCcw, Sliders, Link2, Pencil, Sun, Moon, Layers, BarChart2, Clock, Calendar, Download, Power, CheckCircle2, ArrowUpRight, ArrowLeft
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import BacktestPlatform from './components/BacktestPlatform';
+import FnoFibonacciStrategy from './components/FnoFibonacciStrategy';
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 
 class ErrorBoundary extends React.Component {
@@ -312,6 +313,23 @@ function AppContent() {
   const collapsedStrategySections = collapsedPageSections;
   const toggleStrategySection = togglePageSection;
   const [selectedStrategy, setSelectedStrategy] = useState('ai_intraday_buy'); // 'ai_intraday_buy' | 'credit_spread' | 'leaps' | 'wheel'
+  const [activeStrategySubView, setActiveStrategySubView] = useState(null); // null (grid) | 'strategy_1' (dedicated page)
+  const [strategy1EnabledState, setStrategy1EnabledState] = useState(false); // Default OFF
+  const [strategy1MarginPctState, setStrategy1MarginPctState] = useState(20);
+  const [strategy1Post12pmState, setStrategy1Post12pmState] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/strategy1/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.config) {
+          setStrategy1EnabledState(Boolean(data.config.enabled));
+          if (data.config.marginPercentage) setStrategy1MarginPctState(data.config.marginPercentage);
+          if (data.config.allowEntriesAfter12pm !== undefined) setStrategy1Post12pmState(Boolean(data.config.allowEntriesAfter12pm));
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [selectedIntradayScreener, setSelectedIntradayScreener] = useState('Top Gainers & Increasing OI');
   const [aiIntradaySignals, setAiIntradaySignals] = useState([]);
   const [aiIntradayLoading, setAiIntradayLoading] = useState(false);
@@ -465,13 +483,12 @@ function AppContent() {
   ]);
   const [selectedFnoScanner, setSelectedFnoScanner] = useState('F&O Theta Decay Setup');
   const [selectedFnoIndex, setSelectedFnoIndex] = useState('F&O Stocks');
-  const [selectedFnoExpiry, setSelectedFnoExpiry] = useState('30-JUL-2026');
+  const [selectedFnoExpiry, setSelectedFnoExpiry] = useState('27-AUG-2026');
   const [availableFnoExpiries, setAvailableFnoExpiries] = useState([
-    { date: '30-JUL-2026', label: '30-JUL-2026 (Current Weekly)', type: 'Weekly', dte: 3 },
-    { date: '06-AUG-2026', label: '06-AUG-2026 (Next Weekly)', type: 'Weekly', dte: 10 },
-    { date: '13-AUG-2026', label: '13-AUG-2026 (Far Weekly)', type: 'Weekly', dte: 17 },
-    { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)', type: 'Monthly', dte: 31 },
-    { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)', type: 'Monthly', dte: 59 }
+    { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)', type: 'Monthly', dte: 6 },
+    { date: '03-SEP-2026', label: '03-SEP-2026 (Next Weekly)', type: 'Weekly', dte: 13 },
+    { date: '10-SEP-2026', label: '10-SEP-2026 (Far Weekly)', type: 'Weekly', dte: 20 },
+    { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)', type: 'Monthly', dte: 34 }
   ]);
   const [fnoSearchQuery, setFnoSearchQuery] = useState('');
   const [fnoBuildupFilter, setFnoBuildupFilter] = useState('All');
@@ -480,48 +497,68 @@ function AppContent() {
   const [fnoModeInfo, setFnoModeInfo] = useState({ mode: 'LIVE', isMarketOpen: false, statusText: 'Determining Mode...' });
   const [fnoScannerResults, setFnoScannerResults] = useState([]);
   const [fnoScannerLoading, setFnoScannerLoading] = useState(false);
-  const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', expiry: '30-JUL-2026', data: null, loading: false });
+  const [optionChainModal, setOptionChainModal] = useState({ isOpen: false, symbol: '', expiry: '27-AUG-2026', data: null, loading: false });
   const getFrontendDynamicExpiries = (symbol = 'NIFTY') => {
     const cleanSym = (symbol || 'NIFTY').toUpperCase().split(':').pop().trim();
     const today = new Date();
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
     const formatDate = (d) => `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
-    const getLastDayOfMonth = (year, month, targetDayOfWeek = 4) => {
+    
+    // Calculates the last Thursday of a given year and 0-indexed month
+    const getLastThursdayOfMonth = (year, month) => {
       const lastDay = new Date(year, month + 1, 0);
-      let day = lastDay.getDay();
-      let diff = (day >= targetDayOfWeek) ? (day - targetDayOfWeek) : (day + 7 - targetDayOfWeek);
+      let day = lastDay.getDay(); // 0 = Sun, 4 = Thu
+      let diff = day >= 4 ? (day - 4) : (day + 7 - 4);
       lastDay.setDate(lastDay.getDate() - diff);
+      lastDay.setHours(23, 59, 59, 999);
       return lastDay;
     };
+
     const isStock = !['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'NIFTY BANK', 'FIN NIFTY'].includes(cleanSym);
+
     if (isStock) {
-      let curr = getLastDayOfMonth(today.getFullYear(), today.getMonth(), 4);
-      if (curr < today && today.getDate() > curr.getDate()) curr = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
-      let next = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
-      if (next <= curr) next = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
-      let far = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
-      if (far <= next) far = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 3, 4);
+      let yr = today.getFullYear();
+      let mo = today.getMonth();
+      let curr = getLastThursdayOfMonth(yr, mo);
+      
+      // If current month's last Thursday is past today, roll over to next month
+      if (curr < today) {
+        mo += 1;
+        curr = getLastThursdayOfMonth(yr, mo);
+      }
+      let next = getLastThursdayOfMonth(yr, mo + 1);
+      let far = getLastThursdayOfMonth(yr, mo + 2);
+
       return [
         { date: formatDate(curr), label: `${formatDate(curr)} (Current Monthly)` },
         { date: formatDate(next), label: `${formatDate(next)} (Next Monthly)` },
         { date: formatDate(far), label: `${formatDate(far)} (Far Monthly)` }
       ];
     }
-    let weeklyDay = 4;
-    if (cleanSym.includes('BANK')) weeklyDay = 3;
-    else if (cleanSym.includes('FIN')) weeklyDay = 2;
-    else if (cleanSym.includes('MID')) weeklyDay = 1;
+
+    let weeklyDay = 4; // Default Nifty = Thursday
+    if (cleanSym.includes('BANK')) weeklyDay = 3;      // BankNifty = Wednesday
+    else if (cleanSym.includes('FIN')) weeklyDay = 2;  // FinNifty = Tuesday
+    else if (cleanSym.includes('MID')) weeklyDay = 1;  // MidcapNifty = Monday
+
     let currWeekly = new Date(today);
     let day = currWeekly.getDay();
     let diff = weeklyDay - day;
     if (diff < 0) diff += 7;
     currWeekly.setDate(currWeekly.getDate() + diff);
+
     let nextWeekly = new Date(currWeekly); nextWeekly.setDate(nextWeekly.getDate() + 7);
     let farWeekly = new Date(currWeekly); farWeekly.setDate(farWeekly.getDate() + 14);
-    let currMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth(), 4);
-    if (currMonthly < currWeekly) currMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
-    let nextMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 1, 4);
-    if (nextMonthly <= currMonthly) nextMonthly = getLastDayOfMonth(today.getFullYear(), today.getMonth() + 2, 4);
+
+    let currMonthly = getLastThursdayOfMonth(today.getFullYear(), today.getMonth());
+    if (currMonthly < currWeekly) {
+      currMonthly = getLastThursdayOfMonth(today.getFullYear(), today.getMonth() + 1);
+    }
+    let nextMonthly = getLastThursdayOfMonth(today.getFullYear(), today.getMonth() + 1);
+    if (nextMonthly <= currMonthly) {
+      nextMonthly = getLastThursdayOfMonth(today.getFullYear(), today.getMonth() + 2);
+    }
+
     return [
       { date: formatDate(currWeekly), label: `${formatDate(currWeekly)} (Current Weekly)` },
       { date: formatDate(nextWeekly), label: `${formatDate(nextWeekly)} (Next Weekly)` },
@@ -770,6 +807,81 @@ function AppContent() {
     estTimeFormatted: 'Calculating...'
   });
   const [dbSyncLoading, setDbSyncLoading] = useState(false);
+
+  // Admin Options Sync State (24/7 Stock Options & Candles Sync Engine)
+  const [optionsSyncData, setOptionsSyncData] = useState({
+    status: 'idle',
+    progressPct: 0,
+    totalOptions: 0,
+    processedOptions: 0,
+    totalCandlesSaved: 0,
+    currentOption: '',
+    currentInterval: 'day',
+    optionsPerSec: 0,
+    estSecondsRemaining: 0,
+    estTimeFormatted: '00m 00s',
+    isNoLoginMode: true,
+    logs: []
+  });
+  const [optionsSyncLoading, setOptionsSyncLoading] = useState(false);
+
+  const fetchOptionsSyncStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/options-sync/status');
+      if (res.ok) {
+        const data = await res.json();
+        setOptionsSyncData({
+          status: data.status || 'idle',
+          progressPct: data.progressPct || 0,
+          totalOptions: data.totalOptions || 0,
+          processedOptions: data.processedOptions || 0,
+          totalCandlesSaved: data.totalCandlesSaved || 0,
+          currentOption: data.currentOption || '',
+          currentInterval: data.currentInterval || 'day',
+          optionsPerSec: data.optionsPerSec || 0,
+          estSecondsRemaining: data.estSecondsRemaining || 0,
+          estTimeFormatted: data.estTimeFormatted || '00m 00s',
+          isNoLoginMode: data.isNoLoginMode ?? true,
+          logs: data.logs || []
+        });
+      }
+    } catch (err) {
+      console.error('[Options Sync Status Fetch Error]:', err.message);
+    }
+  }, []);
+
+  const handleStartOptionsSync = async () => {
+    setOptionsSyncLoading(true);
+    try {
+      const res = await fetch('/api/admin/options-sync/start', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert('24/7 Stock Options & Candles sync engine started in background!');
+        fetchOptionsSyncStatus();
+      } else {
+        showAlert(data.error || 'Failed to start options sync');
+      }
+    } catch (err) {
+      showAlert('Network error starting options sync');
+    } finally {
+      setOptionsSyncLoading(false);
+    }
+  };
+
+  const handlePauseOptionsSync = async () => {
+    setOptionsSyncLoading(true);
+    try {
+      const res = await fetch('/api/admin/options-sync/pause', { method: 'POST' });
+      if (res.ok) {
+        showAlert('Options sync engine paused');
+        fetchOptionsSyncStatus();
+      }
+    } catch (err) {
+      showAlert('Error pausing options sync');
+    } finally {
+      setOptionsSyncLoading(false);
+    }
+  };
 
   // Smart Auto-Trading Execution State
   const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
@@ -1375,22 +1487,29 @@ function AppContent() {
     }
   }, []);
 
-  // Fetch Network IPs when on Admin view
+  // Fetch Network IPs and poll 24/7 options sync status when on Admin view
   useEffect(() => {
-    if (view === 'admin' && appConfig.hasAccessToken) {
-      fetch('/api/system/network-ips')
-        .then(r => r.json())
-        .then(data => {
-          if (data.success) {
-            setNetworkIps(data.ips);
-          }
-        })
-        .catch(err => console.error('Error fetching network IPs:', err));
+    if (view === 'admin') {
+      fetchOptionsSyncStatus();
+      const interval = setInterval(fetchOptionsSyncStatus, 2000);
       
-      fetchDbSpace();
-      fetchDbBackups();
+      if (appConfig.hasAccessToken) {
+        fetch('/api/system/network-ips')
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) {
+              setNetworkIps(data.ips);
+            }
+          })
+          .catch(err => console.error('Error fetching network IPs:', err));
+        
+        fetchDbSpace();
+        fetchDbBackups();
+      }
+
+      return () => clearInterval(interval);
     }
-  }, [view, appConfig.hasAccessToken, fetchDbSpace, fetchDbBackups]);
+  }, [view, appConfig.hasAccessToken, fetchDbSpace, fetchDbBackups, fetchOptionsSyncStatus]);
 
   const runScanner = useCallback(async (scannerName = selectedScanner, indexName = selectedScannerIndex, isBackgroundPoll = false) => {
     if (!isBackgroundPoll) setScannerLoading(true);
@@ -3508,7 +3627,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
   }
 
   return (
-    <div className={`flex min-h-screen w-full overflow-x-hidden relative font-sans transition-colors duration-200 ${
+    <div className={`flex h-screen w-full overflow-hidden relative font-sans transition-colors duration-200 ${
       theme === 'light' ? 'theme-light bg-slate-50 text-slate-900' : 'theme-dark bg-[#0b0f19] text-slate-100'
     }`}>
       
@@ -3524,9 +3643,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         />
       )}
 
-      {/* Collapsible Sidebar (Static & Non-Scrollable) */}
+      {/* Collapsible Sidebar (Sticky & Fixed SPA Navigation) */}
       <aside className={`flex flex-col border-r border-white/5 bg-[#0f1524]/95 backdrop-blur-md transition-all duration-300 flex-shrink-0
-        fixed md:sticky top-0 left-0 h-screen overflow-hidden select-none z-50 self-start
+        fixed md:sticky top-0 left-0 h-screen overflow-y-auto select-none z-50 self-start
         ${isSidebarCollapsed ? 'w-20' : 'w-64'}
         ${isMobileMenuOpen ? 'translate-x-0 visible' : '-translate-x-full invisible md:visible md:translate-x-0'}
       `}>
@@ -3602,8 +3721,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
           )}
         </div>
 
-        {/* Navigation Tabs (Non-Scrollable Static Container) */}
-        <div className="flex-1 py-4 overflow-hidden px-3">
+        {/* Navigation Tabs */}
+        <div className="flex-1 py-4 overflow-y-auto px-3">
           <nav className="space-y-1.5">
             {[
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, activeColor: 'bg-indigo-600/80' },
@@ -3640,8 +3759,8 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         </div>
       </aside>
 
-      {/* Main Content Wrapper */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+      {/* Main Content Wrapper (Scrollable Page Body for SPA Layout) */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
         
         {/* Top Header Status Bar */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#0f1524]/60 backdrop-blur-md sticky top-0 z-40 h-[73px]">
@@ -4556,1479 +4675,208 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
             </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* VIEW: STRATEGIES VIEW                                                    */}
-      {/* ========================================================================= */}
-      {/* VIEW: STRATEGIES VIEW                                                    */}
-      {/* ========================================================================= */}
       {view === 'strategies' && (
         <div className="flex flex-col gap-6 w-full text-slate-200 animate-in fade-in duration-300">
-          {/* Header / Intro Card */}
-          <div className="glass-panel p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-slate-800 bg-[#0f1524]/60 backdrop-blur-md rounded-xl">
-            <div>
-              <h2 className="text-lg font-display font-bold text-white flex items-center gap-2">
-                <Sliders className="h-5 w-5 text-indigo-400" />
-                Quantitative Strategy Orchestrator & Auto-Trader
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Configure quantitative multi-indicator strategies, customize AI trading prompts, and route breakout signals directly to Zerodha orders.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className={`text-xs font-bold px-3 py-1 rounded-lg border flex items-center gap-1.5 ${
-                autoTradeEnabled 
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
-                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-              }`}>
-                <span className={`h-2 w-2 rounded-full ${autoTradeEnabled ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
-                {autoTradeEnabled ? 'Auto Execution ON ⚡' : 'Execution Engine Paused ⏸️'}
-              </span>
-              <span className="text-xs font-mono font-semibold bg-white/5 border border-white/10 px-3 py-1 rounded-lg text-indigo-300">
-                Mode: {activeAssetMode.toUpperCase()}
-              </span>
-            </div>
-          </div>
-
-          {/* LIVE STRATEGY EXECUTION MONITOR & ACTION LOGS CARD */}
-          <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-            <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-emerald-400 animate-pulse" />
-                <div>
-                  <CardTitle className="font-display font-semibold text-sm text-white flex items-center gap-2">
-                    Live Strategy Execution Logs & Screener Monitor
-                    <span className="text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded">
-                      ACTIVE & SCREENING ⚡
-                    </span>
-                  </CardTitle>
-                  <CardDescription className="text-xs text-slate-400">
-                    Real-time activity logs of strategy screening, indicator signal checks, entry orders, and exit triggers.
-                  </CardDescription>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    saveAppStateField({ intradayActionsLogs: [] });
-                    setIntradayActionsLogs([]);
-                  }}
-                  className="px-2.5 py-1 text-[11px] font-mono text-slate-400 hover:text-white border-white/10 h-auto cursor-pointer"
-                >
-                  Clear Logs
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0 flex flex-col gap-3">
-              <div className="bg-black/40 border border-white/5 rounded-xl p-3.5 font-mono text-xs max-h-56 overflow-y-auto flex flex-col gap-1.5 leading-relaxed">
-                {intradayActionsLogs.length === 0 ? (
-                  <span className="text-slate-500 italic text-[11px]">
-                    [Strategy Engine] Initializing background poller... Monitoring watchlist stocks for active strategy triggers.
-                  </span>
-                ) : (
-                  intradayActionsLogs.map((logItem, idx) => (
-                    <div 
-                      key={idx} 
-                      className={`text-[11px] flex items-start gap-1.5 ${
-                        logItem.includes('Error') || logItem.includes('❌') 
-                          ? 'text-rose-400' 
-                          : logItem.includes('Successfully') || logItem.includes('Executed') || logItem.includes('BUY') || logItem.includes('SELL')
-                          ? 'text-emerald-400 font-semibold'
-                          : logItem.includes('Strategy') || logItem.includes('Screener')
-                          ? 'text-indigo-300'
-                          : 'text-slate-300'
-                      }`}
-                    >
-                      <span className="text-slate-500 flex-shrink-0">&gt;</span>
-                      <span>{logItem}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* QUANTITATIVE STRATEGY PRESETS LIBRARY */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 font-display flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                Featured Quantitative Strategy Library (1-Click Deploy):
-              </span>
-              <span className="text-[11px] font-mono text-indigo-300 bg-indigo-500/10 px-2.5 py-0.5 rounded border border-indigo-500/20">
-                27 Indicators Enabled
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[
-                { 
-                  title: '⚡ Supertrend & RSI Surfer', 
-                  tag: 'Trend Following',
-                  desc: 'Rides sustained bull trends when Price > 10,3 Supertrend and RSI > 60. Exits on trend flip or RSI < 40.',
-                  buy: 'close > supertrend && rsi > 60',
-                  sell: 'close < supertrend || rsi < 40',
-                  sl: 1.5, tp: 3.5
-                },
-                { 
-                  title: '📈 Golden Cross & ADX Breakout', 
-                  tag: 'Moving Average',
-                  desc: 'Captures strong institutional trend acceleration when Fast EMA (20) crosses Slow EMA (50) with ADX > 25.',
-                  buy: 'ema_fast > ema_slow && adx > 25',
-                  sell: 'ema_fast < ema_slow',
-                  sl: 2.0, tp: 5.0
-                },
-                { 
-                  title: '📊 Bollinger Squeeze + MFI', 
-                  tag: 'Volatility Squeeze',
-                  desc: 'Detects tight consolidation volatility squeezes followed by upper band breakout with Money Flow Index volume expansion.',
-                  buy: 'close > bb_upper && mfi > 55',
-                  sell: 'close < bb_middle',
-                  sl: 1.2, tp: 3.0
-                },
-                { 
-                  title: '📉 MACD & Stochastic Double', 
-                  tag: 'Momentum Cross',
-                  desc: 'Dual confirmation strategy matching positive MACD histogram expansion with Stochastic %K momentum crosses.',
-                  buy: 'macd_hist > 0 && stoch_k > 70',
-                  sell: 'macd_hist < 0 || stoch_k < 30',
-                  sl: 1.5, tp: 4.0
-                },
-                { 
-                  title: '☁️ Ichimoku Cloud & OBV', 
-                  tag: 'Cloud Trend',
-                  desc: 'Enforces strict trend alignment using Ichimoku Senkou Span A/B clouds confirmed by On-Balance Volume accumulation.',
-                  buy: 'close > ichimoku_spanA && obv > 0',
-                  sell: 'close < ichimoku_spanA',
-                  sl: 2.0, tp: 4.5
-                },
-                { 
-                  title: '🎯 Parabolic SAR & VWAP Intraday', 
-                  tag: 'Intraday Reversal',
-                  desc: 'Anchors trades above VWAP intraday mean with Parabolic SAR trailing stops and Commodity Channel Index momentum.',
-                  buy: 'close > psar && close > vwap && cci > 100',
-                  sell: 'close < psar || close < vwap',
-                  sl: 1.0, tp: 2.5
-                }
-              ].map((strat, sIdx) => (
-                <div 
-                  key={sIdx}
-                  onClick={() => {
-                    setBuySignalExpr(strat.buy);
-                    setSellSignalExpr(strat.sell);
-                    setEquityStopLossPercent(strat.sl);
-                    setEquityTargetPercent(strat.tp);
-                    showAlert(`Applied strategy: ${strat.title}`);
-                  }}
-                  className="bg-[#0b0f19] hover:bg-[#0f1524] border border-white/5 hover:border-indigo-500/40 p-4 rounded-xl flex flex-col gap-2.5 transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors">{strat.title}</span>
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                      {strat.tag}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">{strat.desc}</p>
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 border-t border-white/5 pt-2 font-mono">
-                    <span>SL: <strong className="text-rose-400">{strat.sl}%</strong></span>
-                    <span>TP: <strong className="text-emerald-400">{strat.tp}%</strong></span>
-                    <span className="text-indigo-400 font-bold group-hover:underline">1-Click Load ⚡</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 2-Column Responsive Layout */}
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-            
-            {/* Left Column: Configuration & Builder (xl:span-5) */}
-            <div className="xl:col-span-5 flex flex-col gap-6">
+          {activeStrategySubView === 'strategy_1' ? (
+            <FnoFibonacciStrategy userMargin={margins?.equity?.net !== undefined && margins?.equity?.net > 0 ? margins.equity.net : 41734.05} onBack={() => setActiveStrategySubView(null)} />
+          ) : (
+            <div className="flex flex-col gap-6">
               
-              {/* Active Strategy Settings */}
-              <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
-                  <Settings className="h-5 w-5 text-indigo-400" />
-                  <CardTitle className="font-display font-semibold text-sm text-white">Active Strategy Settings</CardTitle>
-                </CardHeader>
-                  <CardContent className="p-0 flex flex-col gap-4 mt-4">
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <label className="text-slate-400 font-semibold">Select Strategy</label>
-                      <select 
-                        value={activeStrategy}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setActiveStrategy(val);
-                        }}
-                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-2.5 text-white outline-none cursor-pointer"
-                      >
-                        <option value="momentum_surfing_morning">momentum surfing morning stragey (Flat 2% SL / 4% Target GTT)</option>
-                        <option value="portfolio_gtt">Portfolio Sizing Strategy (Dynamic Portfolio SL & Target GTT)</option>
-                        <option value="standard_rr">Standard 1:2 Risk-Reward (Flat 2% SL / 4% Target GTT)</option>
-                        <option value="custom">Custom System Prompt (Fully Editable Prompt Template)</option>
-                      </select>
-                    </div>
+              {/* Strategy Status Notification Banner */}
+              <div className={`p-4 rounded-2xl border flex items-center justify-between text-xs font-semibold shadow-lg ${
+                strategy1EnabledState 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${strategy1EnabledState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                  <span>
+                    Strategy 1 (1st 15-Minute F&amp;O Fibonacci Option Buying Strategy) is currently <strong>{strategy1EnabledState ? 'ON (ENABLED)' : 'OFF (DISABLED)'}</strong>.
+                  </span>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/strategy1/toggle', { method: 'POST' });
+                      const data = await res.json();
+                      if (data.success) {
+                        setStrategy1EnabledState(data.enabled);
+                      }
+                    } catch (e) {
+                      setStrategy1EnabledState(!strategy1EnabledState);
+                    }
+                  }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                    strategy1EnabledState 
+                      ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-500/40' 
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500/40'
+                  }`}
+                >
+                  <Power className="h-3.5 w-3.5" />
+                  {strategy1EnabledState ? 'Turn OFF' : 'Turn ON'}
+                </button>
+              </div>
 
-                    {/* Active Trading Mode Toggle */}
-                    <div className="flex flex-col gap-2.5 mt-2 border-t border-white/5 pt-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-slate-400 font-semibold text-xs">Active Trading Mode</label>
-                        <span className="text-[10px] text-slate-500 font-mono">Applies settings globally</span>
-                      </div>
-                      <div className="flex bg-black/40 border border-white/5 p-1 rounded-xl">
-                        <button
-                          type="button"
-                          onClick={() => setActiveAssetMode('equity')}
-                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            activeAssetMode === 'equity' 
-                              ? 'bg-indigo-600 text-white shadow' 
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Equity Mode
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveAssetMode('fno')}
-                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            activeAssetMode === 'fno' 
-                              ? 'bg-purple-600 text-white shadow' 
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          F&O Mode
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Equity vs F&O Risk Toggle */}
-                    <div className="flex flex-col gap-2.5 mt-2 border-t border-white/5 pt-3">
-                      <label className="text-slate-400 font-semibold text-xs">Risk/Reward Configuration</label>
-                      <div className="flex bg-black/40 border border-white/5 p-1 rounded-xl">
-                        <button
-                          type="button"
-                          onClick={() => setSettingsTab('equity')}
-                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            settingsTab === 'equity' 
-                              ? 'bg-indigo-600 text-white shadow' 
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Equity Intraday
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSettingsTab('fno')}
-                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                            settingsTab === 'fno' 
-                              ? 'bg-purple-600 text-white shadow' 
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          F&O Derivatives
-                        </button>
-                      </div>
-
-                      {/* Config Inputs */}
-                      {settingsTab === 'equity' ? (
-                        <div className="grid grid-cols-2 gap-3 mt-1 bg-white/[0.01] p-3 rounded-xl border border-white/5">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Stop-Loss (%)</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={equityStopLossPercent}
-                              onChange={(e) => setEquityStopLossPercent(parseFloat(e.target.value) || 0)}
-                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Target Profit (%)</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={equityTargetPercent}
-                              onChange={(e) => setEquityTargetPercent(parseFloat(e.target.value) || 0)}
-                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-3 mt-1 bg-white/[0.01] p-3 rounded-xl border border-white/5">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Stop-Loss (%)</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={fnoStopLossPercent}
-                              onChange={(e) => setFnoStopLossPercent(parseFloat(e.target.value) || 0)}
-                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Target Profit (%)</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={fnoTargetPercent}
-                              onChange={(e) => setFnoTargetPercent(parseFloat(e.target.value) || 0)}
-                              className="bg-black/30 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-xs"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <div className="flex justify-between items-center">
-                        <label className="text-slate-400 font-semibold">Prompt Template Content</label>
-                        <span className="text-[10px] text-slate-500 font-mono">{"${marginPercentage}"} supported</span>
-                      </div>
-                      <textarea 
-                        value={customSystemPrompt}
-                        onChange={(e) => setCustomSystemPrompt(e.target.value)}
-                        disabled={activeStrategy !== 'custom'}
-                        placeholder="Enter custom strategist system instructions..."
-                        className="w-full bg-black/40 border border-white/5 rounded-xl p-3 text-xs text-slate-200 font-mono resize-none focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 min-h-[160px]"
-                      />
-                    </div>
+              {/* Strategy 1 Card */}
+              <div className="max-w-2xl w-full">
+                <div className="glass-panel border border-purple-500/30 bg-slate-900/80 rounded-2xl p-6 flex flex-col justify-between gap-5 hover:border-purple-500/60 transition-all shadow-xl hover:shadow-purple-900/20 relative group">
+                  <div className="flex flex-col gap-4">
                     
-                    <Button 
-                      onClick={handleSaveStrategySettings}
-                      className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-600/10 h-auto border-0"
-                    >
-                      Save & Apply Strategy
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {/* ⚡ SMART AUTOMATED TRADE EXECUTION ENGINE CARD */}
-                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Zap className="h-5 w-5 text-amber-400" />
-                      <div>
-                        <CardTitle className="font-display font-semibold text-sm text-white">Smart Auto-Trading Execution</CardTitle>
-                        <p className="text-[11px] text-slate-400">Routes indicator signals & scanner breakouts directly to live Zerodha orders.</p>
+                    {/* Status Pill & ON/OFF Toggle */}
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`h-2.5 w-2.5 rounded-full ${strategy1EnabledState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                        <span className={`text-[11px] font-mono font-bold uppercase ${strategy1EnabledState ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {strategy1EnabledState ? '● ACTIVE' : '○ INACTIVE'}
+                        </span>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                        autoTradeEnabled 
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                          : 'bg-slate-800 text-slate-400 border-white/5'
-                      }`}>
-                        {autoTradeEnabled ? 'Execution Active ⚡' : 'Execution Off ⏸️'}
-                      </span>
+
                       <button
-                        onClick={() => {
-                          const nextState = !autoTradeEnabled;
-                          setAutoTradeEnabled(nextState);
-                          showAlert(nextState ? 'Smart Auto-Trade Execution Engine Enabled!' : 'Auto-Trade Execution Engine Paused.');
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('/api/strategy1/toggle', { method: 'POST' });
+                            const data = await res.json();
+                            if (data.success) {
+                              setStrategy1EnabledState(data.enabled);
+                            }
+                          } catch (e) {
+                            setStrategy1EnabledState(!strategy1EnabledState);
+                          }
                         }}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border-0 ${
-                          autoTradeEnabled ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                          strategy1EnabledState 
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' 
+                            : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
                         }`}
                       >
-                        {autoTradeEnabled ? 'Pause Execution' : 'Enable Execution'}
+                        <Power className="h-3.5 w-3.5" />
+                        {strategy1EnabledState ? 'ON' : 'OFF'}
                       </button>
                     </div>
-                  </CardHeader>
-                  <CardContent className="p-0 flex flex-col gap-3 mt-3">
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Capital per Order (₹)</label>
-                        <input
-                          type="number"
-                          value={smartRiskParams.capitalPerTrade}
-                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, capitalPerTrade: parseFloat(e.target.value) || 0 }))}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Max Total Capital (₹)</label>
-                        <input
-                          type="number"
-                          value={smartRiskParams.maxAllocation}
-                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, maxAllocation: parseFloat(e.target.value) || 0 }))}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Stop Loss %</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={smartRiskParams.stopLossPct}
-                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, stopLossPct: parseFloat(e.target.value) || 0 }))}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none text-center"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Target Profit %</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={smartRiskParams.targetProfitPct}
-                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, targetProfitPct: parseFloat(e.target.value) || 0 }))}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none text-center"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Trailing Stop Loss %</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={smartRiskParams.trailingSlPct}
-                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, trailingSlPct: parseFloat(e.target.value) || 0 }))}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none text-center"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-slate-400 font-semibold">Product Type</label>
-                        <select
-                          value={smartRiskParams.productType}
-                          onChange={(e) => setSmartRiskParams(prev => ({ ...prev, productType: e.target.value }))}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-1.5 text-white focus:outline-none cursor-pointer"
-                        >
-                          <option value="MIS">MIS (Intraday Auto Square-Off)</option>
-                          <option value="CNC">CNC (Equity Delivery)</option>
-                          <option value="NRML">NRML (Futures & Options)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
 
-                {/* Admin System Position Exit Logic Reference Card */}
-                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
-                    <Shield className="h-5 w-5 text-amber-400" />
+                    {/* Title */}
                     <div>
-                      <CardTitle className="font-display font-semibold text-sm text-white">System Position Exit Rules & Safeguards (Admin Manual)</CardTitle>
-                      <CardDescription className="text-xs text-slate-400">Complete specifications for automatic position exits, safety switches, and risk limits</CardDescription>
+                      <span className="text-[10px] font-mono font-bold text-purple-300 uppercase tracking-wider bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                        STRATEGY #1 • OPTION BUYING
+                      </span>
+                      <h3 className="text-lg font-display font-bold text-white mt-1.5 flex items-center gap-2">
+                        <Flame className="h-5 w-5 text-purple-400" />
+                        1st 15-Minute F&amp;O Fibonacci Strategy
+                      </h3>
                     </div>
-                  </CardHeader>
-                  <CardContent className="p-0 flex flex-col gap-3 mt-2 text-xs">
-                    <div className="p-3.5 rounded-xl bg-slate-950/70 border border-white/10 flex flex-col gap-2 font-mono text-[11px] text-slate-300 leading-relaxed">
-                      <div className="text-amber-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
-                        1. Master Safety Switch (App Control ON/OFF)
-                      </div>
-                      <p className="pl-3.5 border-l border-amber-500/30">
-                        When toggled OFF, immediately cancels ALL open orders (MIS/Regular) and deletes ALL active GTT triggers. All automatic decision engines, P&L monitoring, and GTT consolidations are strictly paused.
-                      </p>
 
-                      <div className="text-indigo-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
-                        <span className="h-2 w-2 rounded-full bg-indigo-400"></span>
-                        2. User-Enabled MIS P&L Target Exit (Opt-In)
+                    {/* Rules & Strategy Summary */}
+                    <div className="flex flex-col gap-2 text-xs text-slate-300 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80 leading-relaxed font-sans">
+                      <div className="flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <span><strong>Stock Pool:</strong> Top Gainers sorted in descending order of % change.</span>
                       </div>
-                      <p className="pl-3.5 border-l border-indigo-500/30">
-                        Requires explicit opt-in (pnlExitAutoEnabled = true). Evaluates total live MIS P&L against Profit Target and Loss Target limits. Requires sustained <strong className="text-white">10 consecutive seconds</strong> of multi-tick breach verification before executing emergency square-off.
-                      </p>
-
-                      <div className="text-emerald-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
-                        <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-                        3. Two-Leg Consolidated Exit GTTs (OCO)
+                      <div className="flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <span><strong>1st 15m Candle:</strong> Green candle (`Close &gt; Open`) formed 9:15-9:30 AM.</span>
                       </div>
-                      <p className="pl-3.5 border-l border-emerald-500/30">
-                        Consolidates exit triggers into a single two-leg OCO GTT (Stop-Loss and Target legs). Equity default: 1% SL / 2% Target. F&O default: 15% SL / 30% Target. Automatically cleans up stale GTTs when positions close.
-                      </p>
-
-                      <div className="text-purple-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
-                        <span className="h-2 w-2 rounded-full bg-purple-400"></span>
-                        4. Trailing Stop-Loss Engine
+                      <div className="flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <span><strong>Fibonacci Setup:</strong> Calculated from <strong>Low to High</strong> at 9:30 AM.</span>
                       </div>
-                      <p className="pl-3.5 border-l border-purple-500/30">
-                        Polled every 5 minutes. Activates only when position profit reaches <strong className="text-white">≥ 1.5%</strong>. Trails candidate stop-loss with a safe <strong className="text-white">1.0% buffer</strong> behind LTP (Buy: LTP * 0.99, Sell: LTP * 1.01).
-                      </p>
-
-                      <div className="text-rose-400 font-bold text-xs uppercase tracking-wider font-sans flex items-center gap-1.5 mt-2">
-                        <span className="h-2 w-2 rounded-full bg-rose-400"></span>
-                        5. Intraday Auto Square-Off Cutoff
+                      <div className="flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <span><strong>Buy Zone (9:30 AM - 12 PM):</strong> Price retests 60% - 65% retracement range.</span>
                       </div>
-                      <p className="pl-3.5 border-l border-rose-500/30">
-                        Equity MIS: Auto-exit at 3:24 PM - 3:25 PM IST. F&O MIS: Auto-exit at 3:26 PM IST.
-                      </p>
+                      <div className="flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <span><strong>Option Selection:</strong> Preferred <strong>ATM CE</strong> or <strong>1 Strike ITM CE</strong>.</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <span><strong>Targets:</strong> Target 1 Swing High (50%), Target 2 1.272 (25%), Target 3 1.618 (25%).</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <span><strong>Stop Loss:</strong> 78.6% Retracement with multi-candle entry breathing rule.</span>
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
 
-                {/* AI Strategy Builder */}
-                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
-                    <Brain className="h-5 w-5 text-indigo-400" />
-                    <CardTitle className="font-display font-semibold text-sm text-white">AI Strategy Builder</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0 flex flex-col gap-4 mt-4">
-                    <div className="flex flex-col gap-1.5 text-xs">
-                      <label className="text-slate-400 font-semibold">Strategy Name</label>
+                    {/* Margin Utilization Slider */}
+                    <div className="flex flex-col gap-2 bg-purple-950/20 p-3.5 rounded-xl border border-purple-500/20">
+                      <div className="flex justify-between items-center text-xs font-semibold text-purple-300">
+                        <span>Margin Position Sizing:</span>
+                        <span className="font-mono text-purple-400 font-bold">{strategy1MarginPctState}% Utilization</span>
+                      </div>
                       <input 
-                        type="text" 
-                        value={builderName}
-                        onChange={(e) => setBuilderName(e.target.value)}
-                        placeholder="e.g. Trend Surfer Morning"
-                        className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500/50"
+                        type="range" 
+                        min="5" 
+                        max="100" 
+                        step="5"
+                        value={strategy1MarginPctState} 
+                        onChange={async (e) => {
+                          const val = Number(e.target.value);
+                          setStrategy1MarginPctState(val);
+                          try {
+                            await fetch('/api/strategy1/config', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ marginPercentage: val })
+                            });
+                          } catch (err) {}
+                        }}
+                        className="w-full accent-purple-500 cursor-pointer"
                       />
-                    </div>
-
-                    {/* GUIDED ENTRY RULES DROPDOWN BUILDER */}
-                    <div className="flex flex-col gap-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <label className="text-slate-300 font-bold flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                          Entry Conditions (Select Available Indicators)
-                        </label>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEntryConditions([...entryConditions, { indicator1: 'rsi', operator: '>', targetType: 'numeric', indicator2: 'supertrend', numericValue: 60, connector: 'AND' }])}
-                          className="px-2 py-0.5 text-[10px] h-auto border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 cursor-pointer"
-                        >
-                          + Add Rule
-                        </Button>
-                      </div>
-
-                      <div className="flex flex-col gap-2">
-                        {entryConditions.map((cond, idx) => (
-                          <div key={idx} className="bg-black/35 border border-white/5 rounded-xl p-2.5 flex flex-col md:flex-row items-stretch md:items-center gap-2">
-                            <select
-                              value={cond.indicator1}
-                              onChange={(e) => {
-                                const next = [...entryConditions];
-                                next[idx].indicator1 = e.target.value;
-                                setEntryConditions(next);
-                              }}
-                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
-                            >
-                              {STRATEGY_INDICATORS_LIST.map((ind) => (
-                                <option key={ind.value} value={ind.value}>{ind.label}</option>
-                              ))}
-                            </select>
-
-                            <select
-                              value={cond.operator}
-                              onChange={(e) => {
-                                const next = [...entryConditions];
-                                next[idx].operator = e.target.value;
-                                setEntryConditions(next);
-                              }}
-                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-indigo-400 font-bold text-[11px] outline-none cursor-pointer w-16 text-center"
-                            >
-                              <option value=">">&gt;</option>
-                              <option value=">=">&gt;=</option>
-                              <option value="<">&lt;</option>
-                              <option value="<=">&lt;=</option>
-                              <option value="==">==</option>
-                            </select>
-
-                            <select
-                              value={cond.targetType}
-                              onChange={(e) => {
-                                const next = [...entryConditions];
-                                next[idx].targetType = e.target.value;
-                                setEntryConditions(next);
-                              }}
-                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-amber-400 text-[11px] outline-none cursor-pointer w-24"
-                            >
-                              <option value="indicator">Indicator</option>
-                              <option value="numeric">Value</option>
-                            </select>
-
-                            {cond.targetType === 'indicator' ? (
-                              <select
-                                value={cond.indicator2}
-                                onChange={(e) => {
-                                  const next = [...entryConditions];
-                                  next[idx].indicator2 = e.target.value;
-                                  setEntryConditions(next);
-                                }}
-                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
-                              >
-                                {STRATEGY_INDICATORS_LIST.map((ind) => (
-                                  <option key={ind.value} value={ind.value}>{ind.label}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                type="number"
-                                value={cond.numericValue}
-                                onChange={(e) => {
-                                  const next = [...entryConditions];
-                                  next[idx].numericValue = parseFloat(e.target.value) || 0;
-                                  setEntryConditions(next);
-                                }}
-                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none w-24"
-                              />
-                            )}
-
-                            {idx < entryConditions.length - 1 && (
-                              <select
-                                value={cond.connector}
-                                onChange={(e) => {
-                                  const next = [...entryConditions];
-                                  next[idx].connector = e.target.value;
-                                  setEntryConditions(next);
-                                }}
-                                className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-lg px-1.5 py-1 text-[10px] font-bold outline-none cursor-pointer"
-                              >
-                                <option value="AND">AND</option>
-                                <option value="OR">OR</option>
-                              </select>
-                            )}
-
-                            {entryConditions.length > 1 && (
-                              <button
-                                onClick={() => setEntryConditions(entryConditions.filter((_, i) => i !== idx))}
-                                className="text-rose-400 hover:text-rose-300 text-xs px-1 cursor-pointer"
-                                title="Remove rule"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
-                        Compiled Entry Rule: {compileConditionsToString(entryConditions) || 'None'}
-                      </div>
-                    </div>
-
-                    {/* GUIDED EXIT RULES DROPDOWN BUILDER */}
-                    <div className="flex flex-col gap-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <label className="text-slate-300 font-bold flex items-center gap-1.5">
-                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-                          Exit Conditions (Select Available Indicators)
-                        </label>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setExitConditions([...exitConditions, { indicator1: 'rsi', operator: '<', targetType: 'numeric', indicator2: 'supertrend', numericValue: 40, connector: 'OR' }])}
-                          className="px-2 py-0.5 text-[10px] h-auto border-rose-500/30 text-rose-400 hover:bg-rose-500/10 cursor-pointer"
-                        >
-                          + Add Rule
-                        </Button>
-                      </div>
-
-                      <div className="flex flex-col gap-2">
-                        {exitConditions.map((cond, idx) => (
-                          <div key={idx} className="bg-black/35 border border-white/5 rounded-xl p-2.5 flex flex-col md:flex-row items-stretch md:items-center gap-2">
-                            <select
-                              value={cond.indicator1}
-                              onChange={(e) => {
-                                const next = [...exitConditions];
-                                next[idx].indicator1 = e.target.value;
-                                setExitConditions(next);
-                              }}
-                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
-                            >
-                              {STRATEGY_INDICATORS_LIST.map((ind) => (
-                                <option key={ind.value} value={ind.value}>{ind.label}</option>
-                              ))}
-                            </select>
-
-                            <select
-                              value={cond.operator}
-                              onChange={(e) => {
-                                const next = [...exitConditions];
-                                next[idx].operator = e.target.value;
-                                setExitConditions(next);
-                              }}
-                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-rose-400 font-bold text-[11px] outline-none cursor-pointer w-16 text-center"
-                            >
-                              <option value=">">&gt;</option>
-                              <option value=">=">&gt;=</option>
-                              <option value="<">&lt;</option>
-                              <option value="<=">&lt;=</option>
-                              <option value="==">==</option>
-                            </select>
-
-                            <select
-                              value={cond.targetType}
-                              onChange={(e) => {
-                                const next = [...exitConditions];
-                                next[idx].targetType = e.target.value;
-                                setExitConditions(next);
-                              }}
-                              className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-amber-400 text-[11px] outline-none cursor-pointer w-24"
-                            >
-                              <option value="indicator">Indicator</option>
-                              <option value="numeric">Value</option>
-                            </select>
-
-                            {cond.targetType === 'indicator' ? (
-                              <select
-                                value={cond.indicator2}
-                                onChange={(e) => {
-                                  const next = [...exitConditions];
-                                  next[idx].indicator2 = e.target.value;
-                                  setExitConditions(next);
-                                }}
-                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none cursor-pointer flex-1"
-                              >
-                                {STRATEGY_INDICATORS_LIST.map((ind) => (
-                                  <option key={ind.value} value={ind.value}>{ind.label}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                type="number"
-                                value={cond.numericValue}
-                                onChange={(e) => {
-                                  const next = [...exitConditions];
-                                  next[idx].numericValue = parseFloat(e.target.value) || 0;
-                                  setExitConditions(next);
-                                }}
-                                className="bg-black/50 border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none w-24"
-                              />
-                            )}
-
-                            {idx < exitConditions.length - 1 && (
-                              <select
-                                value={cond.connector}
-                                onChange={(e) => {
-                                  const next = [...exitConditions];
-                                  next[idx].connector = e.target.value;
-                                  setExitConditions(next);
-                                }}
-                                className="bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-lg px-1.5 py-1 text-[10px] font-bold outline-none cursor-pointer"
-                              >
-                                <option value="AND">AND</option>
-                                <option value="OR">OR</option>
-                              </select>
-                            )}
-
-                            {exitConditions.length > 1 && (
-                              <button
-                                onClick={() => setExitConditions(exitConditions.filter((_, i) => i !== idx))}
-                                className="text-rose-400 hover:text-rose-300 text-xs px-1 cursor-pointer"
-                                title="Remove rule"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="text-[10px] font-mono text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg">
-                        Compiled Exit Rule: {compileConditionsToString(exitConditions) || 'None'}
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={handleGenerateStrategy}
-                      disabled={builderLoadingText !== ''}
-                      className="py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-indigo-500/20"
-                    >
-                      {builderLoadingText ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                      Build & Activate Custom Strategy
-                    </button>
-                    
-                    {builderStatus && (
-                      <span className={`text-[11px] font-semibold text-center block mt-1 ${
-                        builderStatus.includes('Error') || builderStatus.includes('Failed') ? 'text-rose-400' : 'text-emerald-400'
-                      }`}>
-                        {builderStatus}
-                      </span>
-                    )}
-                  </CardContent>
-                </Card>
-                
-              </div>
-
-              {/* Right Column: Backtest Simulator (xl:span-7) */}
-              <div className="xl:col-span-7 flex flex-col gap-6">
-                
-                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-indigo-400" />
-                    <CardTitle className="font-display font-semibold text-sm text-white">Backtesting & Performance Simulator</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0 flex flex-col gap-5 mt-4">
-                    
-                    {/* Simulator Inputs Grid */}
-                    <form onSubmit={(e) => handleRunBacktest(e)} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Symbol</label>
-                        <select 
-                          value={backtestSymbol}
-                          onChange={(e) => setBacktestSymbol(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white outline-none cursor-pointer"
-                        >
-                          {availableStocks.length === 0 ? (
-                            <option value="">No synced symbols available</option>
-                          ) : (
-                            availableStocks.map((s, idx) => (
-                              <option key={idx} value={s.symbol}>{s.symbol}</option>
-                            ))
-                          )}
-                        </select>
-                      </div>
-                      
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Interval</label>
-                        <select 
-                          value={backtestInterval}
-                          onChange={(e) => setBacktestInterval(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white outline-none cursor-pointer"
-                        >
-                          <option value="day">Daily</option>
-                          <option value="60minute">60 Minute</option>
-                          <option value="30minute">30 Minute</option>
-                          <option value="15minute">15 Minute</option>
-                          <option value="5minute">5 Minute</option>
-                          <option value="minute">1 Minute</option>
-                        </select>
-                      </div>
-
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">From Date</label>
-                        <input 
-                          type="date" 
-                          value={backtestFromDate}
-                          onChange={(e) => setBacktestFromDate(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-center"
-                        />
-                      </div>
-                      
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">To Date</label>
-                        <input 
-                          type="date" 
-                          value={backtestToDate}
-                          onChange={(e) => setBacktestToDate(e.target.value)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-center"
-                        />
-                      </div>
-
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Capital (₹)</label>
-                        <input 
-                          type="number" 
-                          value={backtestCapital}
-                          onChange={(e) => setBacktestCapital(parseFloat(e.target.value) || 0)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none"
-                        />
-                      </div>
-                      
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Leverage Power</label>
-                        <input 
-                          type="number" 
-                          value={backtestLeverage}
-                          onChange={(e) => setBacktestLeverage(parseFloat(e.target.value) || 0)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-center"
-                        />
-                      </div>
-
-                      <div className="flex flex-col gap-1.5 text-xs">
-                        <label className="text-slate-400 font-semibold">Target Margin %</label>
-                        <input 
-                          type="number" 
-                          value={backtestMarginPct}
-                          onChange={(e) => setBacktestMarginPct(parseFloat(e.target.value) || 0)}
-                          className="bg-black/35 border border-white/5 rounded-xl px-3 py-2 text-white focus:outline-none text-center"
-                        />
-                      </div>
-                      
-                      <div className="flex items-center gap-2 cursor-pointer select-none mt-5">
-                        <input 
-                          type="checkbox"
-                          id="allow-shorting"
-                          checked={backtestAllowShorting}
-                          onChange={(e) => setBacktestAllowShorting(e.target.checked)}
-                          className="h-4 w-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 cursor-pointer"
-                        />
-                        <label htmlFor="allow-shorting" className="text-slate-300 font-semibold text-xs cursor-pointer">Allow Short Positions</label>
-                      </div>
-
-                      {/* Visual Backtest Strategy Builder Header & Mode Switch */}
-                      <div className="md:col-span-2 flex flex-col gap-3 border-t border-white/5 pt-4">
-                        <div className="flex items-center justify-between bg-white/[0.02] p-2.5 rounded-xl border border-white/5">
-                          <div className="flex items-center gap-2">
-                            <Sparkles className="w-4 h-4 text-amber-400" />
-                            <span className="text-xs font-bold text-white font-display">Backtest Entry & Exit Rules Builder</span>
-                            <span className="text-[10px] text-indigo-300 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                              27 Indicators Active
+                      {(() => {
+                        const availMargin = margins?.equity?.net !== undefined && margins?.equity?.net > 0 ? margins.equity.net : 41734.05;
+                        const allocVal = (availMargin * strategy1MarginPctState) / 100;
+                        return (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            Allocates {strategy1MarginPctState}% of available margin (~₹{allocVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}).
+                            <span className="block text-purple-300/90 mt-0.5 font-semibold">
+                              Based on ₹{availMargin.toLocaleString('en-IN', { maximumFractionDigits: 2 })} × {strategy1MarginPctState}% allocation
                             </span>
-                          </div>
-
-                          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5 text-[11px] font-semibold">
-                            <button
-                              type="button"
-                              onClick={() => setBacktestRulesMode('visual')}
-                              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
-                                backtestRulesMode === 'visual'
-                                  ? 'bg-indigo-600 text-white font-bold shadow'
-                                  : 'text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              Visual Builder 🎛️
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setBacktestRulesMode('expr')}
-                              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
-                                backtestRulesMode === 'expr'
-                                  ? 'bg-indigo-600 text-white font-bold shadow'
-                                  : 'text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              Code / Expressions 💻
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* 1-Click Backtest Strategy Presets Bar */}
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Strategy Presets:</label>
-                          <div className="flex flex-wrap gap-1.5">
-                            {[
-                              { label: '⚡ Supertrend & RSI', buy: 'close > supertrend && rsi > 60', sell: 'close < supertrend || rsi < 40' },
-                              { label: '📈 Golden Cross + ADX', buy: 'ema_fast > ema_slow && adx > 25', sell: 'ema_fast < ema_slow' },
-                              { label: '📊 Bollinger Squeeze + MFI', buy: 'close > bb_upper && mfi > 55', sell: 'close < bb_middle' },
-                              { label: '📉 MACD & Stochastic', buy: 'macd_hist > 0 && stoch_k > 70', sell: 'macd_hist < 0 || stoch_k < 30' },
-                              { label: '☁️ Ichimoku & OBV', buy: 'close > ichimoku_spanA && obv > 0', sell: 'close < ichimoku_spanA' },
-                              { label: '🎯 Parabolic SAR & VWAP', buy: 'close > psar && close > vwap && cci > 100', sell: 'close < psar || close < vwap' },
-                              { label: '🚀 LinReg & Momentum', buy: 'close > linreg && mom > 0 && roc > 1.0', sell: 'close < linreg || mom < 0' }
-                            ].map((p, idx) => (
-                              <button
-                                key={idx}
-                                type="button"
-                                onClick={() => {
-                                  setBuySignalExpr(p.buy);
-                                  setSellSignalExpr(p.sell);
-                                  setBacktestBuyRules([
-                                    { id: 1, leftIndicator: 'Price', operator: '>', rightType: 'INDICATOR', rightIndicator: 'Supertrend', logic: 'AND' },
-                                    { id: 2, leftIndicator: 'RSI', leftPeriod: 14, operator: '>', rightType: 'VALUE', rightValue: 60, logic: 'AND' }
-                                  ]);
-                                  setBacktestSellRules([
-                                    { id: 1, leftIndicator: 'Price', operator: '<', rightType: 'INDICATOR', rightIndicator: 'Supertrend', logic: 'OR' },
-                                    { id: 2, leftIndicator: 'RSI', leftPeriod: 14, operator: '<', rightType: 'VALUE', rightValue: 40, logic: 'OR' }
-                                  ]);
-                                }}
-                                className="px-2.5 py-1 bg-white/5 hover:bg-indigo-600/30 border border-white/10 hover:border-indigo-500/40 rounded-lg text-xs font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
-                              >
-                                {p.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* MODE 1: VISUAL ENTRY & EXIT RULES BUILDER */}
-                        {backtestRulesMode === 'visual' && (
-                          <div className="flex flex-col gap-4 bg-[#090d16] p-4 rounded-xl border border-white/5">
-                            
-                            {/* 🟢 ENTRY CONDITIONS (BUY SIGNALS) */}
-                            <div className="flex flex-col gap-2.5 border-b border-white/5 pb-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">Entry Conditions (Buy Long)</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={handleAddBacktestBuyRule}
-                                  className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center gap-1 border border-emerald-500/30 cursor-pointer"
-                                >
-                                  + Add Entry Rule
-                                </button>
-                              </div>
-
-                              {backtestBuyRules.map((rule, idx) => (
-                                <div key={rule.id} className="flex flex-wrap md:flex-nowrap items-center gap-2 bg-white/[0.02] p-2 rounded-lg border border-white/5">
-                                  {idx > 0 && (
-                                    <select
-                                      value={rule.logic || 'AND'}
-                                      onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'logic', e.target.value)}
-                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-bold text-amber-400 font-mono outline-none"
-                                    >
-                                      <option value="AND">AND</option>
-                                      <option value="OR">OR</option>
-                                    </select>
-                                  )}
-                                  {idx === 0 && (
-                                    <span className="text-[10px] font-mono text-emerald-400 font-bold px-2 py-1 bg-emerald-500/10 rounded border border-emerald-500/20">
-                                      BUY IF
-                                    </span>
-                                  )}
-
-                                  <select
-                                    value={rule.leftIndicator}
-                                    onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'leftIndicator', e.target.value)}
-                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
-                                  >
-                                    <option value="Price">Price (Close)</option>
-                                    <option value="EMA_Fast">Fast EMA (9/20)</option>
-                                    <option value="EMA_Slow">Slow EMA (50/200)</option>
-                                    <option value="RSI">RSI (Relative Strength Index)</option>
-                                    <option value="Supertrend">Supertrend Line</option>
-                                    <option value="ADX">ADX Trend Strength</option>
-                                    <option value="VWAP">VWAP (Volume Weighted Avg Price)</option>
-                                    <option value="MACD_Hist">MACD Histogram</option>
-                                    <option value="Stochastic_K">Stochastic %K</option>
-                                    <option value="MFI">Money Flow Index (MFI)</option>
-                                    <option value="Ichimoku_SpanA">Ichimoku Senkou Span A</option>
-                                    <option value="ParabolicSAR">Parabolic SAR</option>
-                                    <option value="OBV">On-Balance Volume (OBV)</option>
-                                    <option value="CCI">Commodity Channel Index (CCI)</option>
-                                    <option value="WilliamsR">Williams %R</option>
-                                    <option value="Aroon_Osc">Aroon Oscillator</option>
-                                    <option value="LinReg">Linear Regression Forecast</option>
-                                    <option value="Momentum">Momentum</option>
-                                    <option value="ROC">Price Rate of Change (ROC)</option>
-                                    <option value="Bollinger_Upper">Bollinger Upper Band</option>
-                                    <option value="Bollinger_Lower">Bollinger Lower Band</option>
-                                  </select>
-
-                                  <select
-                                    value={rule.operator}
-                                    onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'operator', e.target.value)}
-                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs font-mono text-indigo-300 font-bold outline-none"
-                                  >
-                                    <option value=">">&gt; (Greater Than)</option>
-                                    <option value=">=">&gt;= (Greater or Equal)</option>
-                                    <option value="<">&lt; (Less Than)</option>
-                                    <option value="<=">&lt;= (Less or Equal)</option>
-                                    <option value="CROSSES_ABOVE">Crosses Above ↗</option>
-                                    <option value="CROSSES_BELOW">Crosses Below ↘</option>
-                                  </select>
-
-                                  <select
-                                    value={rule.rightType}
-                                    onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'rightType', e.target.value)}
-                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-semibold text-slate-300 outline-none"
-                                  >
-                                    <option value="VALUE">Fixed Value</option>
-                                    <option value="INDICATOR">Indicator</option>
-                                  </select>
-
-                                  {rule.rightType === 'VALUE' ? (
-                                    <input
-                                      type="number"
-                                      value={rule.rightValue ?? 50}
-                                      onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'rightValue', parseFloat(e.target.value))}
-                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white text-center outline-none w-20"
-                                    />
-                                  ) : (
-                                    <select
-                                      value={rule.rightIndicator || 'Supertrend'}
-                                      onChange={(e) => handleBacktestBuyRuleChange(rule.id, 'rightIndicator', e.target.value)}
-                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
-                                    >
-                                      <option value="Supertrend">Supertrend Line</option>
-                                      <option value="EMA_Slow">Slow EMA</option>
-                                      <option value="VWAP">VWAP Line</option>
-                                      <option value="Bollinger_Upper">Bollinger Upper Band</option>
-                                      <option value="Bollinger_Lower">Bollinger Lower Band</option>
-                                      <option value="ParabolicSAR">Parabolic SAR</option>
-                                    </select>
-                                  )}
-
-                                  {backtestBuyRules.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveBacktestBuyRule(rule.id)}
-                                      className="text-rose-400 hover:text-rose-300 text-xs px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 cursor-pointer"
-                                    >
-                                      ✕
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* 🔴 EXIT CONDITIONS (SELL / SQUARE-OFF SIGNALS) */}
-                            <div className="flex flex-col gap-2.5">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="h-2 w-2 rounded-full bg-rose-400 animate-pulse" />
-                                  <span className="text-xs font-bold uppercase tracking-wider text-rose-400">Exit Conditions (Sell Square-Off)</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={handleAddBacktestSellRule}
-                                  className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[11px] font-semibold flex items-center gap-1 border border-rose-500/30 cursor-pointer"
-                                >
-                                  + Add Exit Rule
-                                </button>
-                              </div>
-
-                              {backtestSellRules.map((rule, idx) => (
-                                <div key={rule.id} className="flex flex-wrap md:flex-nowrap items-center gap-2 bg-white/[0.02] p-2 rounded-lg border border-white/5">
-                                  {idx > 0 && (
-                                    <select
-                                      value={rule.logic || 'OR'}
-                                      onChange={(e) => handleBacktestSellRuleChange(rule.id, 'logic', e.target.value)}
-                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-bold text-amber-400 font-mono outline-none"
-                                    >
-                                      <option value="OR">OR</option>
-                                      <option value="AND">AND</option>
-                                    </select>
-                                  )}
-                                  {idx === 0 && (
-                                    <span className="text-[10px] font-mono text-rose-400 font-bold px-2 py-1 bg-rose-500/10 rounded border border-rose-500/20">
-                                      SELL IF
-                                    </span>
-                                  )}
-
-                                  <select
-                                    value={rule.leftIndicator}
-                                    onChange={(e) => handleBacktestSellRuleChange(rule.id, 'leftIndicator', e.target.value)}
-                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
-                                  >
-                                    <option value="Price">Price (Close)</option>
-                                    <option value="EMA_Fast">Fast EMA</option>
-                                    <option value="EMA_Slow">Slow EMA</option>
-                                    <option value="RSI">RSI (Relative Strength Index)</option>
-                                    <option value="Supertrend">Supertrend Line</option>
-                                    <option value="ADX">ADX Trend Strength</option>
-                                    <option value="VWAP">VWAP Line</option>
-                                    <option value="MACD_Hist">MACD Histogram</option>
-                                    <option value="Stochastic_K">Stochastic %K</option>
-                                    <option value="MFI">Money Flow Index (MFI)</option>
-                                    <option value="ParabolicSAR">Parabolic SAR</option>
-                                  </select>
-
-                                  <select
-                                    value={rule.operator}
-                                    onChange={(e) => handleBacktestSellRuleChange(rule.id, 'operator', e.target.value)}
-                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs font-mono text-indigo-300 font-bold outline-none"
-                                  >
-                                    <option value="<">&lt; (Less Than)</option>
-                                    <option value="<=">&lt;= (Less or Equal)</option>
-                                    <option value=">">&gt; (Greater Than)</option>
-                                    <option value=">=">&gt;= (Greater or Equal)</option>
-                                    <option value="CROSSES_BELOW">Crosses Below ↘</option>
-                                    <option value="CROSSES_ABOVE">Crosses Above ↗</option>
-                                  </select>
-
-                                  <select
-                                    value={rule.rightType}
-                                    onChange={(e) => handleBacktestSellRuleChange(rule.id, 'rightType', e.target.value)}
-                                    className="bg-black/60 border border-white/10 rounded px-2 py-1 text-[11px] font-semibold text-slate-300 outline-none"
-                                  >
-                                    <option value="INDICATOR">Indicator</option>
-                                    <option value="VALUE">Fixed Value</option>
-                                  </select>
-
-                                  {rule.rightType === 'VALUE' ? (
-                                    <input
-                                      type="number"
-                                      value={rule.rightValue ?? 40}
-                                      onChange={(e) => handleBacktestSellRuleChange(rule.id, 'rightValue', parseFloat(e.target.value))}
-                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white text-center outline-none w-20"
-                                    />
-                                  ) : (
-                                    <select
-                                      value={rule.rightIndicator || 'Supertrend'}
-                                      onChange={(e) => handleBacktestSellRuleChange(rule.id, 'rightIndicator', e.target.value)}
-                                      className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none flex-1"
-                                    >
-                                      <option value="Supertrend">Supertrend Line</option>
-                                      <option value="EMA_Slow">Slow EMA</option>
-                                      <option value="VWAP">VWAP Line</option>
-                                      <option value="Bollinger_Lower">Bollinger Lower Band</option>
-                                      <option value="ParabolicSAR">Parabolic SAR</option>
-                                    </select>
-                                  )}
-
-                                  {backtestSellRules.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveBacktestSellRule(rule.id)}
-                                      className="text-rose-400 hover:text-rose-300 text-xs px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 cursor-pointer"
-                                    >
-                                      ✕
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Live Compiled Expression Preview Box */}
-                            <div className="bg-black/50 p-2.5 rounded-lg border border-white/10 flex flex-col gap-1 text-[11px]">
-                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                                <span>COMPILED ENTRY RULE:</span>
-                                <code className="text-emerald-400 font-bold">{compileBacktestRuleToExpr(backtestBuyRules)}</code>
-                              </div>
-                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                                <span>COMPILED EXIT RULE:</span>
-                                <code className="text-rose-400 font-bold">{compileBacktestRuleToExpr(backtestSellRules)}</code>
-                              </div>
-                            </div>
-
-                          </div>
-                        )}
-
-                        {/* MODE 2: CUSTOM CODE / EXPRESSIONS */}
-                        {backtestRulesMode === 'expr' && (
-                          <div className="flex flex-col gap-3 bg-[#090d16] p-4 rounded-xl border border-white/5">
-                            <div className="flex flex-col gap-1 text-xs">
-                              <label className="text-emerald-400 font-bold flex items-center gap-1.5">
-                                🟢 Custom Entry Condition (Buy Signal)
-                              </label>
-                              <input 
-                                type="text" 
-                                value={buySignalExpr}
-                                onChange={(e) => setBuySignalExpr(e.target.value)}
-                                placeholder="e.g. close > supertrend and rsi > 60"
-                                className="bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500/50"
-                              />
-                            </div>
-
-                            <div className="flex flex-col gap-1 text-xs">
-                              <label className="text-rose-400 font-bold flex items-center gap-1.5">
-                                🔴 Custom Exit Condition (Sell / Square-Off)
-                              </label>
-                              <input 
-                                type="text" 
-                                value={sellSignalExpr}
-                                onChange={(e) => setSellSignalExpr(e.target.value)}
-                                placeholder="e.g. close < supertrend or rsi < 40"
-                                className="bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-rose-500/50"
-                              />
-                            </div>
-
-                            {/* Indicator Expression Cheat Sheet Badges */}
-                            <div className="flex flex-col gap-1 text-[10px]">
-                              <span className="text-slate-400 font-semibold">Click to Insert Indicator Variable:</span>
-                              <div className="flex flex-wrap gap-1">
-                                {[
-                                  'close', 'supertrend', 'rsi', 'adx', 'adx_plus', 'adx_minus', 'ema_fast', 'ema_slow', 'vwap', 
-                                  'macd_hist', 'stoch_k', 'stoch_d', 'mfi', 'ichimoku_spanA', 'obv', 'psar', 'cci', 'williams', 
-                                  'aroon_osc', 'linreg', 'mom', 'roc', 'cmf', 'bb_upper', 'bb_lower'
-                                ].map((varName, vIdx) => (
-                                  <button
-                                    key={vIdx}
-                                    type="button"
-                                    onClick={() => setBuySignalExpr(prev => `${prev} && ${varName}`)}
-                                    className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-indigo-600/30 text-indigo-300 font-mono border border-white/5 transition-all text-[9px] cursor-pointer"
-                                  >
-                                    +{varName}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                      </div>
-
-                      <div className="md:col-span-2 mt-2">
-                        <button 
-                          type="submit"
-                          disabled={backtestLoading}
-                          className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/10 h-auto border-0"
-                        >
-                          {backtestLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                          Execute Backtest
-                        </button>
-                      </div>
-                    </form>
-
-                    {/* Performance Output Panel */}
-                    <div className="border-t border-white/5 pt-5 flex flex-col gap-4">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-purple-300">
-                        Performance Outputs
-                      </h4>
-
-                      {backtestLoading && (
-                        <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
-                          <div className="h-9 w-9 border-4 border-indigo-500/25 border-t-indigo-500 rounded-full animate-spin" />
-                          <span className="text-xs font-semibold">Running historical technical backtests...</span>
-                        </div>
-                      )}
-
-                      {backtestError && (
-                        <div className="flex items-center gap-2.5 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
-                          <AlertTriangle className="h-4 w-4 text-rose-400" />
-                          <span>{backtestError}</span>
-                        </div>
-                      )}
-
-                      {!backtestLoading && !backtestResults && !backtestError && (
-                        <div className="border border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center p-8 text-center text-slate-500 py-12">
-                          <TrendingUp className="h-10 w-10 text-slate-600 mb-2" />
-                          <p className="text-xs font-medium">Configure parameters above and click Execute to run the simulation.</p>
-                        </div>
-                      )}
-
-                      {!backtestLoading && backtestResults && (
-                        <div className="flex flex-col gap-6">
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-display">
-                            <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                              <span className="text-slate-500 uppercase font-bold text-[8px] block">Final Portfolio Value</span>
-                              <span className="text-sm font-bold text-white block mt-0.5">₹{formatCurrency(backtestResults.summary?.finalEquity)}</span>
-                              <span className={`text-[9px] font-semibold ${
-                                backtestResults.summary?.totalReturnPct >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                              }`}>
-                                {backtestResults.summary?.totalReturnPct >= 0 ? '+' : ''}
-                                {backtestResults.summary?.totalReturnPct?.toFixed(2)}% Return
-                              </span>
-                            </div>
-                            <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                              <span className="text-slate-500 uppercase font-bold text-[8px] block">Annualized CAGR</span>
-                              <span className="text-sm font-bold text-white block mt-0.5">{backtestResults.summary?.cagr?.toFixed(2)}%</span>
-                              <span className="text-[9px] text-slate-400 block mt-0.5">Strategy Benchmark</span>
-                            </div>
-                            <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                              <span className="text-slate-500 uppercase font-bold text-[8px] block">Max Drawdown</span>
-                              <span className="text-sm font-bold text-rose-400 block mt-0.5">{backtestResults.summary?.maxDrawdownPct?.toFixed(2)}%</span>
-                              <span className="text-[9px] text-slate-400 block mt-0.5">Peak-to-Trough risk</span>
-                            </div>
-                            <div className="p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                              <span className="text-slate-500 uppercase font-bold text-[8px] block">Sharpe Ratio</span>
-                              <span className="text-sm font-bold text-indigo-300 block mt-0.5">{backtestResults.summary?.sharpeRatio?.toFixed(2)}</span>
-                              <span className="text-[9px] text-slate-400 block mt-0.5">Risk-adjusted return</span>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] font-semibold text-slate-300 bg-white/[0.01] border border-white/5 p-3.5 rounded-xl">
-                            <div className="flex justify-between">
-                              <span>Total Execution Days:</span>
-                              <span className="text-white">{backtestResults.summary?.totalDays} days</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Win Rate:</span>
-                              <span className="text-white">{backtestResults.summary?.winRatePct?.toFixed(1)}% ({backtestResults.summary?.winningTrades} of {backtestResults.summary?.totalTrades} trades)</span>
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col gap-2">
-                            <h5 className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">Executed Position Signals</h5>
-                            <div className="overflow-x-auto rounded-xl border border-white/5 bg-white/[0.01] max-h-[180px]">
-                              <table className="w-full text-left text-[11px] border-collapse">
-                                <thead>
-                                  <tr className="text-slate-400 border-b border-white/5 bg-white/[0.02]">
-                                    <th className="px-3 py-1.5 font-bold uppercase tracking-wider">Date</th>
-                                    <th className="px-3 py-1.5 font-bold uppercase tracking-wider">Type</th>
-                                    <th className="px-3 py-1.5 font-bold uppercase tracking-wider">Entry</th>
-                                    <th className="px-3 py-1.5 font-bold uppercase tracking-wider">Exit</th>
-                                    <th className="px-3 py-1.5 font-bold uppercase tracking-wider">Qty</th>
-                                    <th className="px-3 py-1.5 font-bold uppercase tracking-wider">P&L (₹)</th>
-                                    <th className="px-3 py-1.5 font-bold uppercase tracking-wider">Reason</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/5 text-slate-200">
-                                  {(backtestResults.trades || []).length === 0 ? (
-                                    <tr>
-                                      <td colSpan={7} className="py-4 text-center text-slate-500 font-medium">No backtest trades executed.</td>
-                                    </tr>
-                                  ) : (
-                                    backtestResults.trades.map((trade, idx) => (
-                                      <tr key={idx} className="hover:bg-white/[0.01] transition-colors">
-                                        <td className="px-3 py-1.5 text-slate-400 font-mono">{trade.date}</td>
-                                        <td className="px-3 py-1.5">
-                                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                            trade.type === 'LONG' 
-                                              ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' 
-                                              : 'bg-rose-500/10 border border-rose-500/20 text-rose-400'
-                                          }`}>
-                                            {trade.type}
-                                          </span>
-                                        </td>
-                                        <td className="px-3 py-1.5">₹{formatCurrency(trade.entryPrice)}</td>
-                                        <td className="px-3 py-1.5">₹{formatCurrency(trade.exitPrice)}</td>
-                                        <td className="px-3 py-1.5 font-mono">{trade.quantity}</td>
-                                        <td className={`px-3 py-1.5 font-bold ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                          {trade.pnl >= 0 ? '+' : ''}₹{formatCurrency(trade.pnl)}
-                                        </td>
-                                        <td className="px-3 py-1.5">
-                                          <span className="text-[9px] uppercase font-bold text-slate-400 bg-white/5 px-1.5 py-0.5 rounded">
-                                            {trade.exitReason}
-                                          </span>
-                                        </td>
-                                      </tr>
-                                    ))
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                          </span>
+                        );
+                      })()}
                     </div>
-                  </CardContent>
-                </Card>
 
-                {/* ⚡ LIVE STRATEGY AUTO-TRADING ORDER STREAM CARD */}
-                <Card className="glass-panel border-0 ring-0 p-5 flex flex-col gap-4">
-                  <CardHeader className="p-0 border-b border-white/5 pb-3 flex flex-row items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Zap className="h-5 w-5 text-amber-400" />
-                      <div>
-                        <CardTitle className="font-display font-semibold text-sm text-white">Live Strategy Auto-Trading Stream</CardTitle>
-                        <CardDescription className="text-xs text-slate-400">Real-time log of automated orders executed on strategy breakout signals.</CardDescription>
-                      </div>
+                    {/* Quick Toggle: Post 12 PM */}
+                    <div className="flex items-center justify-between bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 text-xs">
+                      <span className="text-slate-300">Allow Entries After 12 PM:</span>
+                      <button
+                        onClick={async () => {
+                          const val = !strategy1Post12pmState;
+                          setStrategy1Post12pmState(val);
+                          try {
+                            await fetch('/api/strategy1/config', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ allowEntriesAfter12pm: val })
+                            });
+                          } catch (err) {}
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-all border cursor-pointer ${
+                          strategy1Post12pmState ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {strategy1Post12pmState ? 'ALLOWED' : 'PAUSED'}
+                      </button>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                        {autoTradeEnabled ? 'Live Routing Active ⚡' : 'Paper Trading / Simulation 🛡️'}
-                      </span>
-                    </div>
-                  </CardHeader>
 
-                  <CardContent className="p-0 flex flex-col gap-3 mt-2">
-                    <div className="overflow-x-auto rounded-xl border border-white/5 bg-black/40">
-                      <table className="w-full text-left border-collapse text-[11px]">
-                        <thead>
-                          <tr className="border-b border-white/5 bg-white/[0.02] text-[10px] uppercase font-bold text-slate-400 font-mono">
-                            <th className="px-3 py-2">Timestamp</th>
-                            <th className="px-3 py-2">Strategy</th>
-                            <th className="px-3 py-2">Symbol</th>
-                            <th className="px-3 py-2">Side</th>
-                            <th className="px-3 py-2">Qty</th>
-                            <th className="px-3 py-2">Entry (₹)</th>
-                            <th className="px-3 py-2">SL / TP (₹)</th>
-                            <th className="px-3 py-2">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5 text-slate-200 font-mono">
-                          {[
-                            { time: '15:28:40 IST', strategy: '⚡ Supertrend Surfer', symbol: 'NSE:RELIANCE', side: 'BUY', qty: 16, entry: 2942.50, sl: 2898.36, tp: 3045.48, status: 'EXECUTED ⚡' },
-                            { time: '15:25:12 IST', strategy: '📈 Golden Cross ADX', symbol: 'NSE:TCS', side: 'BUY', qty: 6, entry: 3980.00, sl: 3900.40, tp: 4179.00, status: 'GTT PLACED 🛡️' },
-                            { time: '14:50:05 IST', strategy: '📊 Bollinger Squeeze', symbol: 'NSE:INFY', side: 'BUY', qty: 15, entry: 1620.00, sl: 1600.56, tp: 1668.60, status: 'EXECUTED ⚡' },
-                            { time: '14:15:30 IST', strategy: '🎯 Parabolic SAR VWAP', symbol: 'NSE:HDFCBANK', side: 'SELL', qty: 17, entry: 1450.00, sl: 1464.50, tp: 1413.75, status: 'PROFIT TAKEN 🎯' }
-                          ].map((ord, oIdx) => (
-                            <tr key={oIdx} className="hover:bg-white/[0.01] transition-colors">
-                              <td className="px-3 py-2 text-slate-400">{ord.time}</td>
-                              <td className="px-3 py-2 font-sans font-semibold text-white">{ord.strategy}</td>
-                              <td className="px-3 py-2 font-bold text-indigo-300">{ord.symbol}</td>
-                              <td className="px-3 py-2">
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                  ord.side === 'BUY' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                                }`}>
-                                  {ord.side}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-slate-300 font-bold">{ord.qty}</td>
-                              <td className="px-3 py-2 text-slate-200">₹{ord.entry.toFixed(2)}</td>
-                              <td className="px-3 py-2 text-slate-400 text-[10px]">
-                                <span className="text-rose-400 font-semibold">₹{ord.sl.toFixed(2)}</span> / <span className="text-emerald-400 font-semibold">₹{ord.tp.toFixed(2)}</span>
-                              </td>
-                              <td className="px-3 py-2">
-                                <span className="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                                  {ord.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
+                  </div>
+
+                  {/* Action Button */}
+                  <button
+                    onClick={() => setActiveStrategySubView('strategy_1')}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-display font-bold text-xs shadow-lg shadow-purple-600/20 cursor-pointer transition-all flex items-center justify-center gap-2"
+                  >
+                    <Sliders className="h-4 w-4" />
+                    Manage Strategy &amp; Live Scanner ⚙️
+                  </button>
+
+                </div>
               </div>
-              
+
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
         {/* ========================================================================= */}
         {/* VIEW: MONITORING VIEW                                                    */}
@@ -6675,6 +5523,146 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                   </div>
                 );
               })()}
+            </div>
+
+            {/* 24/7 STOCK OPTIONS & CANDLES SYNC MASTER CARD (NO LOGIN REQUIRED) */}
+            <div className="glass-panel p-5 border-emerald-500/30 bg-emerald-950/20 backdrop-blur-md rounded-2xl flex flex-col gap-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-emerald-500/20 pb-3 flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-base font-bold text-white font-display">
+                        24/7 Stock Options &amp; Candles Sync Master
+                      </h4>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        No Login Required (Public Dump)
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-300/80 mt-0.5">
+                      Copies all NFO Call (CE) &amp; Put (PE) option contracts &amp; historical candles 24/7 into MongoDB with live ETA.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Live Estimated Time Remaining */}
+                  <div className="flex flex-col items-end bg-black/40 px-3.5 py-1.5 rounded-xl border border-emerald-500/30">
+                    <span className="text-[10px] text-emerald-400/90 uppercase font-bold tracking-wider">
+                      Estimated Time Remaining (ETA)
+                    </span>
+                    <span className="text-sm font-bold text-amber-300 font-mono">
+                      {optionsSyncData.estTimeFormatted || '00m 00s'}
+                    </span>
+                  </div>
+
+                  {/* Start / Pause Action Button */}
+                  {optionsSyncData.status === 'running' ? (
+                    <button
+                      onClick={handlePauseOptionsSync}
+                      disabled={optionsSyncLoading}
+                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-600/20 border-0"
+                    >
+                      <Pause className="h-4 w-4" />
+                      Pause Options Sync
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleStartOptionsSync}
+                      disabled={optionsSyncLoading}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-600/20 border-0"
+                    >
+                      <Play className="h-4 w-4" />
+                      {optionsSyncData.status === 'paused' ? 'Resume Options Sync' : 'Start 24/7 Options Sync'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress Bar & Status Info */}
+              <div className="flex flex-col gap-2.5 bg-black/40 p-4 rounded-xl border border-white/5">
+                <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${optionsSyncData.status === 'running' ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                    <span className="text-slate-300 font-semibold">
+                      Status: <span className="text-white font-bold uppercase">{optionsSyncData.status}</span>
+                    </span>
+                    {optionsSyncData.currentOption && (
+                      <span className="text-emerald-300 text-[11px] font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        Processing: {optionsSyncData.currentOption} ({optionsSyncData.currentInterval})
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-4 text-xs font-mono">
+                    <span className="text-slate-400">
+                      Speed: <strong className="text-indigo-300">{optionsSyncData.optionsPerSec || 0}</strong> opts/sec
+                    </span>
+                    <span className="text-amber-300 font-bold">
+                      {optionsSyncData.progressPct || 0}% ({optionsSyncData.processedOptions || 0} / {optionsSyncData.totalOptions || 0})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Gradient Progress Bar */}
+                <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-white/10 p-0.5">
+                  <div 
+                    className="bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 h-full transition-all duration-300 rounded-full"
+                    style={{ width: `${optionsSyncData.progressPct || 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Stat Counter Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5 flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Total Option Contracts</span>
+                  <span className="text-lg font-bold text-white font-mono mt-0.5">
+                    {(optionsSyncData.totalOptions || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[9px] text-emerald-400 font-semibold mt-0.5">NFO CE &amp; PE Dump</span>
+                </div>
+
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5 flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Options Processed</span>
+                  <span className="text-lg font-bold text-emerald-300 font-mono mt-0.5">
+                    {(optionsSyncData.processedOptions || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-semibold mt-0.5">Candles Backfilled</span>
+                </div>
+
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5 flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Total Option Candles Saved</span>
+                  <span className="text-lg font-bold text-amber-300 font-mono mt-0.5">
+                    {(optionsSyncData.totalCandlesSaved || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[9px] text-amber-400/90 font-semibold mt-0.5">Stored in MongoDB</span>
+                </div>
+
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5 flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Sync Mode</span>
+                  <span className="text-sm font-bold text-indigo-300 font-mono mt-0.5">
+                    24/7 Autonomous
+                  </span>
+                  <span className="text-[9px] text-emerald-400 font-semibold mt-0.5">No Login Required</span>
+                </div>
+              </div>
+
+              {/* Live Log Stream */}
+              {optionsSyncData.logs && optionsSyncData.logs.length > 0 && (
+                <div className="bg-black/60 rounded-xl p-3 border border-white/5 flex flex-col gap-1 max-h-32 overflow-y-auto font-mono text-[10px] text-slate-300">
+                  <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wider border-b border-white/5 pb-1">
+                    Options Sync Log Stream
+                  </div>
+                  {optionsSyncData.logs.slice(-5).map((log, idx) => (
+                    <div key={idx} className="truncate">
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* DATABASE SYNC MANAGER & ESTIMATED TIME TO STORE ALL DATA CARD */}
@@ -7821,10 +6809,10 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 </CardHeader>
                 <CardContent className="p-0 flex flex-col gap-2">
                   {[
-                    { symbol: 'NIFTY 50', ltp: 22050.40, change: 0.65, pcr: 1.15, exp: '30-JUL-2026 (Weekly)' },
-                    { symbol: 'NIFTY BANK', ltp: 45310.50, change: 0.82, pcr: 1.08, exp: '30-JUL-2026 (Weekly)' },
-                    { symbol: 'FINNIFTY', ltp: 21250.80, change: 0.45, pcr: 0.96, exp: '30-JUL-2026 (Weekly)' },
-                    { symbol: 'SENSEX', ltp: 72400.10, change: 0.55, pcr: 1.10, exp: '30-JUL-2026 (Weekly)' }
+                    { symbol: 'NIFTY 50', ltp: 22050.40, change: 0.65, pcr: 1.15, exp: '27-AUG-2026 (Monthly)' },
+                    { symbol: 'NIFTY BANK', ltp: 45310.50, change: 0.82, pcr: 1.08, exp: '27-AUG-2026 (Monthly)' },
+                    { symbol: 'FINNIFTY', ltp: 21250.80, change: 0.45, pcr: 0.96, exp: '27-AUG-2026 (Monthly)' },
+                    { symbol: 'SENSEX', ltp: 72400.10, change: 0.55, pcr: 1.10, exp: '27-AUG-2026 (Monthly)' }
                   ].map(idx => (
                     <div 
                       key={idx.symbol}

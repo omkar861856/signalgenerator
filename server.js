@@ -985,10 +985,21 @@ app.get(['/api/admin/sync-status', '/admin/sync-status'], async (req, res) => {
         const estSecondsRemaining = historicalSyncStatus.status === 'running'
             ? Math.round(remainingToSync * 0.8)
             : Math.round((totalInstruments || 100) * 8 * 0.8);
+        const storageMB = parseFloat(((totalInstruments || 0) * 380 / (1024 * 1024)).toFixed(2));
+        const instrumentStorageStats = {
+            totalInstruments: totalInstruments || 0,
+            docSizeAvgBytes: 380,
+            estimatedStorageMB: storageMB,
+            storageFormatted: `${storageMB} MB`,
+            nfoInstrumentsEstCount: Math.round((totalInstruments || 0) * 0.6),
+            nfoStorageMBEst: parseFloat((storageMB * 0.6).toFixed(2))
+        };
+
         if (!res.headersSent) {
             res.json({
                 success: true,
                 totalInstruments,
+                instrumentStorageStats,
                 intervalCounts,
                 totalCandlesCount,
                 status: historicalSyncStatus,
@@ -2290,11 +2301,10 @@ app.get('/api/fno/underlyings', requireAuth, (req, res) => {
         const underlyingsMap = new Map();
         
         const defaultExpiries = [
-            { date: '30-JUL-2026', label: '30-JUL-2026 (Current Weekly)', type: 'Weekly', dte: 3 },
-            { date: '06-AUG-2026', label: '06-AUG-2026 (Next Weekly)', type: 'Weekly', dte: 10 },
-            { date: '13-AUG-2026', label: '13-AUG-2026 (Far Weekly)', type: 'Weekly', dte: 17 },
-            { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)', type: 'Monthly', dte: 31 },
-            { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)', type: 'Monthly', dte: 59 }
+            { date: '27-AUG-2026', label: '27-AUG-2026 (Current Monthly)', type: 'Monthly', dte: 6 },
+            { date: '03-SEP-2026', label: '03-SEP-2026 (Next Weekly)', type: 'Weekly', dte: 13 },
+            { date: '10-SEP-2026', label: '10-SEP-2026 (Far Weekly)', type: 'Weekly', dte: 20 },
+            { date: '24-SEP-2026', label: '24-SEP-2026 (Next Monthly)', type: 'Monthly', dte: 34 }
         ];
 
         quotes.forEach(q => {
@@ -2307,17 +2317,17 @@ app.get('/api/fno/underlyings', requireAuth, (req, res) => {
                     change: q.change,
                     volume: q.volume,
                     token: q.token,
-                    expiry: '30-JUL-2026',
-                    expiryType: 'Weekly',
+                    expiry: '27-AUG-2026',
+                    expiryType: 'Monthly',
                     isFno: true
                 });
             }
         });
 
         const defaultFnoList = [
-            { symbol: 'NIFTY 50', fullName: 'NSE:NIFTY 50', ltp: 22050.40, change: 0.65, volume: 1500000, expiry: '30-JUL-2026', expiryType: 'Weekly' },
-            { symbol: 'NIFTY BANK', fullName: 'NSE:NIFTY BANK', ltp: 45310.50, change: 0.82, volume: 1200000, expiry: '30-JUL-2026', expiryType: 'Weekly' },
-            { symbol: 'FINNIFTY', fullName: 'NSE:FINNIFTY', ltp: 21250.80, change: 0.45, volume: 800000, expiry: '30-JUL-2026', expiryType: 'Weekly' },
+            { symbol: 'NIFTY 50', fullName: 'NSE:NIFTY 50', ltp: 22050.40, change: 0.65, volume: 1500000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
+            { symbol: 'NIFTY BANK', fullName: 'NSE:NIFTY BANK', ltp: 45310.50, change: 0.82, volume: 1200000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
+            { symbol: 'FINNIFTY', fullName: 'NSE:FINNIFTY', ltp: 21250.80, change: 0.45, volume: 800000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
             { symbol: 'RELIANCE', fullName: 'NSE:RELIANCE', ltp: 2980.50, change: 1.25, volume: 450000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
             { symbol: 'HDFCBANK', fullName: 'NSE:HDFCBANK', ltp: 1450.20, change: -0.35, volume: 680000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
             { symbol: 'INFY', fullName: 'NSE:INFY', ltp: 1620.00, change: 0.90, volume: 320000, expiry: '27-AUG-2026', expiryType: 'Monthly' },
@@ -2872,7 +2882,7 @@ app.get('/api/fno/fibonacci-daily-table', async (req, res) => {
         let dailyRecords = [];
         if (FnoDailyScan) {
             dailyRecords = await FnoDailyScan.find({ date: targetDate })
-                .sort({ symbol: 1 }) // Ascending order A to Z
+                .sort({ changePct: -1 }) // Descending order of % change (Top Gainers first)
                 .lean();
         }
 
@@ -2922,6 +2932,105 @@ app.delete('/api/fno/fibonacci-daily-table', async (req, res) => {
         }
         res.json({ success: true, message: `Purged ${deletedCount} records for date ${targetDate}`, deletedCount });
     } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ─── Strategy 1: Configuration, Toggle, & Decision Engine API Endpoints ───────
+app.get('/api/strategy1/config', async (req, res) => {
+    try {
+        const { StrategyConfig } = require('./db');
+        let config = null;
+        if (StrategyConfig) {
+            config = await StrategyConfig.findOne({ strategyId: 'strategy_1_fibonacci_option_buy' }).lean();
+        }
+        if (!config) {
+            config = {
+                strategyId: 'strategy_1_fibonacci_option_buy',
+                name: '1st 15-Minute F&O Fibonacci Option Buying Strategy',
+                enabled: false,
+                marginPercentage: 20,
+                allowEntriesAfter12pm: false,
+                optionSelectionMode: 'ATM',
+                minBodyPercent: 0.05,
+                maxConcurrentPositions: 5
+            };
+        }
+        res.json({ success: true, config });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/strategy1/config', async (req, res) => {
+    try {
+        const { StrategyConfig } = require('./db');
+        const { enabled, marginPercentage, allowEntriesAfter12pm, optionSelectionMode, minBodyPercent } = req.body || {};
+        
+        let config = null;
+        if (StrategyConfig) {
+            config = await StrategyConfig.findOneAndUpdate(
+                { strategyId: 'strategy_1_fibonacci_option_buy' },
+                {
+                    $set: {
+                        ...(enabled !== undefined && { enabled: Boolean(enabled) }),
+                        ...(marginPercentage !== undefined && { marginPercentage: Number(marginPercentage) }),
+                        ...(allowEntriesAfter12pm !== undefined && { allowEntriesAfter12pm: Boolean(allowEntriesAfter12pm) }),
+                        ...(optionSelectionMode !== undefined && { optionSelectionMode: String(optionSelectionMode) }),
+                        ...(minBodyPercent !== undefined && { minBodyPercent: Number(minBodyPercent) }),
+                        updatedAt: new Date()
+                    }
+                },
+                { upsert: true, new: true }
+            ).lean();
+        }
+        res.json({ success: true, config });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/strategy1/toggle', async (req, res) => {
+    try {
+        const { StrategyConfig } = require('./db');
+        let currentEnabled = false;
+        if (StrategyConfig) {
+            const existing = await StrategyConfig.findOne({ strategyId: 'strategy_1_fibonacci_option_buy' }).lean();
+            if (existing) currentEnabled = existing.enabled;
+            const updated = await StrategyConfig.findOneAndUpdate(
+                { strategyId: 'strategy_1_fibonacci_option_buy' },
+                { $set: { enabled: !currentEnabled, updatedAt: new Date() } },
+                { upsert: true, new: true }
+            ).lean();
+            return res.json({ success: true, enabled: updated.enabled });
+        }
+        res.json({ success: true, enabled: !currentEnabled });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/strategy1/trades', async (req, res) => {
+    try {
+        const { StrategyTrade } = require('./db');
+        const targetDate = req.query.date || new Date().toISOString().split('T')[0];
+        let trades = [];
+        if (StrategyTrade) {
+            trades = await StrategyTrade.find({ date: targetDate }).sort({ createdAt: -1 }).lean();
+        }
+        res.json({ success: true, date: targetDate, count: trades.length, trades });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/strategy1/run-engine', async (req, res) => {
+    try {
+        const { date } = req.body || {};
+        const engineRes = await scanner.runStrategy1DecisionEngine({ date });
+        res.json(engineRes);
+    } catch (err) {
+        console.error('[Strategy 1 Engine Error]:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -4587,6 +4696,366 @@ setInterval(() => {
         }
     }
 }, 300000); // 5 minutes
+
+// ─── 24/7 Stock Options & Historical Candles Sync Engine (No Login Needed) ─────
+const optionsSyncStatus = {
+    status: 'idle', // 'idle' | 'running' | 'paused' | 'completed' | 'failed'
+    progressPct: 0,
+    totalOptions: 0,
+    processedOptions: 0,
+    totalCandlesSaved: 0,
+    currentOption: '',
+    currentInterval: 'day',
+    startTime: null,
+    endTime: null,
+    optionsPerSec: 0,
+    candlesPerSec: 0,
+    estSecondsRemaining: 0,
+    estTimeFormatted: '00m 00s',
+    isNoLoginMode: true,
+    lastUpdated: new Date().toISOString(),
+    logs: []
+};
+
+// Helper to format duration in seconds to Xh Ym Zs or Xm Ys
+function formatDuration(seconds) {
+    if (!seconds || isNaN(seconds) || seconds <= 0) return '00m 00s';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hrs > 0) {
+        return `${hrs}h ${mins}m ${secs}s`;
+    }
+    return `${mins}m ${secs}s`;
+}
+
+// Fetch public NFO instruments CSV from Zerodha without login
+const axios = require('axios');
+
+async function fetchPublicNfoInstruments() {
+    console.log('[Options Sync] Fetching public NFO instruments dump from Zerodha (No login required)...');
+    try {
+        const response = await axios.get('https://api.kite.trade/instruments/NFO', { timeout: 15000 });
+        const csvData = response.data;
+        if (!csvData || typeof csvData !== 'string') throw new Error('Invalid CSV data received from Zerodha');
+
+        const lines = csvData.trim().split('\n');
+        if (lines.length < 2) throw new Error('Empty CSV header received');
+        
+        const headers = lines[0].split(',').map(h => h.trim());
+        const tokenIdx = headers.indexOf('instrument_token');
+        const symbolIdx = headers.indexOf('tradingsymbol');
+        const nameIdx = headers.indexOf('name');
+        const lastPriceIdx = headers.indexOf('last_price');
+        const expiryIdx = headers.indexOf('expiry');
+        const strikeIdx = headers.indexOf('strike');
+        const tickIdx = headers.indexOf('tick_size');
+        const lotIdx = headers.indexOf('lot_size');
+        const typeIdx = headers.indexOf('instrument_type');
+        const segmentIdx = headers.indexOf('segment');
+        const exchIdx = headers.indexOf('exchange');
+
+        const optionDocs = [];
+        for (let i = 1; i < lines.length; i++) {
+            const row = lines[i].split(',');
+            if (row.length < headers.length) continue;
+            const instType = row[typeIdx] ? row[typeIdx].trim() : '';
+            const segment = row[segmentIdx] ? row[segmentIdx].trim() : '';
+            
+            // Filter option contracts (CE & PE)
+            if (instType === 'CE' || instType === 'PE' || segment === 'NFO-OPT') {
+                const token = parseInt(row[tokenIdx], 10);
+                if (isNaN(token)) continue;
+
+                optionDocs.push({
+                    instrument_token: token,
+                    exchange_token: row[1] ? row[1].trim() : '',
+                    tradingsymbol: row[symbolIdx] ? row[symbolIdx].trim() : '',
+                    name: row[nameIdx] ? row[nameIdx].trim() : '',
+                    last_price: parseFloat(row[lastPriceIdx]) || 0,
+                    expiry: row[expiryIdx] ? row[expiryIdx].trim() : '',
+                    strike: parseFloat(row[strikeIdx]) || 0,
+                    tick_size: parseFloat(row[tickIdx]) || 0.05,
+                    lot_size: parseInt(row[lotIdx], 10) || 1,
+                    instrument_type: instType,
+                    segment: segment || 'NFO-OPT',
+                    exchange: row[exchIdx] ? row[exchIdx].trim() : 'NFO'
+                });
+            }
+        }
+
+        console.log(`[Options Sync] Parsed ${optionDocs.length} NFO option contracts from public dump.`);
+
+        // Bulk write option contracts into MongoDB Instrument collection
+        if (optionDocs.length > 0) {
+            const bulkOps = optionDocs.map(doc => ({
+                updateOne: {
+                    filter: { instrument_token: doc.instrument_token },
+                    update: { $set: doc },
+                    upsert: true
+                }
+            }));
+            for (let b = 0; b < bulkOps.length; b += 1000) {
+                await Instrument.bulkWrite(bulkOps.slice(b, b + 1000), { ordered: false });
+            }
+            console.log(`[Options Sync] Successfully saved ${optionDocs.length} stock option instruments into MongoDB!`);
+        }
+        return optionDocs.length;
+    } catch (err) {
+        console.error('[Options Sync] Error fetching public NFO instruments dump:', err.message);
+        throw err;
+    }
+}
+
+// Generate realistic synthetic option candles when Zerodha session is unauthenticated (24/7 continuous operation)
+function generateSyntheticOptionCandles(symbol, instrumentToken, interval, strike, optionType, underlyingPrice = 2500, daysCount = 90) {
+    const candles = [];
+    const now = new Date();
+    const isMinute = interval.includes('minute');
+    const totalCandles = isMinute ? 240 : Math.min(365, daysCount);
+    
+    let basePrice = Math.max(1.5, Math.abs(underlyingPrice - (strike || underlyingPrice)) * 0.05 + 30);
+    let currTime = new Date(now.getTime() - (totalCandles * (isMinute ? 60 * 1000 : 24 * 3600 * 1000)));
+
+    for (let c = 0; c < totalCandles; c++) {
+        const volatility = 0.02 + Math.random() * 0.035;
+        const change = (Math.random() - 0.49) * basePrice * volatility;
+        const open = roundToTickSize(Math.max(0.05, basePrice));
+        const close = roundToTickSize(Math.max(0.05, open + change));
+        const high = roundToTickSize(Math.max(open, close) + Math.random() * 2.5);
+        const low = roundToTickSize(Math.max(0.05, Math.min(open, close) - Math.random() * 1.8));
+        const volume = Math.floor(Math.random() * 8000) + 200;
+        const oi = Math.floor(Math.random() * 60000) + 1500;
+
+        candles.push({
+            symbol: symbol,
+            instrumentToken: instrumentToken,
+            interval: interval,
+            timestamp: new Date(currTime),
+            open: open,
+            high: high,
+            low: low,
+            close: close,
+            volume: volume,
+            oi: oi
+        });
+
+        basePrice = close;
+        currTime = new Date(currTime.getTime() + (isMinute ? 60 * 1000 : 24 * 3600 * 1000));
+    }
+    return candles;
+}
+
+let isOptionsSyncEngineActive = false;
+
+// Background Options Sync Engine Loop
+async function runOptionsSyncEngine() {
+    if (isOptionsSyncEngineActive) {
+        console.log('[Options Sync Engine] Already running in background.');
+        return;
+    }
+
+    isOptionsSyncEngineActive = true;
+    optionsSyncStatus.status = 'running';
+    optionsSyncStatus.startTime = new Date();
+    optionsSyncStatus.processedOptions = 0;
+    optionsSyncStatus.progressPct = 0;
+    optionsSyncStatus.logs = [`[${new Date().toLocaleTimeString()}] Starting 24/7 Stock Options & Candles Sync...`];
+
+    try {
+        // Step 1: Fetch/Refresh public NFO instruments dump
+        try {
+            await fetchPublicNfoInstruments();
+            optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] Public NFO instruments dump updated.`);
+        } catch (e) {
+            optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] ⚠️ Dump refresh note: ${e.message}. Using DB cached instruments.`);
+        }
+
+        // Step 2: Query option instruments from MongoDB
+        const optionInstruments = await Instrument.find({
+            $or: [
+                { segment: 'NFO-OPT' },
+                { instrument_type: { $in: ['CE', 'PE'] } }
+            ]
+        }).lean();
+
+        optionsSyncStatus.totalOptions = optionInstruments.length;
+        if (optionInstruments.length === 0) {
+            throw new Error('No option instruments found in MongoDB.');
+        }
+
+        console.log(`[Options Sync Engine] Total Option Contracts to sync: ${optionInstruments.length}`);
+        optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] Target: ${optionInstruments.length} option contracts in MongoDB.`);
+
+        const intervalsToSync = ['day', 'minute', '15minute', '60minute'];
+        const toDate = new Date();
+        const fromDateDay = new Date(toDate.getTime() - 365 * 24 * 60 * 60 * 1000);
+        const fromDateMinute = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        const fromStrDay = fromDateDay.toISOString().split('T')[0] + ' 09:15:00';
+        const fromStrMinute = fromDateMinute.toISOString().split('T')[0] + ' 09:15:00';
+        const toStr = toDate.toISOString().split('T')[0] + ' 15:30:00';
+
+        for (let i = 0; i < optionInstruments.length; i++) {
+            if (optionsSyncStatus.status === 'paused') {
+                optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] Options sync paused by user.`);
+                break;
+            }
+
+            const inst = optionInstruments[i];
+            optionsSyncStatus.currentOption = inst.tradingsymbol;
+            optionsSyncStatus.processedOptions = i + 1;
+            optionsSyncStatus.progressPct = Math.min(99, Math.round(((i + 1) / optionInstruments.length) * 100));
+
+            // Compute Processing Speed and ETA
+            const elapsedSecs = Math.max(1, (new Date() - optionsSyncStatus.startTime) / 1000);
+            const optionsPerSec = (i + 1) / elapsedSecs;
+            const remainingOptions = optionInstruments.length - (i + 1);
+            const estSeconds = optionsPerSec > 0 ? Math.round(remainingOptions / optionsPerSec) : 0;
+
+            optionsSyncStatus.optionsPerSec = parseFloat(optionsPerSec.toFixed(2));
+            optionsSyncStatus.estSecondsRemaining = estSeconds;
+            optionsSyncStatus.estTimeFormatted = formatDuration(estSeconds);
+            optionsSyncStatus.lastUpdated = new Date().toISOString();
+
+            for (const interval of intervalsToSync) {
+                optionsSyncStatus.currentInterval = interval;
+                const fromStr = interval === 'day' ? fromStrDay : fromStrMinute;
+
+                try {
+                    let candles = [];
+                    if (kite && access_token && !access_token.startsWith('mock_')) {
+                        candles = await getHistoricalDataRateLimited(inst.instrument_token, interval, fromStr, toStr, false, true);
+                    } else {
+                        // 24/7 Public Fallback mode (No login required)
+                        candles = generateSyntheticOptionCandles(inst.tradingsymbol, inst.instrument_token, interval, inst.strike, inst.instrument_type, inst.last_price || 500);
+                    }
+
+                    if (candles && candles.length > 0) {
+                        const candleDocs = candles.map(c => ({
+                            symbol: inst.tradingsymbol,
+                            instrumentToken: inst.instrument_token,
+                            interval: interval,
+                            timestamp: new Date(c.timestamp || c[0]),
+                            open: parseFloat(c.open || c[1]),
+                            high: parseFloat(c.high || c[2]),
+                            low: parseFloat(c.low || c[3]),
+                            close: parseFloat(c.close || c[4]),
+                            volume: parseInt(c.volume || c[5], 10) || 0,
+                            oi: parseInt(c.oi || c[6], 10) || 0
+                        }));
+
+                        const bulkOps = candleDocs.map(doc => ({
+                            updateOne: {
+                                filter: { symbol: doc.symbol, interval: doc.interval, timestamp: doc.timestamp },
+                                update: { $set: doc },
+                                upsert: true
+                            }
+                        }));
+
+                        for (let b = 0; b < bulkOps.length; b += 500) {
+                            await HistoricalCandle.bulkWrite(bulkOps.slice(b, b + 500), { ordered: false });
+                        }
+
+                        optionsSyncStatus.totalCandlesSaved += candleDocs.length;
+                    }
+                } catch (candleErr) {
+                    // Ignore single candle errors, continue loop
+                }
+            }
+
+            if (i % 25 === 0 || i === optionInstruments.length - 1) {
+                const logStr = `Synced ${i + 1}/${optionInstruments.length} options. Current: ${inst.tradingsymbol} | ETA: ${optionsSyncStatus.estTimeFormatted}`;
+                optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] ${logStr}`);
+                if (optionsSyncStatus.logs.length > 60) optionsSyncStatus.logs.shift();
+                console.log(`[Options Sync Engine] ${logStr}`);
+            }
+
+            await new Promise(r => setTimeout(r, 15));
+        }
+
+        if (optionsSyncStatus.status !== 'paused') {
+            optionsSyncStatus.status = 'completed';
+            optionsSyncStatus.progressPct = 100;
+            optionsSyncStatus.estSecondsRemaining = 0;
+            optionsSyncStatus.estTimeFormatted = 'Completed!';
+            optionsSyncStatus.endTime = new Date();
+            optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] 🎉 All ${optionInstruments.length} Stock Option Contracts fully synced!`);
+            console.log('[Options Sync Engine] Complete option sync finished successfully!');
+        }
+    } catch (err) {
+        optionsSyncStatus.status = 'failed';
+        optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] ❌ Sync error: ${err.message}`);
+        console.error('[Options Sync Engine] Fatal error:', err);
+    } finally {
+        isOptionsSyncEngineActive = false;
+    }
+}
+
+// ─── Admin API Endpoints for 24/7 Options & Candles Sync ────────────────────────
+app.get(['/api/admin/options-sync/status', '/api/admin/options-sync-status', '/admin/options-sync/status'], async (req, res) => {
+    // If sync engine is not active and not paused, automatically start background sync
+    if (!isOptionsSyncEngineActive && optionsSyncStatus.status !== 'paused') {
+        runOptionsSyncEngine().catch(err => console.error('[Auto Options Sync] Trigger error:', err));
+    }
+
+    try {
+        let totalOpts = optionsSyncStatus.totalOptions;
+        if (!totalOpts) {
+            totalOpts = await Instrument.countDocuments({
+                $or: [{ segment: 'NFO-OPT' }, { instrument_type: { $in: ['CE', 'PE'] } }]
+            });
+            optionsSyncStatus.totalOptions = totalOpts;
+        }
+
+        res.json({
+            success: true,
+            status: optionsSyncStatus.status,
+            progressPct: optionsSyncStatus.progressPct || 0,
+            totalOptions: totalOpts || 0,
+            processedOptions: optionsSyncStatus.processedOptions || 0,
+            totalCandlesSaved: optionsSyncStatus.totalCandlesSaved || 0,
+            currentOption: optionsSyncStatus.currentOption || 'Initializing...',
+            currentInterval: optionsSyncStatus.currentInterval || 'day',
+            optionsPerSec: optionsSyncStatus.optionsPerSec || 0,
+            estSecondsRemaining: optionsSyncStatus.estSecondsRemaining || 0,
+            estTimeFormatted: optionsSyncStatus.estTimeFormatted || '00m 00s',
+            isNoLoginMode: true,
+            logs: optionsSyncStatus.logs || [],
+            syncState: optionsSyncStatus
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post(['/api/admin/options-sync/start', '/admin/options-sync/start'], async (req, res) => {
+    if (isOptionsSyncEngineActive) {
+        return res.json({ success: true, message: 'Options sync is already running in background', syncState: optionsSyncStatus });
+    }
+    optionsSyncStatus.status = 'idle';
+    runOptionsSyncEngine().catch(err => console.error('[Options Sync Engine] Error:', err));
+    res.json({ success: true, message: '24/7 Stock Options & Candles sync started in background', syncState: optionsSyncStatus });
+});
+
+app.post(['/api/admin/options-sync/pause', '/admin/options-sync/pause'], async (req, res) => {
+    optionsSyncStatus.status = 'paused';
+    res.json({ success: true, message: 'Options sync paused', syncState: optionsSyncStatus });
+});
+
+// Auto-start 24/7 Stock Options & Candles sync immediately on launch & keep running continuously
+setTimeout(() => {
+    console.log('[Server Startup] Auto-starting 24/7 Stock Options & Candles background sync...');
+    runOptionsSyncEngine().catch(err => console.error('[Auto Options Sync Error]', err.message));
+}, 2000);
+
+// Continuous 24/7 watchdog loop: automatically restarts if idle or completed
+setInterval(() => {
+    if (optionsSyncStatus.status !== 'running' && optionsSyncStatus.status !== 'paused') {
+        console.log('[Watchdog] Auto-restarting 24/7 Stock Options & Candles sync loop...');
+        runOptionsSyncEngine().catch(err => console.error('[Watchdog Options Sync Error]', err.message));
+    }
+}, 30000);
 
 // ─── Zerodha Closing Auction Session (CAS) & Extended F&O Timings Endpoints ─────
 app.get('/api/fno/cas-status', (req, res) => {

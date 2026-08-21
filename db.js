@@ -123,6 +123,8 @@ const InstrumentSchema = new mongoose.Schema({
 
 InstrumentSchema.index({ tradingsymbol: 1 });
 InstrumentSchema.index({ exchange: 1, tradingsymbol: 1 });
+InstrumentSchema.index({ segment: 1, instrument_type: 1 });
+InstrumentSchema.index({ name: 1, segment: 1 });
 
 const Instrument = mongoose.model('Instrument', InstrumentSchema);
 
@@ -138,16 +140,19 @@ const FnoDailyScanSchema = new mongoose.Schema({
     bodyLength: { type: Number, required: true },
     bodyPercent: { type: Number, required: true },
     isGreen: { type: Boolean, default: true },
+    changePct: { type: Number, default: 0 },
     fibonacciLevels: {
-        fib0: { type: Number },     // Open (0%)
+        fib0: { type: Number },     // Low (0%)
         fib236: { type: Number },   // 23.6%
         fib382: { type: Number },   // 38.2%
         fib500: { type: Number },   // 50%
-        fib618: { type: Number },   // 61.8%
-        fib786: { type: Number },   // 78.6%
-        fib100: { type: Number },   // Close (100%)
-        fib1272: { type: Number },  // 127.2%
-        fib1618: { type: Number },  // 161.8%
+        fib600: { type: Number },   // 60% Retracement
+        fib618: { type: Number },   // 61.8% Retracement (Golden ratio)
+        fib650: { type: Number },   // 65% Retracement
+        fib786: { type: Number },   // 78.6% Retracement (Stop loss level)
+        fib100: { type: Number },   // High (100% - Previous swing high)
+        fib1272: { type: Number },  // 127.2% Target 2
+        fib1618: { type: Number },  // 161.8% Target 3
         fib2000: { type: Number },  // 200%
         fib2618: { type: Number }   // 261.8%
     },
@@ -156,17 +161,88 @@ const FnoDailyScanSchema = new mongoose.Schema({
         instrumentToken: { type: Number },
         strike: { type: Number },
         optionType: { type: String, default: 'CE' },
+        selectionMode: { type: String, default: 'ATM' }, // 'ATM' or '1ITM'
         expiry: { type: String },
         lotSize: { type: Number, default: 1 },
-        estimatedPremium: { type: Number, default: 0 }
+        estimatedPremium: { type: Number, default: 0 },
+        minMarginRequired: { type: Number, default: 0 }
     },
+    dataSource: { type: String, default: 'HISTORICAL' },
+    dataSourceLabel: { type: String, default: 'HISTORICAL MARKET DATA' },
     scannedAt: { type: Date, default: Date.now }
 }, { collection: 'fno_daily_scans', timestamps: true, bufferCommands: false });
 
 FnoDailyScanSchema.index({ date: 1, symbol: 1 }, { unique: true });
-FnoDailyScanSchema.index({ date: 1, bodyPercent: -1 });
+FnoDailyScanSchema.index({ date: 1, changePct: -1 });
 
 const FnoDailyScan = mongoose.model('FnoDailyScan', FnoDailyScanSchema);
+
+// Strategy Configuration Schema
+const StrategyConfigSchema = new mongoose.Schema({
+    strategyId: { type: String, required: true, unique: true, default: 'strategy_1_fibonacci_option_buy' },
+    name: { type: String, default: '1st 15-Minute F&O Fibonacci Option Buying Strategy' },
+    enabled: { type: Boolean, default: false },
+    marginPercentage: { type: Number, default: 20 }, // Margin utilization % (e.g. 20%)
+    allowEntriesAfter12pm: { type: Boolean, default: false },
+    optionSelectionMode: { type: String, default: 'ATM' }, // 'ATM' | '1ITM'
+    minBodyPercent: { type: Number, default: 0.05 },
+    maxConcurrentPositions: { type: Number, default: 5 },
+    updatedAt: { type: Date, default: Date.now }
+}, { collection: 'strategy_configs', timestamps: true, bufferCommands: false });
+
+const StrategyConfig = mongoose.model('StrategyConfig', StrategyConfigSchema);
+
+// Strategy Trade Execution & SL Breath Monitoring Schema
+const StrategyTradeSchema = new mongoose.Schema({
+    tradeId: { type: String, required: true, unique: true },
+    strategyId: { type: String, default: 'strategy_1_fibonacci_option_buy' },
+    date: { type: String, required: true, index: true },
+    symbol: { type: String, required: true },
+    underlyingSymbol: { type: String, required: true },
+    optionSymbol: { type: String, required: true },
+    optionType: { type: String, default: 'CE' },
+    strike: { type: Number, required: true },
+    selectionMode: { type: String, default: 'ATM' },
+    lotSize: { type: Number, default: 1 },
+    lots: { type: Number, default: 1 },
+    quantity: { type: Number, default: 1 },
+    marginAllocated: { type: Number, default: 0 },
+    spot15mOpen: { type: Number },
+    spot15mHigh: { type: Number },
+    spot15mLow: { type: Number },
+    spot15mClose: { type: Number },
+    fib60: { type: Number },
+    fib65: { type: Number },
+    target1: { type: Number }, // Previous high (50% exit)
+    target2: { type: Number }, // 1.272 ext (25% exit)
+    target3: { type: Number }, // 1.618 ext (25% exit)
+    stopLossLevel: { type: Number }, // 78.6% retracement
+    entryPrice: { type: Number },
+    entryTime: { type: Date },
+    entryCandleWindow: { type: String }, // e.g. "09:30-09:45"
+    currentPrice: { type: Number },
+    status: { 
+        type: String, 
+        enum: ['WATCHING', 'ENTERED', 'PARTIAL_TARGET1', 'PARTIAL_TARGET2', 'EXITED_TARGET3', 'BREATHING_SL', 'EXITED_SL', 'CANCELLED'],
+        default: 'WATCHING' 
+    },
+    targetsExecuted: {
+        target1: { type: Boolean, default: false },
+        target2: { type: Boolean, default: false },
+        target3: { type: Boolean, default: false }
+    },
+    slBreachedCandleWindow: { type: String }, // Timestamp window when 78.6% hit
+    exitPrice: { type: Number },
+    exitTime: { type: Date },
+    exitReason: { type: String },
+    pnl: { type: Number, default: 0 },
+    logs: [{ timestamp: { type: Date, default: Date.now }, message: String }]
+}, { collection: 'strategy_trades', timestamps: true, bufferCommands: false });
+
+StrategyTradeSchema.index({ date: 1, symbol: 1 });
+StrategyTradeSchema.index({ status: 1 });
+
+const StrategyTrade = mongoose.model('StrategyTrade', StrategyTradeSchema);
 
 const DailyUniqueScannerStockSchema = new mongoose.Schema({
     date: { type: String, required: true, index: true }, // Format: YYYY-MM-DD
@@ -288,5 +364,7 @@ module.exports = {
     Instrument,
     FnoDailyScan,
     DailyUniqueScannerStock,
+    StrategyConfig,
+    StrategyTrade,
     cleanupRedundantDBData
 };
