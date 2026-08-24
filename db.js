@@ -48,7 +48,7 @@ const HistoricalCandleSchema = new mongoose.Schema({
 }, { collection: 'candles', timestamps: true, bufferCommands: false });
 
 HistoricalCandleSchema.index({ symbol: 1, interval: 1, timestamp: 1 }, { unique: true });
-HistoricalCandleSchema.index({ timestamp: 1 });
+HistoricalCandleSchema.index({ timestamp: 1 }, { expireAfterSeconds: 14 * 86400 });
 HistoricalCandleSchema.index({ instrumentToken: 1 });
 
 const HistoricalCandle = mongoose.model('HistoricalCandle', HistoricalCandleSchema);
