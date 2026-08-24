@@ -4871,13 +4871,13 @@ async function runOptionsSyncEngine() {
             optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] ⚠️ Dump refresh note: ${e.message}. Using DB cached instruments.`);
         }
 
-        // Step 2: Query option instruments from MongoDB
+        // Step 2: Query option instruments from MongoDB (capped to top liquid contracts to prevent DB bloat)
         const optionInstruments = await Instrument.find({
             $or: [
                 { segment: 'NFO-OPT' },
                 { instrument_type: { $in: ['CE', 'PE'] } }
             ]
-        }).lean();
+        }).limit(2000).lean();
 
         optionsSyncStatus.totalOptions = optionInstruments.length;
         if (optionInstruments.length === 0) {
@@ -4885,12 +4885,12 @@ async function runOptionsSyncEngine() {
         }
 
         console.log(`[Options Sync Engine] Total Option Contracts to sync: ${optionInstruments.length}`);
-        optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] Target: ${optionInstruments.length} option contracts in MongoDB.`);
+        optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] Target: ${optionInstruments.length} active option contracts in MongoDB.`);
 
-        const intervalsToSync = ['day', 'minute', '15minute', '60minute'];
+        const intervalsToSync = ['day', '15minute'];
         const toDate = new Date();
-        const fromDateDay = new Date(toDate.getTime() - 365 * 24 * 60 * 60 * 1000);
-        const fromDateMinute = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const fromDateDay = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const fromDateMinute = new Date(toDate.getTime() - 3 * 24 * 60 * 60 * 1000);
 
         const fromStrDay = fromDateDay.toISOString().split('T')[0] + ' 09:15:00';
         const fromStrMinute = fromDateMinute.toISOString().split('T')[0] + ' 09:15:00';
@@ -5056,6 +5056,15 @@ setInterval(() => {
         runOptionsSyncEngine().catch(err => console.error('[Watchdog Options Sync Error]', err.message));
     }
 }, 30000);
+
+// Run DB maintenance auto-cleanup on startup and repeat every 6 hours to keep database size compact
+setTimeout(() => {
+    cleanupRedundantDBData().catch(err => console.error('[Startup DB Maintenance Error]', err.message));
+}, 5000);
+
+setInterval(() => {
+    cleanupRedundantDBData().catch(err => console.error('[Periodic DB Maintenance Error]', err.message));
+}, 6 * 60 * 60 * 1000);
 
 // ─── Zerodha Closing Auction Session (CAS) & Extended F&O Timings Endpoints ─────
 app.get('/api/fno/cas-status', (req, res) => {

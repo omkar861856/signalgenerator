@@ -266,6 +266,13 @@ async function cleanupRedundantDBData() {
     try {
         console.log('[DB Maintenance] Starting redundant data cleanup...');
         
+        // 0. Auto-prune historical candles older than 7 days
+        const cutoff7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const oldCandlesRes = await HistoricalCandle.deleteMany({ timestamp: { $lt: cutoff7Days } });
+        if (oldCandlesRes.deletedCount > 0) {
+            console.log(`[DB Maintenance] Auto-pruned ${oldCandlesRes.deletedCount} historical candles older than 7 days.`);
+        }
+
         // 1. Wipe invalid/corrupted candles (missing or NaN OHLC)
         const invalidCandlesRes = await HistoricalCandle.deleteMany({
             $or: [
