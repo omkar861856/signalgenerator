@@ -2100,12 +2100,37 @@ app.post('/api/admin/sync-db', async (req, res) => {
 
 // ─── 7b. REST State API (MongoDB Source of Truth) ─────────────────────────────
 app.get('/api/state', async (req, res) => {
+    const defaultState = {
+        key: 'global_state',
+        selectedMarginPercentage: 100,
+        watchlistedStocks: [],
+        subscribedTokens: [],
+        intradayTriggers: [],
+        openOrdersDecisions: [],
+        intradayActionsLogs: [],
+        activeStrategy: 'momentum_surfing_morning',
+        systemAutomationEnabled: true,
+        reallocationAutoEnabled: false
+    };
     try {
-        const state = await AppState.findOne({ key: 'global_state' });
-        res.json(state);
+        let state = null;
+        if (AppState && mongoose.connection.readyState === 1) {
+            state = await AppState.findOne({ key: 'global_state' }).lean();
+        }
+        if (state) {
+            cachedDbState = state;
+            return res.json(state);
+        }
+        if (cachedDbState) {
+            return res.json(cachedDbState);
+        }
+        res.json(defaultState);
     } catch (err) {
-        console.error('[State API] GET state error:', err.message);
-        res.status(500).json({ error: err.message });
+        console.warn('[State API] GET state warning:', err.message);
+        if (cachedDbState) {
+            return res.json(cachedDbState);
+        }
+        res.json(defaultState);
     }
 });
 
