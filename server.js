@@ -902,9 +902,20 @@ app.get('/metrics', async (req, res) => {
     }
 });
 
+const SERVER_BOOT_TIME = Date.now();
+
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
 app.use(bodyParser.json({ limit: '50mb' }));
+
+app.get('/api/version', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json({
+        success: true,
+        bootTime: SERVER_BOOT_TIME,
+        timestamp: new Date().toISOString()
+    });
+});
 app.use(express.static(path.join(__dirname, 'public'), {
     setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html')) {

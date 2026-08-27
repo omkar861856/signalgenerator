@@ -320,6 +320,32 @@ function AppContent() {
   const [strategy1Post12pmState, setStrategy1Post12pmState] = useState(false);
   const [strategy2EnabledState, setStrategy2EnabledState] = useState(false); // Default OFF
 
+  // Production Auto-Update & Version Poller (Auto-reloads browser when new deployment is live)
+  useEffect(() => {
+    let initialBootTime = null;
+    const checkServerVersion = () => {
+      fetch('/api/version')
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.bootTime) {
+            if (initialBootTime === null) {
+              initialBootTime = data.bootTime;
+            } else if (initialBootTime !== data.bootTime) {
+              console.log('[Auto-Updater] New deployment detected! Auto-refreshing application...');
+              setTimeout(() => {
+                window.location.reload(true);
+              }, 2000);
+            }
+          }
+        })
+        .catch(() => {});
+    };
+
+    checkServerVersion();
+    const versionInterval = setInterval(checkServerVersion, 30000);
+    return () => clearInterval(versionInterval);
+  }, []);
+
   useEffect(() => {
     fetch('/api/strategy1/config')
       .then(res => res.json())
