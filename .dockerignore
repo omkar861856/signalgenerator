@@ -1,8 +1,6 @@
 node_modules
 client/node_modules
 kiteconnect-sdk/node_modules
-public/assets
-public/index.html
 .env
 .session_cache.json
 .git
