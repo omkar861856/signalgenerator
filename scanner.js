@@ -1616,12 +1616,14 @@ async function getAppropriateCeDerivative(symbol, closePrice, optionMode = 'ATM'
         if (Instrument) {
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
+            // Select nearest upcoming 1-month monthly expiry contract (e.g. 29 Sept)
             inst = await Instrument.findOne({
                 name: cleanSym,
                 segment: 'NFO-OPT',
                 instrument_type: 'CE',
-                strike: selectedStrike
-            }).sort({ expiry: -1 }).lean();
+                strike: selectedStrike,
+                expiry: { $gte: todayStart }
+            }).sort({ expiry: 1 }).lean();
         }
     } catch (e) {}
 
@@ -2096,6 +2098,208 @@ async function runStrategy1DecisionEngine(options = {}) {
     };
 }
 
+async function runStrategy2DecisionEngine(options = {}) {
+    const { StrategyConfig, StrategyTrade, FnoDailyScan } = require('./db');
+    const todayStr = options.date || new Date().toISOString().split('T')[0];
+    const forceRun = !!options.forceRun; // Manual trigger bypasses time check
+
+    let config = {
+        strategyId: 'strategy_2_top_gainers_ce_buy',
+        name: 'Strategy 2: F&O Top Gainers CE Buyer',
+        enabled: false,
+        optionSelectionMode: 'ATM',
+        startTime: '09:15',
+        endTime: '09:20',
+        lotsPerStock: 1
+    };
+
+    if (StrategyConfig) {
+        try {
+            const dbCfg = await StrategyConfig.findOne({ strategyId: 'strategy_2_top_gainers_ce_buy' }).lean();
+            if (dbCfg) config = { ...config, ...dbCfg };
+        } catch (e) {}
+    }
+
+    if (!config.enabled && !forceRun) {
+        return { success: false, message: 'Strategy 2 is currently DISABLED.' };
+    }
+
+    // Dynamic Time Window check (Default 09:15 AM to 09:20 AM IST)
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMin = now.getMinutes();
+    const timeInMins = currentHour * 60 + currentMin;
+
+    const parseTimeToMinutes = (timeStr, defaultMins) => {
+        if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) return defaultMins;
+        const [h, m] = timeStr.split(':').map(Number);
+        if (isNaN(h) || isNaN(m)) return defaultMins;
+        return h * 60 + m;
+    };
+
+    const startWindowMins = parseTimeToMinutes(config.startTime, 9 * 60 + 15); // 09:15 AM (555 mins)
+    const cutoffMins = parseTimeToMinutes(config.endTime, 9 * 60 + 20);       // 09:20 AM (560 mins)
+
+    // Auto-disable at cutoff time when market window closes
+    if (timeInMins >= cutoffMins && !forceRun) {
+        // Only auto-disable during live market cutoff transition window (e.g. 09:20 AM - 09:25 AM IST)
+        if (config.enabled && timeInMins >= cutoffMins && timeInMins <= cutoffMins + 5 && StrategyConfig) {
+            try {
+                await StrategyConfig.findOneAndUpdate(
+                    { strategyId: 'strategy_2_top_gainers_ce_buy' },
+                    { $set: { enabled: false, updatedAt: new Date() } }
+                );
+                console.log(`[Strategy 2 Engine] ${config.endTime || '09:20'} market cutoff reached. Strategy 2 auto-disabled.`);
+            } catch (e) {}
+        }
+        return {
+            success: true,
+            outsideWindow: true,
+            message: `Outside active window (${config.startTime || '09:15'} - ${config.endTime || '09:20'}).`
+        };
+    }
+
+    if (timeInMins < startWindowMins && !forceRun) {
+        return {
+            success: false,
+            message: `Strategy 2 active window starts at ${config.startTime || '09:15'}. Waiting for active window.`
+        };
+    }
+
+    // Get accumulated unique F&O stocks
+    let scannedDocs = [];
+    if (FnoDailyScan) {
+        try {
+            scannedDocs = await FnoDailyScan.find({ date: todayStr }).sort({ changePct: -1 }).lean();
+        } catch (e) {}
+    }
+
+    // Fallback if no FnoDailyScan docs exist yet for today: scan or build from F&O stock list
+    if (!scannedDocs || scannedDocs.length === 0) {
+        const fnoList = getFnoStocksList();
+        const fallbackDocs = [];
+        for (const sym of fnoList) {
+            const cleanSym = sym.trim().toUpperCase();
+            const ltp = getLtpBySymbol(cleanSym) || 1000;
+            const open = ltp * 0.98; // Fallback estimate
+            const changePct = ((ltp - open) / open) * 100;
+            fallbackDocs.push({
+                symbol: cleanSym,
+                open,
+                high: Math.max(open, ltp),
+                low: Math.min(open, ltp),
+                close: ltp,
+                changePct
+            });
+        }
+        fallbackDocs.sort((a, b) => b.changePct - a.changePct);
+        scannedDocs = fallbackDocs;
+    }
+
+    // Already bought stocks today for Strategy 2 (Do not repeat lots!)
+    const boughtSymbols = new Set();
+    if (StrategyTrade) {
+        try {
+            const existingTrades = await StrategyTrade.find({ 
+                date: todayStr, 
+                strategyId: 'strategy_2_top_gainers_ce_buy' 
+            }).lean();
+            existingTrades.forEach(t => boughtSymbols.add(t.symbol.toUpperCase()));
+        } catch (e) {}
+    }
+
+    // Fetch available account margin
+    let availableMargin = 41734.05;
+    if (kiteRestInstance) {
+        try {
+            const mData = await kiteRestInstance.getMargins('equity');
+            if (mData && mData.net) availableMargin = mData.net;
+        } catch (e) {}
+    }
+
+    const executedActions = [];
+    const skippedActions = [];
+
+    // Iterate through top gainers sorted by % change descending
+    for (const doc of scannedDocs) {
+        const symbol = doc.symbol.toUpperCase();
+
+        // Rule: Do not repeat lots! Skip if position already taken today.
+        if (boughtSymbols.has(symbol)) {
+            continue;
+        }
+
+        const closePrice = doc.close || doc.ltp || getLtpBySymbol(symbol) || 1000;
+        const deriv = await getAppropriateCeDerivative(symbol, closePrice, config.optionSelectionMode || 'ATM');
+
+        const optionPremium = getLtpBySymbol(deriv.tradingsymbol) || deriv.estimatedPremium || 20;
+        const lotSize = deriv.lotSize || 100;
+        const lotsToBuy = 1; // Rule: buy one lot each
+        const quantity = lotSize * lotsToBuy;
+        const marginRequired = parseFloat((optionPremium * quantity).toFixed(2));
+
+        // Margin check
+        if (availableMargin >= marginRequired) {
+            const tradeId = `S2-${symbol}-${Date.now()}`;
+            const newTrade = {
+                tradeId,
+                strategyId: 'strategy_2_top_gainers_ce_buy',
+                date: todayStr,
+                symbol,
+                underlyingSymbol: symbol,
+                optionSymbol: deriv.tradingsymbol,
+                optionType: 'CE',
+                strike: deriv.strike,
+                selectionMode: config.optionSelectionMode || 'ATM',
+                lotSize,
+                lots: lotsToBuy,
+                quantity,
+                marginAllocated: marginRequired,
+                entryPrice: optionPremium,
+                entryTime: new Date(),
+                currentPrice: optionPremium,
+                status: 'ENTERED', // Semi-automatic: Buy only, no auto exit conditions
+                exitReason: 'NO_AUTO_EXIT_SET',
+                spot15mClose: closePrice,
+                logs: [{
+                    timestamp: new Date(),
+                    message: `[Strategy 2] BOUGHT 1 Lot of ${deriv.tradingsymbol} at ₹${optionPremium} (Stock Change: +${(doc.changePct || 0).toFixed(2)}%, Margin Required: ₹${marginRequired.toLocaleString('en-IN')}).`
+                }]
+            };
+
+            if (StrategyTrade) {
+                try {
+                    await StrategyTrade.create(newTrade);
+                } catch (e) {
+                    console.error('[Strategy 2 Engine] Failed to save trade:', e.message);
+                }
+            }
+
+            availableMargin -= marginRequired;
+            boughtSymbols.add(symbol);
+            executedActions.push({ action: 'BUY_ENTRY', symbol, optionSymbol: deriv.tradingsymbol, marginRequired, trade: newTrade });
+        } else {
+            skippedActions.push({
+                symbol,
+                optionSymbol: deriv.tradingsymbol,
+                reason: 'INSUFFICIENT_MARGIN',
+                marginRequired,
+                availableMargin
+            });
+        }
+    }
+
+    return {
+        success: true,
+        date: todayStr,
+        actionsCount: executedActions.length,
+        actions: executedActions,
+        skippedCount: skippedActions.length,
+        skipped: skippedActions,
+        availableMarginRemaining: availableMargin
+    };
+}
+
 module.exports = {
     setKiteInstance: (kite) => {
         kiteRestInstance = kite;
@@ -2115,6 +2319,7 @@ module.exports = {
     getAppropriateCeDerivative,
     scanFnoFirst15MinFibonacci,
     runStrategy1DecisionEngine,
+    runStrategy2DecisionEngine,
     getConnectionLogs: () => connectionLogs,
     isInitialized: () => isInitialized,
     getConnectionLogsList: () => connectionLogs,

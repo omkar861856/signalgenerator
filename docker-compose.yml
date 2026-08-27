@@ -18,6 +18,7 @@ services:
       - ./public:/usr/src/app/public
       - ./server.js:/usr/src/app/server.js
       - ./scanner.js:/usr/src/app/scanner.js
+      - ./db.js:/usr/src/app/db.js
       - ./.git:/usr/src/app/.git:ro
     depends_on:
       mongodb:

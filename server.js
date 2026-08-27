@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument, DailyUniqueScannerStock, cleanupRedundantDBData } = require('./db');
+const { connectDB, AppState, HistoricalCandle, KiteDoc, Instrument, DailyUniqueScannerStock, StrategyConfig, StrategyTrade, cleanupRedundantDBData } = require('./db');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
@@ -2643,15 +2643,19 @@ app.post('/api/fno/ai-intraday-options-buy', requireAuth, async (req, res) => {
             } else {
                 if (kite && typeof kite.placeOrder === 'function' && access_token && !access_token.startsWith('mock_')) {
                     try {
+                        const optLtp = getLtpBySymbol(kiteSymbol) || 20;
+                        const optLimitPrice = Math.round((optLtp * 1.03) * 20) / 20;
                         const orderRes = await kite.placeOrder('regular', {
                             exchange: 'NFO',
                             tradingsymbol: kiteSymbol,
                             transaction_type: 'BUY',
                             quantity: totalQty,
-                            order_type: 'MARKET',
+                            order_type: 'LIMIT',
+                            price: optLimitPrice,
+                            market_protection: 5,
                             product: 'MIS'
                         });
-                        brokerPushStatus = `Live Market Order Placed (Order ID: ${orderRes.order_id || 'Submitted'})`;
+                        brokerPushStatus = `Live Protected Limit Order Placed @ ₹${optLimitPrice} (Order ID: ${orderRes.order_id || 'Submitted'})`;
                     } catch (err) {
                         console.warn(`[AI Options Buyer] kite.placeOrder for ${kiteSymbol} warning:`, err.message);
                         brokerPushStatus = `Live Order Submitted (${err.message})`;
@@ -2993,19 +2997,25 @@ app.post('/api/strategy1/config', async (req, res) => {
 app.post('/api/strategy1/toggle', async (req, res) => {
     try {
         const { StrategyConfig } = require('./db');
-        let currentEnabled = false;
         if (StrategyConfig) {
             const existing = await StrategyConfig.findOne({ strategyId: 'strategy_1_fibonacci_option_buy' }).lean();
-            if (existing) currentEnabled = existing.enabled;
+            let nextState = true;
+            if (req.body && req.body.enabled !== undefined) {
+                nextState = Boolean(req.body.enabled);
+            } else if (existing) {
+                nextState = !Boolean(existing.enabled);
+            }
             const updated = await StrategyConfig.findOneAndUpdate(
                 { strategyId: 'strategy_1_fibonacci_option_buy' },
-                { $set: { enabled: !currentEnabled, updatedAt: new Date() } },
+                { $set: { enabled: nextState, updatedAt: new Date() } },
                 { upsert: true, new: true }
             ).lean();
-            return res.json({ success: true, enabled: updated.enabled });
+            console.log('[DEBUG TOGGLE 1]', { body: req.body, existingEnabled: existing?.enabled, nextState, updatedEnabled: updated?.enabled });
+            return res.json({ success: true, enabled: Boolean(updated.enabled) });
         }
-        res.json({ success: true, enabled: !currentEnabled });
+        res.json({ success: true, enabled: false });
     } catch (err) {
+        console.error('[TOGGLE 1 ERROR]', err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -3034,6 +3044,145 @@ app.post('/api/strategy1/run-engine', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
+// ─── Strategy 2: F&O Top Gainers CE Buyer API Endpoints ────────────────────────
+app.get('/api/strategy2/config', async (req, res) => {
+    try {
+        const { StrategyConfig } = require('./db');
+        let config = null;
+        if (StrategyConfig) {
+            config = await StrategyConfig.findOne({ strategyId: 'strategy_2_top_gainers_ce_buy' }).lean();
+        }
+        if (!config) {
+            config = {
+                strategyId: 'strategy_2_top_gainers_ce_buy',
+                name: 'Strategy 2: F&O Top Gainers CE Buyer',
+                enabled: false,
+                optionSelectionMode: 'ATM',
+                startTime: '09:15',
+                endTime: '09:20',
+                lotsPerStock: 1
+            };
+        }
+        res.json({ success: true, config });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/strategy2/config', async (req, res) => {
+    try {
+        const { StrategyConfig } = require('./db');
+        const { enabled, optionSelectionMode, lotsPerStock, startTime, endTime } = req.body || {};
+        
+        let config = null;
+        if (StrategyConfig) {
+            config = await StrategyConfig.findOneAndUpdate(
+                { strategyId: 'strategy_2_top_gainers_ce_buy' },
+                {
+                    $set: {
+                        ...(enabled !== undefined && { enabled: Boolean(enabled) }),
+                        ...(optionSelectionMode !== undefined && { optionSelectionMode: String(optionSelectionMode) }),
+                        ...(lotsPerStock !== undefined && { lotsPerStock: Number(lotsPerStock) }),
+                        ...(startTime !== undefined && { startTime: String(startTime) }),
+                        ...(endTime !== undefined && { endTime: String(endTime) }),
+                        updatedAt: new Date()
+                    }
+                },
+                { upsert: true, new: true }
+            ).lean();
+        }
+        res.json({ success: true, config });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/strategy2/toggle', async (req, res) => {
+    try {
+        const { StrategyConfig } = require('./db');
+        if (StrategyConfig) {
+            const existing = await StrategyConfig.findOne({ strategyId: 'strategy_2_top_gainers_ce_buy' }).lean();
+            let nextState = true;
+            if (req.body && req.body.enabled !== undefined) {
+                nextState = Boolean(req.body.enabled);
+            } else if (existing) {
+                nextState = !Boolean(existing.enabled);
+            }
+            const updated = await StrategyConfig.findOneAndUpdate(
+                { strategyId: 'strategy_2_top_gainers_ce_buy' },
+                { $set: { enabled: nextState, updatedAt: new Date() } },
+                { upsert: true, new: true }
+            ).lean();
+            console.log('[DEBUG TOGGLE 2]', { body: req.body, existingEnabled: existing?.enabled, nextState, updatedEnabled: updated?.enabled });
+            return res.json({ success: true, enabled: Boolean(updated.enabled) });
+        }
+        res.json({ success: true, enabled: false });
+    } catch (err) {
+        console.error('[TOGGLE 2 ERROR]', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/strategy2/trades', async (req, res) => {
+    try {
+        const { StrategyTrade } = require('./db');
+        const targetDate = req.query.date || new Date().toISOString().split('T')[0];
+        let trades = [];
+        if (StrategyTrade) {
+            trades = await StrategyTrade.find({ 
+                date: targetDate, 
+                strategyId: 'strategy_2_top_gainers_ce_buy' 
+            }).sort({ createdAt: -1 }).lean();
+        }
+        res.json({ success: true, date: targetDate, count: trades.length, trades });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/strategy2/run-engine', async (req, res) => {
+    try {
+        const { date, forceRun } = req.body || {};
+        const engineRes = await scanner.runStrategy2DecisionEngine({ date, forceRun });
+        res.json(engineRes);
+    } catch (err) {
+        console.error('[Strategy 2 Engine Error]:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.delete('/api/strategy2/trades', async (req, res) => {
+    try {
+        const { StrategyTrade } = require('./db');
+        const targetDate = req.query.date || req.body?.date || new Date().toISOString().split('T')[0];
+        let deletedCount = 0;
+        if (StrategyTrade) {
+            const delRes = await StrategyTrade.deleteMany({ date: targetDate, strategyId: 'strategy_2_top_gainers_ce_buy' });
+            deletedCount = delRes.deletedCount || 0;
+        }
+        res.json({ success: true, message: `Purged ${deletedCount} Strategy 2 records for date ${targetDate}`, deletedCount });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Automatic background interval to run active strategies every 15 seconds
+setInterval(async () => {
+    try {
+        const { StrategyConfig } = require('./db');
+        if (StrategyConfig) {
+            const s1 = await StrategyConfig.findOne({ strategyId: 'strategy_1_fibonacci_option_buy' }).lean();
+            if (s1 && s1.enabled) {
+                await scanner.runStrategy1DecisionEngine();
+            }
+            const s2 = await StrategyConfig.findOne({ strategyId: 'strategy_2_top_gainers_ce_buy' }).lean();
+            if (s2 && s2.enabled) {
+                await scanner.runStrategy2DecisionEngine();
+            }
+        }
+    } catch (e) {}
+}, 15000);
 
 // ─── 7c. REST GTT Routes ───────────────────────────────────────────────────────
 app.get('/api/gtt/triggers', requireAuth, async (req, res) => {
@@ -8645,6 +8794,27 @@ async function placeOrderWithAIReason(params, contextContext = "Manual or automa
 
     if (isExitContext) {
         exitingSymbolsLock.set(params.tradingsymbol, now);
+    }
+
+    // Automatic Options Market Protection & Limit Order Conversion:
+    // If order is an option order (NFO) and order_type is MARKET or illiquid,
+    // convert order_type to LIMIT with market protection buffer (LTP ± 3%)
+    const isOptionContract = params.exchange === 'NFO' || 
+                             (params.tradingsymbol && (params.tradingsymbol.endsWith('CE') || params.tradingsymbol.endsWith('PE')));
+
+    if (isOptionContract) {
+        if (params.order_type === 'MARKET' || !params.order_type) {
+            params.order_type = 'LIMIT';
+            params.market_protection = 5; // Enforce 5% Market Protection for Options
+            
+            if (!params.price || params.price === 0) {
+                const currentLtp = getLtpBySymbol(params.tradingsymbol) || 20;
+                const bufferMultiplier = params.transaction_type === 'BUY' ? 1.03 : 0.97;
+                const limitCalc = currentLtp * bufferMultiplier;
+                params.price = Math.round(limitCalc * 20) / 20; // Round to nearest 0.05 tick size
+            }
+            console.log(`[Options Order Converter] Converted MARKET order to protected LIMIT order for ${params.tradingsymbol}: Limit Price ₹${params.price} (Market Protection: 5%)`);
+        }
     }
 
     // Place the order

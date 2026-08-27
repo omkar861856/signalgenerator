@@ -123,10 +123,15 @@ export default function FnoFibonacciStrategy({ onPlaceOptionOrder, onBack, userM
 
   // Toggle strategy enabled status
   const handleToggleStrategy = async () => {
+    const targetState = !strategyEnabled;
     try {
-      const data = await safeFetchJson('/api/strategy1/toggle', { method: 'POST' });
+      const data = await safeFetchJson('/api/strategy1/toggle', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: targetState })
+      });
       if (data.success) {
-        setStrategyEnabled(data.enabled);
+        setStrategyEnabled(Boolean(data.enabled));
         showToast(`Strategy 1 is now ${data.enabled ? 'ENABLED' : 'DISABLED'}`, data.enabled ? 'success' : 'warning');
       }
     } catch (e) {
@@ -347,6 +352,51 @@ export default function FnoFibonacciStrategy({ onPlaceOptionOrder, onBack, userM
             <RefreshCw className={`h-4 w-4 ${scanning ? 'animate-spin' : ''}`} />
             {scanning ? 'Scanning...' : 'Scan 15m Top Gainers 🔄'}
           </button>
+        </div>
+      </div>
+
+      {/* 📌 NITTY-GRITTY SYSTEM RULES & EXECUTION ARCHITECTURE BOX */}
+      <div className="glass-panel p-5 border-purple-500/30 bg-slate-950/80 rounded-2xl flex flex-col gap-3 shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-purple-300 font-mono uppercase tracking-wider">
+            <Info className="h-4 w-4 text-purple-400" />
+            <span>Nitty-Gritty System Execution Rules &amp; Automation Specs</span>
+          </div>
+          <span className="text-[10px] font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+            AUTOMATION ACTIVE 9:30 AM - 12:00 PM
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-300">
+          <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 font-bold text-purple-300">
+              <Power className="h-3.5 w-3.5 text-purple-400" />
+              <span>APP CONTROL Impact</span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              When <strong>APP CONTROL: ON</strong>, decision engine polls every 15s. If toggled <strong>OFF</strong>, all strategy scanning halts and active GTTs / open orders are immediately cancelled.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 font-bold text-purple-300">
+              <ShieldAlert className="h-3.5 w-3.5 text-emerald-400" />
+              <span>GTT Exit Orders Attached</span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              <strong>YES:</strong> On order execution, backend automatically formats and places <strong>GTT OCO Exit Triggers</strong> on Zerodha (Targets 100%, 1.272, 1.618 &amp; 78.6% SL).
+            </p>
+          </div>
+
+          <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 font-bold text-purple-300">
+              <Activity className="h-3.5 w-3.5 text-purple-400" />
+              <span>Multi-Candle SL Breathing Rule</span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              If SL (78.6%) is touched inside entry 15m candle window, position breathes until next candle to prevent stop-hunting.
+            </p>
+          </div>
         </div>
       </div>
 

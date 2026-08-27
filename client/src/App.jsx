@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import BacktestPlatform from './components/BacktestPlatform';
 import FnoFibonacciStrategy from './components/FnoFibonacciStrategy';
+import Strategy2TopGainersCeBuy from './components/Strategy2TopGainersCeBuy';
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 
 class ErrorBoundary extends React.Component {
@@ -313,10 +314,11 @@ function AppContent() {
   const collapsedStrategySections = collapsedPageSections;
   const toggleStrategySection = togglePageSection;
   const [selectedStrategy, setSelectedStrategy] = useState('ai_intraday_buy'); // 'ai_intraday_buy' | 'credit_spread' | 'leaps' | 'wheel'
-  const [activeStrategySubView, setActiveStrategySubView] = useState(null); // null (grid) | 'strategy_1' (dedicated page)
+  const [activeStrategySubView, setActiveStrategySubView] = useState(null); // null (grid) | 'strategy_1' | 'strategy_2'
   const [strategy1EnabledState, setStrategy1EnabledState] = useState(false); // Default OFF
   const [strategy1MarginPctState, setStrategy1MarginPctState] = useState(20);
   const [strategy1Post12pmState, setStrategy1Post12pmState] = useState(false);
+  const [strategy2EnabledState, setStrategy2EnabledState] = useState(false); // Default OFF
 
   useEffect(() => {
     fetch('/api/strategy1/config')
@@ -326,6 +328,15 @@ function AppContent() {
           setStrategy1EnabledState(Boolean(data.config.enabled));
           if (data.config.marginPercentage) setStrategy1MarginPctState(data.config.marginPercentage);
           if (data.config.allowEntriesAfter12pm !== undefined) setStrategy1Post12pmState(Boolean(data.config.allowEntriesAfter12pm));
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/strategy2/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.config) {
+          setStrategy2EnabledState(Boolean(data.config.enabled));
         }
       })
       .catch(() => {});
@@ -3792,10 +3803,16 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
         {/* Right Badges / Actions */}
         <div className="flex items-center gap-3">
-          {/* Global Test Mode (GTT Only) Toggle Switch */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 shadow-sm">
-            <span className="text-[11px] uppercase font-bold tracking-wider text-amber-300 flex items-center gap-1.5">
-              <Shield className="h-3.5 w-3.5 text-amber-400" />
+          {/* Global Test Mode (GTT Only) vs Live Order Mode Toggle Switch */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all shadow-sm ${
+            !isTestMode 
+              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-emerald-500/10' 
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+          }`}>
+            <span className={`text-[11px] uppercase font-bold tracking-wider flex items-center gap-1.5 ${
+              !isTestMode ? 'text-emerald-300' : 'text-amber-300'
+            }`}>
+              <Shield className={`h-3.5 w-3.5 ${!isTestMode ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
               {isTestMode ? 'Test Mode (GTT Only)' : 'Live Order Mode'}
             </span>
             <button
@@ -3811,14 +3828,18 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                 showAlert(
                   next 
                     ? 'Test Mode Active: Direct market orders disabled. Only GTT strategy triggers will be placed.' 
-                    : 'Live Mode Active: Direct market orders allowed.', 
+                    : 'Live Order Mode Active: Direct market order execution enabled.', 
                   'Execution Mode Toggled'
                 );
               }}
-              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${isTestMode ? 'bg-amber-500' : 'bg-slate-700'}`}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                !isTestMode ? 'bg-emerald-500' : 'bg-amber-500'
+              }`}
               title={isTestMode ? "Test Mode: Only GTT orders will be placed" : "Live Mode: Direct orders allowed"}
             >
-              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isTestMode ? 'translate-x-4' : 'translate-x-0'}`} />
+              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                !isTestMode ? 'translate-x-4' : 'translate-x-0'
+              }`} />
             </button>
           </div>
 
@@ -4679,198 +4700,233 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
         <div className="flex flex-col gap-6 w-full text-slate-200 animate-in fade-in duration-300">
           {activeStrategySubView === 'strategy_1' ? (
             <FnoFibonacciStrategy userMargin={margins?.equity?.net !== undefined && margins?.equity?.net > 0 ? margins.equity.net : 41734.05} onBack={() => setActiveStrategySubView(null)} />
+          ) : activeStrategySubView === 'strategy_2' ? (
+            <Strategy2TopGainersCeBuy userMargin={margins?.equity?.net !== undefined && margins?.equity?.net > 0 ? margins.equity.net : 41734.05} onBack={() => setActiveStrategySubView(null)} />
           ) : (
             <div className="flex flex-col gap-6">
               
               {/* Strategy Status Notification Banner */}
               <div className={`p-4 rounded-2xl border flex items-center justify-between text-xs font-semibold shadow-lg ${
-                strategy1EnabledState 
+                strategy1EnabledState || strategy2EnabledState
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
                   : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
               }`}>
                 <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${strategy1EnabledState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                  <span className={`h-2.5 w-2.5 rounded-full ${strategy1EnabledState || strategy2EnabledState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
                   <span>
-                    Strategy 1 (1st 15-Minute F&amp;O Fibonacci Option Buying Strategy) is currently <strong>{strategy1EnabledState ? 'ON (ENABLED)' : 'OFF (DISABLED)'}</strong>.
+                    Strategy 1 is <strong>{strategy1EnabledState ? 'ON' : 'OFF'}</strong> • Strategy 2 (Top Gainers CE Buyer) is <strong>{strategy2EnabledState ? 'ON' : 'OFF'}</strong>.
                   </span>
                 </div>
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/strategy1/toggle', { method: 'POST' });
-                      const data = await res.json();
-                      if (data.success) {
-                        setStrategy1EnabledState(data.enabled);
-                      }
-                    } catch (e) {
-                      setStrategy1EnabledState(!strategy1EnabledState);
-                    }
-                  }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                    strategy1EnabledState 
-                      ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-500/40' 
-                      : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500/40'
-                  }`}
-                >
-                  <Power className="h-3.5 w-3.5" />
-                  {strategy1EnabledState ? 'Turn OFF' : 'Turn ON'}
-                </button>
               </div>
 
-              {/* Strategy 1 Card */}
-              <div className="max-w-2xl w-full">
-                <div className="glass-panel border border-purple-500/30 bg-slate-900/80 rounded-2xl p-6 flex flex-col justify-between gap-5 hover:border-purple-500/60 transition-all shadow-xl hover:shadow-purple-900/20 relative group">
-                  <div className="flex flex-col gap-4">
-                    
-                    {/* Status Pill & ON/OFF Toggle */}
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`h-2.5 w-2.5 rounded-full ${strategy1EnabledState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-                        <span className={`text-[11px] font-mono font-bold uppercase ${strategy1EnabledState ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {strategy1EnabledState ? '● ACTIVE' : '○ INACTIVE'}
-                        </span>
-                      </div>
-
-                      <button
-                        onClick={async () => {
-                          try {
-                            const res = await fetch('/api/strategy1/toggle', { method: 'POST' });
-                            const data = await res.json();
-                            if (data.success) {
-                              setStrategy1EnabledState(data.enabled);
-                            }
-                          } catch (e) {
-                            setStrategy1EnabledState(!strategy1EnabledState);
-                          }
-                        }}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                          strategy1EnabledState 
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' 
-                            : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
-                        }`}
-                      >
-                        <Power className="h-3.5 w-3.5" />
-                        {strategy1EnabledState ? 'ON' : 'OFF'}
-                      </button>
-                    </div>
-
-                    {/* Title */}
-                    <div>
-                      <span className="text-[10px] font-mono font-bold text-purple-300 uppercase tracking-wider bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                        STRATEGY #1 • OPTION BUYING
-                      </span>
-                      <h3 className="text-lg font-display font-bold text-white mt-1.5 flex items-center gap-2">
-                        <Flame className="h-5 w-5 text-purple-400" />
-                        1st 15-Minute F&amp;O Fibonacci Strategy
-                      </h3>
-                    </div>
-
-                    {/* Rules & Strategy Summary */}
-                    <div className="flex flex-col gap-2 text-xs text-slate-300 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80 leading-relaxed font-sans">
-                      <div className="flex items-start gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                        <span><strong>Stock Pool:</strong> Top Gainers sorted in descending order of % change.</span>
-                      </div>
-                      <div className="flex items-start gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                        <span><strong>1st 15m Candle:</strong> Green candle (`Close &gt; Open`) formed 9:15-9:30 AM.</span>
-                      </div>
-                      <div className="flex items-start gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                        <span><strong>Fibonacci Setup:</strong> Calculated from <strong>Low to High</strong> at 9:30 AM.</span>
-                      </div>
-                      <div className="flex items-start gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                        <span><strong>Buy Zone (9:30 AM - 12 PM):</strong> Price retests 60% - 65% retracement range.</span>
-                      </div>
-                      <div className="flex items-start gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                        <span><strong>Option Selection:</strong> Preferred <strong>ATM CE</strong> or <strong>1 Strike ITM CE</strong>.</span>
-                      </div>
-                      <div className="flex items-start gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                        <span><strong>Targets:</strong> Target 1 Swing High (50%), Target 2 1.272 (25%), Target 3 1.618 (25%).</span>
-                      </div>
-                      <div className="flex items-start gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                        <span><strong>Stop Loss:</strong> 78.6% Retracement with multi-candle entry breathing rule.</span>
-                      </div>
-                    </div>
-
-                    {/* Margin Utilization Slider */}
-                    <div className="flex flex-col gap-2 bg-purple-950/20 p-3.5 rounded-xl border border-purple-500/20">
-                      <div className="flex justify-between items-center text-xs font-semibold text-purple-300">
-                        <span>Margin Position Sizing:</span>
-                        <span className="font-mono text-purple-400 font-bold">{strategy1MarginPctState}% Utilization</span>
-                      </div>
-                      <input 
-                        type="range" 
-                        min="5" 
-                        max="100" 
-                        step="5"
-                        value={strategy1MarginPctState} 
-                        onChange={async (e) => {
-                          const val = Number(e.target.value);
-                          setStrategy1MarginPctState(val);
-                          try {
-                            await fetch('/api/strategy1/config', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ marginPercentage: val })
-                            });
-                          } catch (err) {}
-                        }}
-                        className="w-full accent-purple-500 cursor-pointer"
-                      />
-                      {(() => {
-                        const availMargin = margins?.equity?.net !== undefined && margins?.equity?.net > 0 ? margins.equity.net : 41734.05;
-                        const allocVal = (availMargin * strategy1MarginPctState) / 100;
-                        return (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            Allocates {strategy1MarginPctState}% of available margin (~₹{allocVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}).
-                            <span className="block text-purple-300/90 mt-0.5 font-semibold">
-                              Based on ₹{availMargin.toLocaleString('en-IN', { maximumFractionDigits: 2 })} × {strategy1MarginPctState}% allocation
-                            </span>
+              {/* Strategy Cards Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
+                
+                {/* Strategy 1 Card */}
+                <div className="w-full">
+                  <div className="glass-panel border border-purple-500/30 bg-slate-900/80 rounded-2xl p-6 flex flex-col justify-between gap-5 hover:border-purple-500/60 transition-all shadow-xl hover:shadow-purple-900/20 relative group h-full">
+                    <div className="flex flex-col gap-4">
+                      
+                      {/* Status Pill & ON/OFF Toggle */}
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${strategy1EnabledState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                          <span className={`text-[11px] font-mono font-bold uppercase ${strategy1EnabledState ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {strategy1EnabledState ? '● ACTIVE' : '○ INACTIVE'}
                           </span>
-                        );
-                      })()}
+                        </div>
+
+                        <button
+                          onClick={async () => {
+                            const nextState = !strategy1EnabledState;
+                            try {
+                              const res = await fetch('/api/strategy1/toggle', { 
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ enabled: nextState })
+                              });
+                              const data = await res.json();
+                              if (data.success) {
+                                setStrategy1EnabledState(Boolean(data.enabled));
+                              }
+                            } catch (e) {
+                              setStrategy1EnabledState(nextState);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                            strategy1EnabledState 
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' 
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
+                          }`}
+                        >
+                          <Power className="h-3.5 w-3.5" />
+                          {strategy1EnabledState ? 'ON' : 'OFF'}
+                        </button>
+                      </div>
+
+                      {/* Title */}
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-purple-300 uppercase tracking-wider bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                          STRATEGY #1 • OPTION BUYING
+                        </span>
+                        <h3 className="text-lg font-display font-bold text-white mt-1.5 flex items-center gap-2">
+                          <Flame className="h-5 w-5 text-purple-400" />
+                          1st 15-Minute F&amp;O Fibonacci Strategy
+                        </h3>
+                      </div>
+
+                      {/* Rules & Strategy Summary */}
+                      <div className="flex flex-col gap-2 text-xs text-slate-300 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80 leading-relaxed font-sans">
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>Stock Pool:</strong> Top Gainers sorted in descending order of % change.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>1st 15m Candle:</strong> Green candle (`Close &gt; Open`) formed 9:15-9:30 AM.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>Buy Zone (9:30 AM - 12 PM):</strong> Retests 60% - 65% retracement range.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>Targets &amp; SL:</strong> Target 1 (50%), Target 2 (25%), Target 3 (25%), 78.6% SL.</span>
+                        </div>
+                      </div>
+
+                      {/* Quick Toggle: Post 12 PM */}
+                      <div className="flex items-center justify-between bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 text-xs">
+                        <span className="text-slate-300">Allow Entries After 12 PM:</span>
+                        <button
+                          onClick={async () => {
+                            const val = !strategy1Post12pmState;
+                            setStrategy1Post12pmState(val);
+                            try {
+                              await fetch('/api/strategy1/config', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ allowEntriesAfter12pm: val })
+                              });
+                            } catch (err) {}
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-all border cursor-pointer ${
+                            strategy1Post12pmState ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {strategy1Post12pmState ? 'ALLOWED' : 'PAUSED'}
+                        </button>
+                      </div>
+
                     </div>
 
-                    {/* Quick Toggle: Post 12 PM */}
-                    <div className="flex items-center justify-between bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 text-xs">
-                      <span className="text-slate-300">Allow Entries After 12 PM:</span>
-                      <button
-                        onClick={async () => {
-                          const val = !strategy1Post12pmState;
-                          setStrategy1Post12pmState(val);
-                          try {
-                            await fetch('/api/strategy1/config', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ allowEntriesAfter12pm: val })
-                            });
-                          } catch (err) {}
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-all border cursor-pointer ${
-                          strategy1Post12pmState ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {strategy1Post12pmState ? 'ALLOWED' : 'PAUSED'}
-                      </button>
-                    </div>
+                    {/* Action Button */}
+                    <button
+                      onClick={() => setActiveStrategySubView('strategy_1')}
+                      className="w-full mt-4 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-display font-bold text-xs shadow-lg shadow-purple-600/20 cursor-pointer transition-all flex items-center justify-center gap-2"
+                    >
+                      <Sliders className="h-4 w-4" />
+                      Manage Strategy 1 &amp; Live Scanner ⚙️
+                    </button>
 
                   </div>
-
-                  {/* Action Button */}
-                  <button
-                    onClick={() => setActiveStrategySubView('strategy_1')}
-                    className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-display font-bold text-xs shadow-lg shadow-purple-600/20 cursor-pointer transition-all flex items-center justify-center gap-2"
-                  >
-                    <Sliders className="h-4 w-4" />
-                    Manage Strategy &amp; Live Scanner ⚙️
-                  </button>
-
                 </div>
+
+                {/* Strategy 2 Card */}
+                <div className="w-full">
+                  <div className="glass-panel border border-cyan-500/30 bg-slate-900/80 rounded-2xl p-6 flex flex-col justify-between gap-5 hover:border-cyan-500/60 transition-all shadow-xl hover:shadow-cyan-900/20 relative group h-full">
+                    <div className="flex flex-col gap-4">
+                      
+                      {/* Status Pill & ON/OFF Toggle */}
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${strategy2EnabledState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                          <span className={`text-[11px] font-mono font-bold uppercase ${strategy2EnabledState ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {strategy2EnabledState ? '● ACTIVE (09:15 - 09:20 AM Window)' : '○ INACTIVE'}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={async () => {
+                            const nextState = !strategy2EnabledState;
+                            try {
+                              const res = await fetch('/api/strategy2/toggle', { 
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ enabled: nextState })
+                              });
+                              const data = await res.json();
+                              if (data.success) {
+                                setStrategy2EnabledState(Boolean(data.enabled));
+                              }
+                            } catch (e) {
+                              setStrategy2EnabledState(nextState);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                            strategy2EnabledState 
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' 
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
+                          }`}
+                        >
+                          <Power className="h-3.5 w-3.5" />
+                          {strategy2EnabledState ? 'ON' : 'OFF'}
+                        </button>
+                      </div>
+
+                      {/* Title */}
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-cyan-300 uppercase tracking-wider bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                          STRATEGY #2 • SEMI-AUTOMATIC CE BUYER
+                        </span>
+                        <h3 className="text-lg font-display font-bold text-white mt-1.5 flex items-center gap-2">
+                          <TrendingUp className="h-5 w-5 text-cyan-400" />
+                          F&amp;O Top Gainers CE Buyer (9:15 - 9:20 AM Window)
+                        </h3>
+                      </div>
+
+                      {/* Rules & Strategy Summary */}
+                      <div className="flex flex-col gap-2 text-xs text-slate-300 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80 leading-relaxed font-sans">
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>Active Time Window:</strong> 09:15 AM to 09:20 AM (Configurable in settings).</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>Stock Selection:</strong> Unique accumulated F&amp;O stocks sorted by % change descending.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>CE Option Order:</strong> Selects ATM CE Option &amp; buys 1 lot per stock.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>Risk &amp; Margins:</strong> Checks available account margin before each position.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>No Repeat Lots:</strong> Tracks unique stocks so lots are never repeated.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                          <span><strong>Semi-Automatic:</strong> Option buying only (no automatic exit conditions).</span>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Action Button */}
+                    <button
+                      onClick={() => setActiveStrategySubView('strategy_2')}
+                      className="w-full mt-4 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-display font-bold text-xs shadow-lg shadow-cyan-600/20 cursor-pointer transition-all flex items-center justify-center gap-2"
+                    >
+                      <Sliders className="h-4 w-4" />
+                      Manage Strategy 2 &amp; Live Gainers Table ⚙️
+                    </button>
+
+                  </div>
+                </div>
+
               </div>
 
             </div>

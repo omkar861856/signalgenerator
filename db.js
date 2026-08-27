@@ -1,8 +1,5 @@
 const mongoose = require('mongoose');
 
-// Disable Mongoose command buffering so queries fail fast when DB is disconnected
-mongoose.set('bufferCommands', false);
-
 const MONGO_URI = process.env.MONGO_URI;
 
 
@@ -30,7 +27,7 @@ const AppStateSchema = new mongoose.Schema({
     fnoTargetPercent: { type: Number, default: 30 },
     activeAssetMode: { type: String, default: 'equity' },
     smartRiskParams: { type: mongoose.Schema.Types.Mixed, default: { autoTradeEnabled: true, capitalPerTrade: 25000, maxAllocation: 100000, stopLossPct: 1.5, targetProfitPct: 3.5, trailingSlPct: 0.8, productType: 'MIS' } }
-}, { minimize: false, timestamps: true, bufferCommands: false });
+}, { minimize: false, timestamps: true });
 
 const AppState = mongoose.model('AppState', AppStateSchema);
 
@@ -188,7 +185,7 @@ const StrategyConfigSchema = new mongoose.Schema({
     minBodyPercent: { type: Number, default: 0.05 },
     maxConcurrentPositions: { type: Number, default: 5 },
     updatedAt: { type: Date, default: Date.now }
-}, { collection: 'strategy_configs', timestamps: true, bufferCommands: false });
+}, { collection: 'strategy_configs', timestamps: true });
 
 const StrategyConfig = mongoose.model('StrategyConfig', StrategyConfigSchema);
 
@@ -237,7 +234,7 @@ const StrategyTradeSchema = new mongoose.Schema({
     exitReason: { type: String },
     pnl: { type: Number, default: 0 },
     logs: [{ timestamp: { type: Date, default: Date.now }, message: String }]
-}, { collection: 'strategy_trades', timestamps: true, bufferCommands: false });
+}, { collection: 'strategy_trades', timestamps: true });
 
 StrategyTradeSchema.index({ date: 1, symbol: 1 });
 StrategyTradeSchema.index({ status: 1 });
