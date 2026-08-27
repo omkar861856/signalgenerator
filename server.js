@@ -2953,27 +2953,26 @@ app.delete('/api/fno/fibonacci-daily-table', async (req, res) => {
 
 // ─── Strategy 1: Configuration, Toggle, & Decision Engine API Endpoints ───────
 app.get('/api/strategy1/config', async (req, res) => {
+    const defaultConfig = {
+        strategyId: 'strategy_1_fibonacci_option_buy',
+        name: '1st 15-Minute F&O Fibonacci Option Buying Strategy',
+        enabled: false,
+        marginPercentage: 20,
+        allowEntriesAfter12pm: false,
+        optionSelectionMode: 'ATM',
+        minBodyPercent: 0.05,
+        maxConcurrentPositions: 5
+    };
     try {
         const { StrategyConfig } = require('./db');
         let config = null;
-        if (StrategyConfig) {
+        if (StrategyConfig && mongoose.connection.readyState === 1) {
             config = await StrategyConfig.findOne({ strategyId: 'strategy_1_fibonacci_option_buy' }).lean();
         }
-        if (!config) {
-            config = {
-                strategyId: 'strategy_1_fibonacci_option_buy',
-                name: '1st 15-Minute F&O Fibonacci Option Buying Strategy',
-                enabled: false,
-                marginPercentage: 20,
-                allowEntriesAfter12pm: false,
-                optionSelectionMode: 'ATM',
-                minBodyPercent: 0.05,
-                maxConcurrentPositions: 5
-            };
-        }
-        res.json({ success: true, config });
+        res.json({ success: true, config: config || defaultConfig });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        console.warn('[Strategy 1 Config DB Warning]:', err.message);
+        res.json({ success: true, config: defaultConfig });
     }
 });
 
@@ -3021,7 +3020,6 @@ app.post('/api/strategy1/toggle', async (req, res) => {
                 { $set: { enabled: nextState, updatedAt: new Date() } },
                 { upsert: true, new: true }
             ).lean();
-            console.log('[DEBUG TOGGLE 1]', { body: req.body, existingEnabled: existing?.enabled, nextState, updatedEnabled: updated?.enabled });
             return res.json({ success: true, enabled: Boolean(updated.enabled) });
         }
         res.json({ success: true, enabled: false });
@@ -3032,16 +3030,16 @@ app.post('/api/strategy1/toggle', async (req, res) => {
 });
 
 app.get('/api/strategy1/trades', async (req, res) => {
+    const targetDate = req.query.date || new Date().toISOString().split('T')[0];
     try {
         const { StrategyTrade } = require('./db');
-        const targetDate = req.query.date || new Date().toISOString().split('T')[0];
         let trades = [];
-        if (StrategyTrade) {
+        if (StrategyTrade && mongoose.connection.readyState === 1) {
             trades = await StrategyTrade.find({ date: targetDate }).sort({ createdAt: -1 }).lean();
         }
         res.json({ success: true, date: targetDate, count: trades.length, trades });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, date: targetDate, count: 0, trades: [] });
     }
 });
 
@@ -3058,26 +3056,25 @@ app.post('/api/strategy1/run-engine', async (req, res) => {
 
 // ─── Strategy 2: F&O Top Gainers CE Buyer API Endpoints ────────────────────────
 app.get('/api/strategy2/config', async (req, res) => {
+    const defaultConfig = {
+        strategyId: 'strategy_2_top_gainers_ce_buy',
+        name: 'Strategy 2: F&O Top Gainers CE Buyer',
+        enabled: false,
+        optionSelectionMode: 'ATM',
+        startTime: '09:15',
+        endTime: '09:20',
+        lotsPerStock: 1
+    };
     try {
         const { StrategyConfig } = require('./db');
         let config = null;
-        if (StrategyConfig) {
+        if (StrategyConfig && mongoose.connection.readyState === 1) {
             config = await StrategyConfig.findOne({ strategyId: 'strategy_2_top_gainers_ce_buy' }).lean();
         }
-        if (!config) {
-            config = {
-                strategyId: 'strategy_2_top_gainers_ce_buy',
-                name: 'Strategy 2: F&O Top Gainers CE Buyer',
-                enabled: false,
-                optionSelectionMode: 'ATM',
-                startTime: '09:15',
-                endTime: '09:20',
-                lotsPerStock: 1
-            };
-        }
-        res.json({ success: true, config });
+        res.json({ success: true, config: config || defaultConfig });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        console.warn('[Strategy 2 Config DB Warning]:', err.message);
+        res.json({ success: true, config: defaultConfig });
     }
 });
 
@@ -3136,19 +3133,16 @@ app.post('/api/strategy2/toggle', async (req, res) => {
 });
 
 app.get('/api/strategy2/trades', async (req, res) => {
+    const targetDate = req.query.date || new Date().toISOString().split('T')[0];
     try {
         const { StrategyTrade } = require('./db');
-        const targetDate = req.query.date || new Date().toISOString().split('T')[0];
         let trades = [];
-        if (StrategyTrade) {
-            trades = await StrategyTrade.find({ 
-                date: targetDate, 
-                strategyId: 'strategy_2_top_gainers_ce_buy' 
-            }).sort({ createdAt: -1 }).lean();
+        if (StrategyTrade && mongoose.connection.readyState === 1) {
+            trades = await StrategyTrade.find({ strategyId: 'strategy_2_top_gainers_ce_buy', date: targetDate }).sort({ createdAt: -1 }).lean();
         }
         res.json({ success: true, date: targetDate, count: trades.length, trades });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, date: targetDate, count: 0, trades: [] });
     }
 });
 
