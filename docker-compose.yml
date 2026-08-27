@@ -44,6 +44,7 @@ services:
       - ALERTMANAGER_HOST=alertmanager
 
   vectorbt-service:
+    logging: *default-logging
     build:
       context: ./scratch/vectorbt
       dockerfile: Dockerfile
@@ -59,6 +60,7 @@ services:
       start_period: 15s
 
   quant-engine:
+    logging: *default-logging
     build:
       context: ./quant-engine
       dockerfile: Dockerfile
@@ -74,6 +76,7 @@ services:
       start_period: 10s
 
   mongodb:
+    logging: *default-logging
     image: mongo:6.0
     container_name: signal-generator-mongodb
     restart: always
@@ -89,6 +92,7 @@ services:
       - mongodb_data:/data/db
 
   redis:
+    logging: *default-logging
     image: redis:7-alpine
     container_name: signal-generator-redis
     restart: always
@@ -104,6 +108,7 @@ services:
       - redis_data:/data
 
   prometheus:
+    logging: *default-logging
     image: prom/prometheus:latest
     container_name: signal-generator-prometheus
     restart: always
@@ -116,6 +121,7 @@ services:
     command: --config.file=/etc/prometheus/prometheus.yml --web.external-url=/prometheus/ --web.route-prefix=/
 
   grafana:
+    logging: *default-logging
     image: grafana/grafana:latest
     container_name: signal-generator-grafana
     restart: always
@@ -141,6 +147,7 @@ services:
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
 
   loki:
+    logging: *default-logging
     image: grafana/loki:latest
     container_name: signal-generator-loki
     restart: always
@@ -148,6 +155,7 @@ services:
       - "127.0.0.1:3100:3100"
 
   promtail:
+    logging: *default-logging
     image: grafana/promtail:latest
     container_name: signal-generator-promtail
     restart: always
@@ -158,6 +166,7 @@ services:
     command: -config.file=/etc/promtail/config.yml
 
   alertmanager:
+    logging: *default-logging
     image: prom/alertmanager:latest
     container_name: signal-generator-alertmanager
     restart: always

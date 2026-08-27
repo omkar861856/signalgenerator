@@ -27,4 +27,5 @@ jobs:
             git fetch --all
             git reset --hard origin/main
             docker compose up -d --build --force-recreate
-            docker system prune -f
+            docker builder prune -a -f
+            docker system prune -af --volumes
