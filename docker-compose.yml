@@ -15,7 +15,6 @@ services:
     ports:
       - "3005:3005"
     volumes:
-      - ./public:/usr/src/app/public
       - ./server.js:/usr/src/app/server.js
       - ./scanner.js:/usr/src/app/scanner.js
       - ./db.js:/usr/src/app/db.js
