@@ -25,7 +25,7 @@ services:
       redis:
         condition: service_healthy
       vectorbt-service:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
       interval: 15s
