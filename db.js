@@ -260,6 +260,10 @@ DailyUniqueScannerStockSchema.index({ date: 1, isFno: 1 });
 const DailyUniqueScannerStock = mongoose.model('DailyUniqueScannerStock', DailyUniqueScannerStockSchema);
 
 async function cleanupRedundantDBData() {
+    if (mongoose.connection.readyState !== 1) {
+        console.log('[DB Maintenance] Skipping cleanup - MongoDB is not connected.');
+        return { deletedCount: 0 };
+    }
     try {
         console.log('[DB Maintenance] Starting redundant data cleanup...');
         

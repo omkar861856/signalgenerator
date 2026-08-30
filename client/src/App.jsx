@@ -2576,9 +2576,18 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
     return [...filtered].sort((a, b) => {
       let valA = a[scannerSortField];
       let valB = b[scannerSortField];
-      if (valA === undefined || valA === null) valA = 0;
-      if (valB === undefined || valB === null) valB = 0;
-      return scannerSortDirection === 'asc' ? valA - valB : valB - valA;
+      if (scannerSortField === 'lastSeenAt' || scannerSortField === 'firstSeenAt') {
+        valA = new Date(valA || 0).getTime();
+        valB = new Date(valB || 0).getTime();
+      } else {
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA === undefined || valA === null) valA = 0;
+        if (valB === undefined || valB === null) valB = 0;
+      }
+      if (valA < valB) return scannerSortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return scannerSortDirection === 'asc' ? 1 : -1;
+      return 0;
     });
   };
 
@@ -2614,9 +2623,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
 
     let textToCopy = '';
     if (format === 'table') {
-      textToCopy = ['Symbol\tLTP\tChange%\tOptionsChain\tScannersMatched\tFirstSeen']
+      textToCopy = ['Symbol\tLTP\tChange%\tTotal Volume\tOptionsChain\tScannersMatched\tFirstSeen']
         .concat(sourceList.map(s => 
-          `${s.symbol}\t₹${s.ltp}\t${s.change >= 0 ? '+' : ''}${s.change}%\t${s.isFno ? 'Yes (F&O)' : 'No'}\t${(s.scannersMatched || []).join(', ')}\t${s.firstSeenAt ? new Date(s.firstSeenAt).toLocaleTimeString() : ''}`
+          `${s.symbol}\t₹${s.ltp}\t${s.change >= 0 ? '+' : ''}${s.change}%\t${s.volume ? s.volume.toLocaleString('en-IN') : '0'}\t${s.isFno ? 'Yes (F&O)' : 'No'}\t${(s.scannersMatched || []).join(', ')}\t${s.firstSeenAt ? new Date(s.firstSeenAt).toLocaleTimeString() : ''}`
         ))
         .join('\n');
     } else {
@@ -8780,19 +8789,26 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                             Change %{scannerSortField === 'change' ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
                           </th>
                           <th 
-                            onClick={() => toggleScannerSort(scannerResultTabMode === 'unique' ? 'lastSeenAt' : 'volume')}
+                            onClick={() => toggleScannerSort('volume')}
                             className="py-2.5 font-bold uppercase tracking-wider text-right cursor-pointer hover:text-indigo-400 select-none transition-colors"
                           >
-                            {scannerResultTabMode === 'unique' ? 'Last Matched' : 'Volume'}
-                            {scannerSortField === (scannerResultTabMode === 'unique' ? 'lastSeenAt' : 'volume') ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                            Total Volume{scannerSortField === 'volume' ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
                           </th>
+                          {scannerResultTabMode === 'unique' && (
+                            <th 
+                              onClick={() => toggleScannerSort('lastSeenAt')}
+                              className="py-2.5 font-bold uppercase tracking-wider text-right cursor-pointer hover:text-indigo-400 select-none transition-colors"
+                            >
+                              Last Matched{scannerSortField === 'lastSeenAt' ? (scannerSortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                            </th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5 text-slate-200">
                         {scannerResultTabMode === 'unique' ? (
                           getSortedUniqueStocksForCurrentScanner().length === 0 ? (
                             <tr>
-                              <td colSpan={4} className="py-12 text-center text-slate-500 font-medium">
+                              <td colSpan={5} className="py-12 text-center text-slate-500 font-medium">
                                 {scannerFilterMode === 'fno'
                                   ? `No Options Chain Enabled unique stocks have matched '${selectedScanner}' yet in this session.`
                                   : `No unique stocks have matched '${selectedScanner}' yet in this session.`}
@@ -8819,6 +8835,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                   <span className={row.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                                     ({row.change >= 0 ? '+' : ''}{row.change.toFixed(2)}%)
                                   </span>
+                                </td>
+                                <td className="py-3 text-right font-mono text-slate-300 font-semibold">
+                                  {row.volume ? row.volume.toLocaleString('en-IN') : '—'}
                                 </td>
                                 <td className="py-3 text-right font-mono text-[10px] text-slate-400">
                                   {row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleTimeString() : '—'}
@@ -9126,6 +9145,12 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                               >
                                 Change %{dailySortField === 'change' ? (dailySortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
                               </th>
+                              <th 
+                                onClick={() => toggleDailySort('volume')}
+                                className="py-2.5 px-3 font-bold uppercase tracking-wider text-right cursor-pointer hover:text-indigo-400 select-none transition-colors"
+                              >
+                                Total Volume{dailySortField === 'volume' ? (dailySortDirection === 'asc' ? ' ▴' : ' ▾') : ''}
+                              </th>
                               <th className="py-2.5 px-3 font-bold uppercase tracking-wider text-center">
                                 Options Chain
                               </th>
@@ -9143,13 +9168,13 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                           <tbody className="divide-y divide-white/5 text-slate-200 bg-slate-950/40">
                             {dailyUniqueLoading && dailyUniqueStocks.length === 0 ? (
                               <tr>
-                                <td colSpan={7} className="py-12 text-center text-slate-500 italic">
+                                <td colSpan={8} className="py-12 text-center text-slate-500 italic">
                                   Loading daily unique scanner stocks...
                                 </td>
                               </tr>
                             ) : getSortedDailyUniqueStocks().length === 0 ? (
                               <tr>
-                                <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
+                                <td colSpan={8} className="py-12 text-center text-slate-500 font-medium">
                                   {dailyFnoFilter
                                     ? 'No Options Chain Enabled stocks appeared in scanner results on this date.'
                                     : 'No unique stocks appeared in scanner results on this date yet.'}
@@ -9181,6 +9206,9 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                                     <span className={row.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                                       ({row.change >= 0 ? '+' : ''}{row.change.toFixed(2)}%)
                                     </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono text-slate-300 font-semibold">
+                                    {row.volume ? row.volume.toLocaleString('en-IN') : '—'}
                                   </td>
                                   <td className="py-3 px-3 text-center">
                                     {row.isFno ? (

@@ -180,32 +180,54 @@ const scanner = require('./scanner');
 
 const { createClient } = require('redis');
 let redisClient = null;
+let isRedisConnecting = false;
 
 async function initRedis() {
-    if (process.env.REDIS_URL) {
-        try {
-            console.log(`[Redis] Connecting to ${process.env.REDIS_URL}...`);
-            redisClient = createClient({
-                url: process.env.REDIS_URL,
-                socket: {
-                    reconnectStrategy: (retries) => {
-                        console.warn(`[Redis] Reconnecting attempt ${retries}...`);
-                        return Math.min(retries * 100, 3000);
-                    }
-                }
-            });
-            redisClient.on('error', (err) => console.error('[Redis] Client Error:', err.message));
-            redisClient.on('connect', () => console.log('[Redis] Connected successfully.'));
-            redisClient.on('reconnecting', () => console.warn('[Redis] Reconnecting to server...'));
-            await redisClient.connect();
-            restoreKiteSessionFromRedis();
-        } catch (err) {
-            console.error('[Redis] Initial connection failed:', err.message);
-            redisClient = null;
-            setTimeout(initRedis, 5000);
-        }
-    } else {
+    if (!process.env.REDIS_URL) {
         console.log('[Redis] REDIS_URL not configured. Using local in-memory/file fallback cache.');
+        return;
+    }
+    if (isRedisConnecting || (redisClient && redisClient.isOpen)) return;
+    isRedisConnecting = true;
+
+    if (redisClient) {
+        try {
+            redisClient.removeAllListeners();
+            await redisClient.disconnect();
+        } catch (e) {}
+        redisClient = null;
+    }
+
+    try {
+        console.log(`[Redis] Connecting to ${process.env.REDIS_URL}...`);
+        const client = createClient({
+            url: process.env.REDIS_URL,
+            socket: {
+                reconnectStrategy: (retries) => {
+                    if (retries > 3) {
+                        console.warn('[Redis] Max reconnection attempts reached. Using local fallback cache.');
+                        return new Error('Redis max retries reached');
+                    }
+                    return Math.min(retries * 500, 2000);
+                }
+            }
+        });
+        client.on('error', (err) => console.error('[Redis] Client Error:', err.message));
+        client.on('connect', () => console.log('[Redis] Connected successfully.'));
+        await client.connect();
+        redisClient = client;
+        restoreKiteSessionFromRedis();
+    } catch (err) {
+        console.error('[Redis] Connection failed (using in-memory fallback):', err.message);
+        if (redisClient) {
+            try {
+                redisClient.removeAllListeners();
+                await redisClient.disconnect();
+            } catch (e) {}
+            redisClient = null;
+        }
+    } finally {
+        isRedisConnecting = false;
     }
 }
 initRedis();
@@ -5029,6 +5051,10 @@ let isOptionsSyncEngineActive = false;
 
 // Background Options Sync Engine Loop
 async function runOptionsSyncEngine() {
+    if (mongoose.connection.readyState !== 1) {
+        console.log('[Options Sync Engine] MongoDB not connected yet. Waiting for DB connection before syncing.');
+        return;
+    }
     if (isOptionsSyncEngineActive) {
         console.log('[Options Sync Engine] Already running in background.');
         return;
@@ -5173,14 +5199,9 @@ async function runOptionsSyncEngine() {
 
 // ─── Admin API Endpoints for 24/7 Options & Candles Sync ────────────────────────
 app.get(['/api/admin/options-sync/status', '/api/admin/options-sync-status', '/admin/options-sync/status'], async (req, res) => {
-    // If sync engine is not active and not paused, automatically start background sync
-    if (!isOptionsSyncEngineActive && optionsSyncStatus.status !== 'paused') {
-        runOptionsSyncEngine().catch(err => console.error('[Auto Options Sync] Trigger error:', err));
-    }
-
     try {
         let totalOpts = optionsSyncStatus.totalOptions;
-        if (!totalOpts) {
+        if (!totalOpts && mongoose.connection.readyState === 1) {
             totalOpts = await Instrument.countDocuments({
                 $or: [{ segment: 'NFO-OPT' }, { instrument_type: { $in: ['CE', 'PE'] } }]
             });
@@ -5230,11 +5251,11 @@ setTimeout(() => {
 
 // Continuous 24/7 watchdog loop: automatically restarts if idle or completed
 setInterval(() => {
-    if (optionsSyncStatus.status !== 'running' && optionsSyncStatus.status !== 'paused') {
+    if (mongoose.connection.readyState === 1 && optionsSyncStatus.status !== 'running' && optionsSyncStatus.status !== 'paused' && optionsSyncStatus.status !== 'failed') {
         console.log('[Watchdog] Auto-restarting 24/7 Stock Options & Candles sync loop...');
         runOptionsSyncEngine().catch(err => console.error('[Watchdog Options Sync Error]', err.message));
     }
-}, 30000);
+}, 60000);
 
 // Run DB maintenance auto-cleanup on startup and repeat every 6 hours to keep database size compact
 setTimeout(() => {
