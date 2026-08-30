@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Automated Deployment Script for Signal Generator Server (sg.quotewear.store)
+# Automated Deployment Script for Signal Generator Server (sig.quotewear.store)
 set -e
 
 APP_DIR="/usr/src/app"

@@ -6044,7 +6044,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                           <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span> Production Mode Redirect URL
                         </span>
                         <button
-                          onClick={() => handleCopyRedirect(`https://${typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.hostname : 'sg.quotewear.store'}/api/callback`, 'prod')}
+                          onClick={() => handleCopyRedirect(`https://${typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.hostname : 'sig.quotewear.store'}/api/callback`, 'prod')}
                           className="flex items-center gap-1 text-[10px] bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 px-2.5 py-1 rounded transition-all cursor-pointer font-medium"
                         >
                           {copiedProdRedirect ? (
@@ -6061,7 +6061,7 @@ CRITICAL DIRECTIVE: Do NOT ask for any confirmation, approval, or "should I proc
                         </button>
                       </div>
                       <div className="bg-black/50 border border-white/5 p-2 rounded text-[11px] font-mono text-slate-200 select-all break-all font-semibold">
-                        https://{typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.hostname : 'sg.quotewear.store'}/api/callback
+                        https://{typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.hostname : 'sig.quotewear.store'}/api/callback
                       </div>
                       <span className="text-[10px] text-slate-400 italic">
                         Use for deployed custom production domain (HTTPS).
