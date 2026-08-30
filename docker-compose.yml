@@ -21,9 +21,9 @@ services:
       - ./.git:/usr/src/app/.git:ro
     depends_on:
       mongodb:
-        condition: service_healthy
+        condition: service_started
       redis:
-        condition: service_healthy
+        condition: service_started
       vectorbt-service:
         condition: service_started
     healthcheck:
@@ -85,9 +85,9 @@ services:
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     volumes:
       - mongodb_data:/data/db
 
