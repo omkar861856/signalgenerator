@@ -27,6 +27,5 @@ jobs:
             git fetch --all
             git reset --hard origin/main
             docker network create medusa_default 2>/dev/null || true
-            docker compose up -d --build app
+            docker compose restart app
             docker compose up -d
-            docker image prune -f
