@@ -23,8 +23,9 @@ jobs:
           timeout: 180s
           command_timeout: 30m
           script: |
-            cd /root/SignalGenerator
+            cd /root/SignalGenerator || cd /usr/src/app || cd ~/SignalGenerator
             git fetch --all
             git reset --hard origin/main
+            docker network create medusa_default 2>/dev/null || true
             docker compose up -d --build
             docker image prune -f
