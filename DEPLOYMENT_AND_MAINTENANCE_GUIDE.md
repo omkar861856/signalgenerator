@@ -39,10 +39,12 @@ fstrim -v /
 - Production deployment script in `.github/workflows/deploy.yml`:
   ```yaml
   script: |
-    cd /root/SignalGenerator
+    cd /root/SignalGenerator || cd /usr/src/app || cd ~/SignalGenerator
     git fetch --all
     git reset --hard origin/main
-    docker compose up -d --build
+    docker network create medusa_default 2>/dev/null || true
+    docker compose up -d --build app
+    docker compose up -d
     docker image prune -f
   ```
 
