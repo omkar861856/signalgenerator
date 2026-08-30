@@ -42,9 +42,8 @@ fstrim -v /
     cd /root/SignalGenerator
     git fetch --all
     git reset --hard origin/main
-    docker compose up -d --build --force-recreate
-    docker builder prune -a -f
-    docker system prune -af --volumes
+    docker compose up -d --build
+    docker image prune -f
   ```
 
 ### B. Automatic Client Version Auto-Reload

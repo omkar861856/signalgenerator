@@ -21,11 +21,10 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           timeout: 60s
-          command_timeout: 10m
+          command_timeout: 30m
           script: |
             cd /root/SignalGenerator
             git fetch --all
             git reset --hard origin/main
-            docker compose up -d --build --force-recreate
-            docker builder prune -a -f
-            docker system prune -af --volumes
+            docker compose up -d --build
+            docker image prune -f
