@@ -2771,7 +2771,7 @@ try {
 
 const runGitPullAndBuild = () => {
     return new Promise((resolve) => {
-        exec('git fetch origin main && git pull origin main && npm run build:client', { cwd: __dirname }, (err, stdout, stderr) => {
+        exec('git fetch origin main && git pull origin main', { cwd: __dirname }, (err, stdout, stderr) => {
             lastAutoPullTime = new Date().toISOString();
             if (err) {
                 console.error('[Auto-Deployer] Git pull error:', err.message);
@@ -2780,7 +2780,7 @@ const runGitPullAndBuild = () => {
             try {
                 lastCommitHash = require('child_process').execSync('git rev-parse --short HEAD 2>/dev/null').toString().trim();
             } catch (e) {}
-            console.log(`[Auto-Deployer] ✅ Git pull & client build successful! Commit: ${lastCommitHash}`);
+            console.log(`[Auto-Deployer] ✅ Git pull successful! Commit: ${lastCommitHash}`);
             resolve({ success: true, commit: lastCommitHash, output: stdout });
         });
     });
@@ -5169,14 +5169,14 @@ async function runOptionsSyncEngine() {
                 }
             }
 
-            if (i % 25 === 0 || i === optionInstruments.length - 1) {
+            if (i % 100 === 0 || i === optionInstruments.length - 1) {
                 const logStr = `Synced ${i + 1}/${optionInstruments.length} options. Current: ${inst.tradingsymbol} | ETA: ${optionsSyncStatus.estTimeFormatted}`;
                 optionsSyncStatus.logs.push(`[${new Date().toLocaleTimeString()}] ${logStr}`);
                 if (optionsSyncStatus.logs.length > 60) optionsSyncStatus.logs.shift();
                 console.log(`[Options Sync Engine] ${logStr}`);
             }
 
-            await new Promise(r => setTimeout(r, 15));
+            await new Promise(r => setTimeout(r, 200));
         }
 
         if (optionsSyncStatus.status !== 'paused') {
@@ -5243,19 +5243,8 @@ app.post(['/api/admin/options-sync/pause', '/admin/options-sync/pause'], async (
     res.json({ success: true, message: 'Options sync paused', syncState: optionsSyncStatus });
 });
 
-// Auto-start 24/7 Stock Options & Candles sync immediately on launch & keep running continuously
-setTimeout(() => {
-    console.log('[Server Startup] Auto-starting 24/7 Stock Options & Candles background sync...');
-    runOptionsSyncEngine().catch(err => console.error('[Auto Options Sync Error]', err.message));
-}, 2000);
-
-// Continuous 24/7 watchdog loop: automatically restarts if idle or completed
-setInterval(() => {
-    if (mongoose.connection.readyState === 1 && optionsSyncStatus.status !== 'running' && optionsSyncStatus.status !== 'paused' && optionsSyncStatus.status !== 'failed') {
-        console.log('[Watchdog] Auto-restarting 24/7 Stock Options & Candles sync loop...');
-        runOptionsSyncEngine().catch(err => console.error('[Watchdog Options Sync Error]', err.message));
-    }
-}, 60000);
+// Auto-start of options sync engine on boot and 60s watchdog loop are disabled to prevent 100% CPU spikes and 502 Bad Gateway errors.
+// Use admin endpoint POST /api/admin/options-sync/start on-demand when historical option candles need syncing.
 
 // Run DB maintenance auto-cleanup on startup and repeat every 6 hours to keep database size compact
 setTimeout(() => {
@@ -9981,8 +9970,8 @@ function startServerPolling() {
     if (bgPollingInterval) clearInterval(bgPollingInterval);
     bgPollingInterval = setInterval(async () => {
         await runServerConsolidation();
-    }, 1000);
-    console.log('[BG Poller] Background polling and GTT consolidation initialized (1000ms interval).');
+    }, 5000);
+    console.log('[BG Poller] Background polling and GTT consolidation initialized (5000ms interval).');
     
     // Trigger background instruments sync
     syncInstrumentsBackground().catch(err => console.error('[Instruments] Async error:', err.message));
